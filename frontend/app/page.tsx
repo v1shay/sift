@@ -9,7 +9,7 @@ export default function Home() {
       <div className="w-full max-w-4xl">
         <h1 className="text-4xl font-bold mb-8 text-center">Sift: Find your next Open Source project</h1>
         <ChatShell />
-      </div>
+      </div>>
     </main>
   );
 }
