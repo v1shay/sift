@@ -1,1 +1,15 @@
-{}
+{
+  "app/page.tsx -> ../components/chat/ChatShell": {
+    "id": 3025,
+    "files": [
+      "static/chunks/25.1220b918fb860c27.js"
+    ]
+  },
+  "components/chat/ChatShell.tsx -> ../graph/RepoGraph": {
+    "id": 2054,
+    "files": [
+      "static/chunks/502.19b8596a16e08785.js",
+      "static/chunks/54.74f325f030c6b7cf.js"
+    ]
+  }
+}
