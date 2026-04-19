@@ -12,6 +12,7 @@ from app.db.models.project import Project, Topic
 from app.db.models.user import User
 
 from app.services.search_pipeline.orchestrator import orchestrate_search
+from app.services.llm.query_parser import LLMConfigurationError, LLMQueryError
 
 app = FastAPI(title="Sift Graph Backend")
 
@@ -191,6 +192,12 @@ async def graph_search(req: SearchRequest):
     try:
         data = orchestrate_search(req.query)
         return {"data": data}
+    except LLMConfigurationError as e:
+        print(f"Graph Search Configuration Error: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+    except LLMQueryError as e:
+        print(f"Graph Search LLM Error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         print(f"Graph Search Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

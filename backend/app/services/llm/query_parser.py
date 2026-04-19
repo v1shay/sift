@@ -16,16 +16,38 @@ class SearchFilters(BaseModel):
     min_stars: Optional[int] = Field(default=None, description="Minimum star count implied by the user (e.g., popular > 500)")
     semantic_intent: str = Field(description="A concise summary of what the user is really looking for, acting as a fuzzy text search fallback")
 
+
+class LLMConfigurationError(RuntimeError):
+    pass
+
+
+class LLMQueryError(RuntimeError):
+    pass
+
+
 class LLMQueryParser:
     def __init__(self):
         api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
         self.model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+        self.allow_local_fallback = os.getenv("ALLOW_LOCAL_QUERY_FALLBACK", "").lower() == "true"
         self.client = None
 
         if not api_key:
-            print("WARNING: OPENROUTER_API_KEY not set. Falling back to local query parsing.")
-            return
-        
+            if self.allow_local_fallback:
+                print("WARNING: OPENROUTER_API_KEY not set. Using explicit local fallback parser.")
+                return
+            raise LLMConfigurationError(
+                "OPENROUTER_API_KEY is not configured. Add it to backend/.env to enable LLM-backed search."
+            )
+
+        if api_key.startswith("sk-over-"):
+            raise LLMConfigurationError(
+                "OPENROUTER_API_KEY appears malformed. Rotate the exposed key and configure a fresh OpenRouter key."
+            )
+
+        if not api_key.startswith("sk-or-") and not api_key.startswith("sk-ant-"):
+            print("WARNING: LLM API key prefix is unfamiliar; attempting OpenRouter-compatible request anyway.")
+
         self.client = instructor.from_openai(OpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
@@ -47,7 +69,15 @@ class LLMQueryParser:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a specialized query analyzer for an open source repository graph database. Extract structured filters from user natural language requests."
+                        "content": (
+                            "You are a specialized query analyzer for an open source repository graph database. "
+                            "Extract structured filters from natural language requests. Map broad phrases to useful GitHub topics: "
+                            "front end design -> react, ui, design-system, component; "
+                            "machine learning -> machine-learning, ai, pytorch, tensorflow; "
+                            "LLM work -> llm, rag, agents, prompt-engineering, transformer; "
+                            "devops -> docker, kubernetes, ci, observability. "
+                            "Use exact programming languages when requested. Infer min_stars only when the user asks for popular, large, or highly starred projects."
+                        )
                     },
                     {
                         "role": "user",
@@ -57,8 +87,10 @@ class LLMQueryParser:
                 response_model=SearchFilters,
             )
         except Exception as exc:
-            print(f"LLM query parsing failed, using local parser instead: {exc}")
-            return self._parse_query_locally(user_query)
+            if self.allow_local_fallback:
+                print(f"LLM query parsing failed, using explicit local fallback parser instead: {exc}")
+                return self._parse_query_locally(user_query)
+            raise LLMQueryError(f"LLM query parsing failed: {exc}") from exc
 
     def _parse_query_locally(self, user_query: str) -> SearchFilters:
         """Small no-network fallback so chat search still works during local dev."""
