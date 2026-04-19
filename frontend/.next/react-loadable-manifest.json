@@ -1,15 +1,14 @@
 {
   "app/page.tsx -> ../components/chat/ChatShell": {
-    "id": 3025,
+    "id": "app/page.tsx -> ../components/chat/ChatShell",
     "files": [
-      "static/chunks/25.97325be2219b120e.js"
+      "static/chunks/_app-pages-browser_components_chat_ChatShell_tsx.js"
     ]
   },
   "components/chat/ChatShell.tsx -> ../graph/RepoGraph": {
-    "id": 2054,
+    "id": "components/chat/ChatShell.tsx -> ../graph/RepoGraph",
     "files": [
-      "static/chunks/502.19b8596a16e08785.js",
-      "static/chunks/54.89e24e878a3db526.js"
+      "static/chunks/_app-pages-browser_components_graph_RepoGraph_tsx.js"
     ]
   }
 }
