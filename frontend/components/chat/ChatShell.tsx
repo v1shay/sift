@@ -39,6 +39,17 @@ function ChatShell() {
       setIsLoading(true);
 
       try {
+        if (/^(hi|hello|hey|yo|sup)[!. ]*$/i.test(text.trim())) {
+          const greetingMessage: DisplayMessage = {
+            role: 'assistant',
+            content:
+              'Hey! I can search the local repository graph for things like "popular Rust repos", "React component libraries", or "beginner-friendly Python projects."',
+          };
+          setMessages((prev) => [...prev, greetingMessage]);
+          setHighlightedNodes([]);
+          return;
+        }
+
         const apiMessages = newMessages.map(({ role, content }) => ({ role, content }));
         const responseData = await sendChatMessage(apiMessages);
         

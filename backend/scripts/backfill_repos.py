@@ -3,9 +3,10 @@ import os
 from datetime import datetime
 import argparse
 import sys
+from pathlib import Path
 
 # Ensure backend directory is in path when running as script
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.db.session import engine, SessionLocal, Base
 from app.db.models.project import Project, Topic

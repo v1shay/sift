@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 
 interface Node {
@@ -27,7 +27,7 @@ const RepoGraph: React.FC<RepoGraphProps> = ({ highlightedNodeIds }) => {
   const fgRef = useRef<any>(null);
   const [graphData, setGraphData] = useState<{ nodes: Node[]; links: Link[] }>({ nodes: [], links: [] });
   const [windowSize, setWindowSize] = useState({ width: 800, height: 600 });
-  const highlightSet = new Set(highlightedNodeIds);
+  const highlightSet = useMemo(() => new Set(highlightedNodeIds), [highlightedNodeIds]);
 
   // Responsive window tracking
   useEffect(() => {
@@ -45,6 +45,10 @@ const RepoGraph: React.FC<RepoGraphProps> = ({ highlightedNodeIds }) => {
       .then(res => res.json())
       .then(data => {
         setGraphData(data);
+        requestAnimationFrame(() => {
+          fgRef.current?.zoomToFit(1200, 80);
+          fgRef.current?.centerAt(0, 0, 1200);
+        });
       })
       .catch(err => console.error("Could not load initial graph:", err));
   }, []);
@@ -61,17 +65,24 @@ const RepoGraph: React.FC<RepoGraphProps> = ({ highlightedNodeIds }) => {
         // Reset zoom to match everything
         fgRef.current.zoomToFit(1000, 100);
     }
-  }, [highlightedNodeIds, graphData.nodes]);
+  }, [highlightedNodeIds, graphData.nodes, highlightSet]);
 
 
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const isHighlighted = highlightedNodeIds.length === 0 || highlightSet.has(node.id);
+    const radius = Math.min(Math.max(node.val || 3, 2), 10);
     
     // Draw basic circle
     ctx.beginPath();
-    ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI, false);
+    ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
     ctx.fillStyle = isHighlighted ? node.color : '#27272a'; // dim unhighlighted
     ctx.fill();
+
+    if (isHighlighted && highlightedNodeIds.length > 0) {
+        ctx.strokeStyle = 'rgba(250, 250, 250, 0.75)';
+        ctx.lineWidth = 1.5 / globalScale;
+        ctx.stroke();
+    }
 
     // Render name text when zoomed in enough or if heavily highlighted
     if (isHighlighted && globalScale >= 2 && node.group !== 'user') {
@@ -80,7 +91,7 @@ const RepoGraph: React.FC<RepoGraphProps> = ({ highlightedNodeIds }) => {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#fafafa';
-        ctx.fillText(node.name, node.x, node.y + node.val + (4/globalScale));
+        ctx.fillText(node.name, node.x, node.y + radius + (4/globalScale));
     }
   }, [highlightedNodeIds, highlightSet]);
 
@@ -99,6 +110,8 @@ const RepoGraph: React.FC<RepoGraphProps> = ({ highlightedNodeIds }) => {
         }}
         linkColor={() => 'rgba(113, 113, 122, 0.2)'}
         linkWidth={0.5}
+        cooldownTicks={120}
+        onEngineStop={() => fgRef.current?.zoomToFit(600, 80)}
         d3VelocityDecay={0.3} // makes it floatly
       />
     </div>

@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from math import sqrt
+from typing import Optional
 
 from app.db.session import SessionLocal
 from app.db.models.project import Project, Topic
@@ -9,6 +11,11 @@ from app.db.models.user import User
 from app.services.search_pipeline.orchestrator import orchestrate_search
 
 app = FastAPI(title="Sift Graph Backend")
+
+
+def project_node_size(stars: Optional[int]) -> float:
+    """Keep very popular repositories visible without letting them dominate the canvas."""
+    return min(10, max(3, 3 + sqrt(max(stars or 0, 0)) / 75))
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +52,7 @@ def get_full_graph():
                 "id": f"repo_{p.id}",
                 "name": p.full_name,
                 "group": "repository",
-                "val": (p.stars or 100) / 1000 + 3, # Scale visually by stars
+                "val": project_node_size(p.stars),
                 "color": "#8b5cf6", # violet
                 "language": p.language,
                 "stars": p.stars
