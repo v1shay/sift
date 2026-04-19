@@ -106,3 +106,64 @@ export interface ChatResponse {
 export interface ChatRequest {
   messages: ChatMessage[];
 }
+
+// ─── Graph Explorer Types ──────────────────────────────────────────
+
+export type GraphGroupBy = 'domain' | 'language' | 'topic' | 'org' | 'stars' | 'raw';
+export type GraphSortBy = 'stars' | 'forks' | 'issues' | 'updated' | 'name';
+
+export interface GraphOptions {
+  groupBy: GraphGroupBy;
+  sortBy: GraphSortBy;
+  limit: number;
+  minStars: number;
+  language?: string;
+  topic?: string;
+  org?: string;
+}
+
+export interface GraphFacet {
+  name: string;
+  count: number;
+}
+
+export interface GraphFacets {
+  languages: GraphFacet[];
+  topics: GraphFacet[];
+  orgs: GraphFacet[];
+  totalProjects: number;
+}
+
+export interface GraphNode {
+  id: string;
+  name: string;
+  group: string;
+  nodeType: 'cluster' | 'repository' | 'topic' | 'user';
+  val: number;
+  color: string;
+  language?: string;
+  stars?: number;
+  forks?: number;
+  openIssues?: number;
+  owner?: string;
+  topics?: string[];
+  repoCount?: number;
+  url?: string;
+}
+
+export interface GraphLink {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  type: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  links: GraphLink[];
+  meta?: {
+    groupBy: GraphGroupBy;
+    sortBy: GraphSortBy;
+    projectCount: number;
+    clusterCount: number;
+  };
+}

@@ -6,8 +6,14 @@ import ChatInput from './ChatInput';
 import ChatMessage from './ChatMessage';
 import SuggestionPills from './SuggestionPills';
 import TypingIndicator from './TypingIndicator';
-import { sendChatMessage } from '@/lib/api';
-import { ChatMessage as ChatMessageType, GitHubProject } from '@/lib/types';
+import GraphControls from '../graph/GraphControls';
+import { fetchGraphFacets, sendChatMessage } from '@/lib/api';
+import {
+  ChatMessage as ChatMessageType,
+  GitHubProject,
+  GraphFacets,
+  GraphOptions,
+} from '@/lib/types';
 
 // Dynamic import bypasses Next.js Server Side Rendering (SSR) so canvas can access the window object!
 const RepoGraph = dynamic(() => import('../graph/RepoGraph'), { ssr: false });
@@ -21,6 +27,15 @@ function ChatShell() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [highlightedNodes, setHighlightedNodes] = useState<string[]>([]);
+  const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
+  const [graphStats, setGraphStats] = useState({ projectCount: 0, clusterCount: 0 });
+  const [facets, setFacets] = useState<GraphFacets | null>(null);
+  const [graphOptions, setGraphOptions] = useState<GraphOptions>({
+    groupBy: 'domain',
+    sortBy: 'stars',
+    limit: 250,
+    minStars: 0,
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -30,6 +45,31 @@ function ChatShell() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading, scrollToBottom]);
+
+  useEffect(() => {
+    fetchGraphFacets()
+      .then(setFacets)
+      .catch((error) => console.error('[Graph facets] Error:', error));
+  }, []);
+
+  const handleStatsChange = useCallback((stats: { projectCount: number; clusterCount: number }) => {
+    setGraphStats(stats);
+  }, []);
+
+  const handleClusterSelect = useCallback((clusterName: string | null) => {
+    setSelectedCluster(clusterName);
+  }, []);
+
+  const handleGraphReset = useCallback(() => {
+    setGraphOptions({
+      groupBy: 'domain',
+      sortBy: 'stars',
+      limit: 250,
+      minStars: 0,
+    });
+    setSelectedCluster(null);
+    setHighlightedNodes([]);
+  }, []);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -95,7 +135,22 @@ function ChatShell() {
     <div className="relative w-screen h-screen bg-zinc-950 overflow-hidden">
         
        {/* Layer 1: the 2D interactive Force Graph Background */}
-       <RepoGraph highlightedNodeIds={highlightedNodes} />
+       <RepoGraph
+        highlightedNodeIds={highlightedNodes}
+        options={graphOptions}
+        onStatsChange={handleStatsChange}
+        onClusterSelect={handleClusterSelect}
+       />
+
+       <GraphControls
+        options={graphOptions}
+        facets={facets}
+        selectedCluster={selectedCluster}
+        projectCount={graphStats.projectCount}
+        clusterCount={graphStats.clusterCount}
+        onChange={setGraphOptions}
+        onReset={handleGraphReset}
+       />
        
        {/* Layer 2: The Chat Interface (Glassmorphism Floating Frame) */}
        <div className="absolute top-0 right-0 w-full md:w-[400px] h-full bg-zinc-900/60 backdrop-blur-xl border-l border-zinc-800/80 shadow-2xl flex flex-col p-4 z-10">
