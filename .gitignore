@@ -1,1 +1,8 @@
 node_modules
+
+# Local Python/runtime artifacts
+backend/venv/
+backend/sift.db
+
+# Nested local checkout copy
+sift/
