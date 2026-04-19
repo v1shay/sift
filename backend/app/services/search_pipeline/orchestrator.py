@@ -58,7 +58,7 @@ def orchestrate_search(user_query: str):
     db.close()
     
     return {
-        "search_mode": "llm" if not parser.allow_local_fallback else "local_fallback_enabled",
+        "search_mode": parser.provider if not parser.allow_local_fallback else f"{parser.provider}_with_local_fallback",
         "llm_model": parser.model,
         "filters": {
             "topics": filters.topics,
