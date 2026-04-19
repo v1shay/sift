@@ -6,15 +6,20 @@ Implement a retrieval engine that takes natural language input, parses it using 
 
 # Implementation Plan
 
-## Phase 1: Basic Chat API implementation
-- Implement `frontend/app/api/chat/route.ts` to handle POST requests.
-- Integrate an LLM (e.g., via Anthropic SDK) to process the chat message.
-- For now, make the API return a hardcoded "mock" list of projects to verify the end-to-end flow.
+## Phase 1: Basic Chat API implementation ✅
+- ~~Implement `frontend/app/api/chat/route.ts` to handle POST requests.~~
+- ~~Integrate an LLM (e.g., via Anthropic SDK) to process the chat message.~~
+- ~~For now, make the API return a hardcoded "mock" list of projects to verify the end-to-end flow.~~
+- Chat UI components built: `ChatShell`, `ChatInput`, `ChatMessage`, `SuggestionPills`, `TypingIndicator`
+- Client-side API helper: `lib/api.ts`
 
-## Phase 2: GitHub API Integration
-- Implement a service to fetch real project data from the GitHub Search API.
-- Use the LLM to extract search parameters (language, topic, etc.) from the user's prompt.
-- Update the API route to use this service.
+## Phase 2: GitHub API Integration ✅
+- ~~Implement a service to fetch real project data from the GitHub Search API.~~ → `lib/github.ts`
+- ~~Use the LLM to extract search parameters (language, topic, etc.) from the user's prompt.~~ → `lib/llm.ts`
+- ~~Update the API route to use this service.~~ → `app/api/chat/route.ts` refactored
+- Type definitions: `lib/types.ts`
+- Constants & LLM prompts: `lib/constants.ts`
+- Project display components: `ProjectCard`, `ProjectGrid`
 
 ## Phase 3: Semantic Search (RAG)
 - Set up a vector database (e.g., a lightweight in-memory vector store or a managed service like Pinecone/Supabase).
