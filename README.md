@@ -1,8 +1,6 @@
 <div align="center">
 
-# sift  
-
-### your next PR starts here
+# sift — your next PR starts here
 
 <img src="https://github.com/user-attachments/assets/35f0b7d7-fb58-427b-8241-cc68425705ed" width="100%" />
 
