@@ -12,7 +12,7 @@
 
 sift allows you to visualize and explore a living version of GitHub to find exactly what you want
 
-# Filter repos by: 
+# filter repos by: 
 - Stars (eg: 100+ minimum)
 - Languages (Python, Rust, SQL)
 - Domains (Machine Learning, AI, Frontend Design)
