@@ -1,15 +1,5 @@
-# Sift
+# Sift -- your next PR starts here
 
-An AI-powered website for finding open source GitHub projects to contribute to based on user natural language input preferences.
+<img width="3200" height="1150" alt="Screenshot 2026-04-19 at 7 15 18 PM" src="https://github.com/user-attachments/assets/044d22a4-b03e-4b41-a5db-e9b5e0145c74" />
 
-## Progress
 
-- [x] Initialized project structure
-- [x] Set up basic Next.js frontend
-- [x] Implemented basic Chat API route (placeholder)
-
-## How to run
-
-1. `cd frontend`
-2. `npm install`
-3. `npm run dev`
