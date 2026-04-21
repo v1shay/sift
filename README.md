@@ -8,9 +8,9 @@
 
 
 
-# sift is a graphical interface of all the open-source repos on GitHub
+# sift is the living version of GitHub
 
-sift allows you to visualize and explore a living version of GitHub to find exactly what you want
+ sift is a graphical interface of all open-source repos, allowing you to visualize and explore a living version of GitHub to find exactly what you want
 
 # filter repos by: 
 - Stars (eg: 100+ minimum)
