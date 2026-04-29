@@ -11,9 +11,9 @@
 
 ---
 
-Sift is a visual interface for exploring open-source repositories through semantic structure, not just keyword search.
+Sift is a visual interface for exploring open-source repositories with sub-5ms retrieval and 1→N indexing.
 
-It turns GitHub into a living graph of projects, languages, domains, and similarity clusters so you can find repositories worth using and contributing to.
+It turns GitHub into a living graph of projects, languages, domains, and similarity clusters with PR-level resolution to find your next contribution easily.
 
 </div>
 
