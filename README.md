@@ -1,8 +1,9 @@
+
 <div align="center">
 
 # sift — your next PR starts here
 
-<img src="https://github.com/user-attachments/assets/35f0b7d7-fb58-427b-8241-cc68425705ed" width="100%" />
+<img width="2550" height="1172" alt="Screen Recording 2026-04-28 at 6 13 46 PM" src="https://github.com/user-attachments/assets/ee084c75-30b9-4113-9907-7940fb784de5" />
 
 </div>
 
