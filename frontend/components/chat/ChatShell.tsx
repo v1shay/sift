@@ -4,19 +4,23 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import ChatInput from './ChatInput';
 import ChatMessage from './ChatMessage';
-import SuggestionPills from './SuggestionPills';
 import TypingIndicator from './TypingIndicator';
 import GraphControls from '../graph/GraphControls';
 import { fetchGraphFacets, sendChatMessage } from '@/lib/api';
 import {
+  CityPreset,
   ChatMessage as ChatMessageType,
   GitHubProject,
   GraphFacets,
   GraphOptions,
+  GraphViewMode,
 } from '@/lib/types';
 
 // Dynamic import bypasses Next.js Server Side Rendering (SSR) so canvas can access the window object!
 const RepoGraph = dynamic(() => import('../graph/RepoGraph'), { ssr: false });
+const RepoGraph3D = dynamic(() => import('../graph/RepoGraph3D'), { ssr: false });
+
+const CITY_PRESETS_KEY = 'sift.cityPresets';
 
 interface DisplayMessage extends ChatMessageType {
   projects?: GitHubProject[];
@@ -30,6 +34,9 @@ function ChatShell() {
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
   const [graphStats, setGraphStats] = useState({ projectCount: 0, clusterCount: 0 });
   const [facets, setFacets] = useState<GraphFacets | null>(null);
+  const [viewMode, setViewMode] = useState<GraphViewMode>('2d');
+  const [cityPresets, setCityPresets] = useState<CityPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
   const [graphOptions, setGraphOptions] = useState<GraphOptions>({
     groupBy: 'domain',
     sortBy: 'stars',
@@ -52,6 +59,26 @@ function ChatShell() {
       .catch((error) => console.error('[Graph facets] Error:', error));
   }, []);
 
+  useEffect(() => {
+    try {
+      const rawPresets = window.localStorage.getItem(CITY_PRESETS_KEY);
+      if (rawPresets) {
+        const parsed = JSON.parse(rawPresets);
+        if (Array.isArray(parsed)) setCityPresets(parsed);
+      }
+    } catch (error) {
+      console.error('[City presets] Could not load presets:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CITY_PRESETS_KEY, JSON.stringify(cityPresets));
+    } catch (error) {
+      console.error('[City presets] Could not save presets:', error);
+    }
+  }, [cityPresets]);
+
   const handleStatsChange = useCallback((stats: { projectCount: number; clusterCount: number }) => {
     setGraphStats(stats);
   }, []);
@@ -69,7 +96,43 @@ function ChatShell() {
     });
     setSelectedCluster(null);
     setHighlightedNodes([]);
+    setSelectedPresetId('');
   }, []);
+
+  const handlePresetSave = useCallback(() => {
+    const fallbackName = `${graphOptions.groupBy} city ${cityPresets.length + 1}`;
+    const enteredName = window.prompt('Name this city preset', fallbackName);
+    const name = enteredName?.trim();
+    if (!name) return;
+
+    const preset: CityPreset = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      options: graphOptions,
+      selectedCluster,
+      createdAt: new Date().toISOString(),
+    };
+
+    setCityPresets((prev) => [preset, ...prev].slice(0, 12));
+    setSelectedPresetId(preset.id);
+  }, [cityPresets.length, graphOptions, selectedCluster]);
+
+  const handlePresetSelect = useCallback((presetId: string) => {
+    const preset = cityPresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setSelectedPresetId(preset.id);
+    setGraphOptions(preset.options);
+    setSelectedCluster(preset.selectedCluster || null);
+    setHighlightedNodes([]);
+    setViewMode('3d');
+  }, [cityPresets]);
+
+  const handlePresetDelete = useCallback((presetId: string) => {
+    setCityPresets((prev) => prev.filter((preset) => preset.id !== presetId));
+    if (selectedPresetId === presetId) {
+      setSelectedPresetId('');
+    }
+  }, [selectedPresetId]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -79,17 +142,6 @@ function ChatShell() {
       setIsLoading(true);
 
       try {
-        if (/^(hi|hello|hey|yo|sup)[!. ]*$/i.test(text.trim())) {
-          const greetingMessage: DisplayMessage = {
-            role: 'assistant',
-            content:
-              'Hey! I can search the local repository graph for things like "popular Rust repos", "React component libraries", or "beginner-friendly Python projects."',
-          };
-          setMessages((prev) => [...prev, greetingMessage]);
-          setHighlightedNodes([]);
-          return;
-        }
-
         const apiMessages = newMessages.map(({ role, content }) => ({ role, content }));
         const responseData = await sendChatMessage(apiMessages);
         
@@ -128,27 +180,41 @@ function ChatShell() {
     [messages],
   );
 
-  const handleSuggestionClick = useCallback((suggestion: string) => { handleSend(suggestion); }, [handleSend]);
   const isEmpty = messages.length === 0;
 
   return (
     <div className="relative w-screen h-screen bg-zinc-950 overflow-hidden">
         
-       {/* Layer 1: the 2D interactive Force Graph Background */}
-       <RepoGraph
-        highlightedNodeIds={highlightedNodes}
-        options={graphOptions}
-        onStatsChange={handleStatsChange}
-        onClusterSelect={handleClusterSelect}
-       />
+       {viewMode === '2d' ? (
+        <RepoGraph
+          highlightedNodeIds={highlightedNodes}
+          options={graphOptions}
+          onStatsChange={handleStatsChange}
+          onClusterSelect={handleClusterSelect}
+        />
+       ) : (
+        <RepoGraph3D
+          highlightedNodeIds={highlightedNodes}
+          options={graphOptions}
+          onStatsChange={handleStatsChange}
+          onClusterSelect={handleClusterSelect}
+        />
+       )}
 
        <GraphControls
         options={graphOptions}
         facets={facets}
         selectedCluster={selectedCluster}
+        viewMode={viewMode}
+        presets={cityPresets}
+        selectedPresetId={selectedPresetId}
         projectCount={graphStats.projectCount}
         clusterCount={graphStats.clusterCount}
         onChange={setGraphOptions}
+        onViewModeChange={setViewMode}
+        onPresetSelect={handlePresetSelect}
+        onPresetSave={handlePresetSave}
+        onPresetDelete={handlePresetDelete}
         onReset={handleGraphReset}
        />
        
@@ -157,11 +223,9 @@ function ChatShell() {
           <div className="flex-1 overflow-y-auto space-y-4 pr-2 scroll-smooth pt-10">
             {isEmpty && (
               <div className="flex flex-col items-center justify-center h-full text-center opacity-70">
-                <p className="text-sm font-semibold text-violet-400 mb-2">GRAPH LOADED</p>
                 <p className="text-sm text-zinc-400 mb-6 px-4">
-                  The repositories are mapped locally. Describe a cluster of open source projects you want to zoom into.
+                  Describe a repository cluster to focus the graph.
                 </p>
-                <SuggestionPills onSelect={handleSuggestionClick} />
               </div>
             )}
 

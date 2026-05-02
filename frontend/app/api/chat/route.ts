@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     if (projects.length === 0) {
         summaryMessage += "\nI couldn't find any clustered nodes matching your exact description. Try broadening your parameters or run the ingestion script to backfill more repos!";
     } else {
-        summaryMessage += `\nI narrowed the graph down to **${projects.length} matching repositories**. Feel free to explore the interactive visualizations (WIP) or the project cards below!`;
+        summaryMessage += `\nI narrowed the graph down to **${projects.length} matching repositories**. Explore the highlighted repository space in the graph.`;
     }
 
     return NextResponse.json({

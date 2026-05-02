@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from math import sqrt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -13,6 +13,7 @@ from app.db.models.user import User
 
 from app.services.search_pipeline.orchestrator import orchestrate_search
 from app.services.llm.query_parser import LLMConfigurationError, LLMQueryError
+from app.services.github.pull_requests import GitHubPullRequestFetcher
 
 app = FastAPI(title="Sift Graph Backend")
 
@@ -187,6 +188,11 @@ app.add_middleware(
 class SearchRequest(BaseModel):
     query: str
 
+
+class PullRequestFlowRequest(BaseModel):
+    repoIds: List[int] = Field(default_factory=list, max_length=100)
+    days: int = Field(default=30, ge=1, le=365)
+
 @app.post("/api/py/graph-search")
 async def graph_search(req: SearchRequest):
     try:
@@ -297,6 +303,61 @@ def get_full_graph(
                 "projectCount": len(projects),
                 "clusterCount": len([node for node in nodes if node.get("nodeType") == "cluster"]),
             }
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/py/pr-flow")
+async def get_pull_request_flow(req: PullRequestFlowRequest):
+    unique_repo_ids = list(dict.fromkeys(req.repoIds))[:24]
+    db = SessionLocal()
+    try:
+        projects = (
+            db.query(Project)
+            .filter(Project.id.in_(unique_repo_ids))
+            .all()
+            if unique_repo_ids
+            else []
+        )
+        project_by_id = {project.id: project for project in projects}
+        fetcher = GitHubPullRequestFetcher()
+        summaries = {}
+
+        for repo_id in unique_repo_ids:
+            project = project_by_id.get(repo_id)
+            if not project:
+                summaries[str(repo_id)] = {
+                    "repoId": repo_id,
+                    "fullName": None,
+                    "available": False,
+                    "openCount": 0,
+                    "mergedCount": 0,
+                    "closedCount": 0,
+                    "recentPullRequests": [],
+                    "error": "Repository not found in local graph",
+                }
+                continue
+
+            summary = await fetcher.fetch_recent_pull_requests(project.full_name, req.days)
+            summaries[str(repo_id)] = {
+                "repoId": repo_id,
+                **summary,
+            }
+
+        aggregate = {
+            "repoCount": len(unique_repo_ids),
+            "availableRepoCount": sum(1 for item in summaries.values() if item["available"]),
+            "openCount": sum(item["openCount"] for item in summaries.values()),
+            "mergedCount": sum(item["mergedCount"] for item in summaries.values()),
+            "closedCount": sum(item["closedCount"] for item in summaries.values()),
+        }
+
+        return {
+            "days": req.days,
+            "limit": 24,
+            "summaries": summaries,
+            "aggregate": aggregate,
         }
     finally:
         db.close()

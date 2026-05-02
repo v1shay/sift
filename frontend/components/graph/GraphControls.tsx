@@ -1,21 +1,30 @@
 'use client';
 
 import React from 'react';
-import { Filter, Network, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { Box, Filter, Network, RotateCcw, Save, SlidersHorizontal, Trash2 } from 'lucide-react';
 import {
+  CityPreset,
   GraphFacets,
   GraphGroupBy,
   GraphOptions,
   GraphSortBy,
+  GraphViewMode,
 } from '@/lib/types';
 
 interface GraphControlsProps {
   options: GraphOptions;
   facets: GraphFacets | null;
   selectedCluster: string | null;
+  viewMode: GraphViewMode;
+  presets: CityPreset[];
+  selectedPresetId: string;
   projectCount: number;
   clusterCount: number;
   onChange: (options: GraphOptions) => void;
+  onViewModeChange: (mode: GraphViewMode) => void;
+  onPresetSelect: (presetId: string) => void;
+  onPresetSave: () => void;
+  onPresetDelete: (presetId: string) => void;
   onReset: () => void;
 }
 
@@ -73,9 +82,16 @@ export default function GraphControls({
   options,
   facets,
   selectedCluster,
+  viewMode,
+  presets,
+  selectedPresetId,
   projectCount,
   clusterCount,
   onChange,
+  onViewModeChange,
+  onPresetSelect,
+  onPresetSave,
+  onPresetDelete,
   onReset,
 }: GraphControlsProps) {
   const update = (patch: Partial<GraphOptions>) => onChange({ ...options, ...patch });
@@ -102,6 +118,81 @@ export default function GraphControls({
           <RotateCcw className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
+
+      <div className="mb-3 grid grid-cols-[1fr_auto_auto] gap-2">
+        <div className="grid grid-cols-2 rounded-md border border-zinc-800 bg-zinc-950/90 p-1">
+          <button
+            type="button"
+            onClick={() => onViewModeChange('2d')}
+            className={`inline-flex h-8 items-center justify-center gap-2 rounded px-2 text-xs font-semibold transition ${
+              viewMode === '2d'
+                ? 'bg-teal-500/20 text-teal-100'
+                : 'text-zinc-400 hover:text-zinc-100'
+            }`}
+            title="2D graph"
+            aria-label="2D graph"
+          >
+            <Network className="h-3.5 w-3.5" aria-hidden="true" />
+            2D
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange('3d')}
+            className={`inline-flex h-8 items-center justify-center gap-2 rounded px-2 text-xs font-semibold transition ${
+              viewMode === '3d'
+                ? 'bg-violet-500/20 text-violet-100'
+                : 'text-zinc-400 hover:text-zinc-100'
+            }`}
+            title="3D city graph"
+            aria-label="3D city graph"
+          >
+            <Box className="h-3.5 w-3.5" aria-hidden="true" />
+            3D
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onPresetSave}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-300 transition hover:border-teal-500/50 hover:text-teal-100"
+          title="Save city preset"
+          aria-label="Save city preset"
+        >
+          <Save className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const preset = presets.find((item) => item.id === selectedPresetId);
+            if (preset) onPresetDelete(preset.id);
+          }}
+          disabled={!selectedPresetId}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-300 transition hover:border-rose-500/50 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-35"
+          title="Delete selected preset"
+          aria-label="Delete selected preset"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      {presets.length > 0 && (
+        <label className="mb-3 flex flex-col gap-1 text-xs font-medium text-zinc-400">
+          <span>City preset</span>
+          <select
+            value={selectedPresetId}
+            onChange={(event) => onPresetSelect(event.target.value)}
+            className="h-9 rounded-md border border-zinc-800 bg-zinc-950/90 px-2 text-sm text-zinc-100 outline-none transition focus:border-violet-400"
+          >
+            <option value="" disabled>
+              Select saved city
+            </option>
+            {presets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <SelectField

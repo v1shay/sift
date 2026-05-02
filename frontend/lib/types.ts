@@ -111,6 +111,7 @@ export interface ChatRequest {
 
 export type GraphGroupBy = 'domain' | 'language' | 'topic' | 'org' | 'stars' | 'raw';
 export type GraphSortBy = 'stars' | 'forks' | 'issues' | 'updated' | 'name';
+export type GraphViewMode = '2d' | '3d';
 
 export interface GraphOptions {
   groupBy: GraphGroupBy;
@@ -165,5 +166,49 @@ export interface GraphData {
     sortBy: GraphSortBy;
     projectCount: number;
     clusterCount: number;
+  };
+}
+
+export interface CityPreset {
+  id: string;
+  name: string;
+  options: GraphOptions;
+  selectedCluster?: string | null;
+  createdAt: string;
+}
+
+export interface RecentPullRequest {
+  number: number;
+  title: string;
+  state: 'open' | 'closed' | 'merged' | string;
+  url?: string;
+  author?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  closedAt?: string | null;
+  mergedAt?: string | null;
+}
+
+export interface PullRequestFlowSummary {
+  repoId: number;
+  fullName: string | null;
+  available: boolean;
+  openCount: number;
+  mergedCount: number;
+  closedCount: number;
+  recentPullRequests: RecentPullRequest[];
+  error?: string | null;
+}
+
+export interface PullRequestFlowResponse {
+  days: number;
+  limit: number;
+  summaries: Record<string, PullRequestFlowSummary>;
+  aggregate: {
+    repoCount: number;
+    availableRepoCount: number;
+    openCount: number;
+    mergedCount: number;
+    closedCount: number;
   };
 }

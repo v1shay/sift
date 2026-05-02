@@ -1,4 +1,10 @@
-import { ChatMessage, GraphData, GraphFacets, GraphOptions } from './types';
+import {
+  ChatMessage,
+  GraphData,
+  GraphFacets,
+  GraphOptions,
+  PullRequestFlowResponse,
+} from './types';
 
 /**
  * Send a chat message to the graph API and get back the narrowed graph match.
@@ -48,6 +54,23 @@ export async function fetchGraphFacets(): Promise<GraphFacets> {
 
   if (!response.ok) {
     throw new Error(`Facet request failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function fetchPullRequestFlow(
+  repoIds: number[],
+  days = 30,
+): Promise<PullRequestFlowResponse> {
+  const response = await fetch('/api/py/pr-flow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ repoIds, days }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Pull request flow request failed with status ${response.status}`);
   }
 
   return response.json();
