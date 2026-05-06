@@ -9,6 +9,24 @@ type FilterKey = DistrictKey | 'stars' | 'safe' | 'all';
 type Priority = 'hot' | 'normal' | 'quiet';
 type Appearance = 'night' | 'day';
 
+type SearchPing = {
+  label: string;
+  detail: string;
+  weight: number;
+};
+
+type SearchResult = {
+  repo: Repo;
+  score: number;
+  pings: SearchPing[];
+};
+
+type SafetyReason = {
+  type: 'positive' | 'risk';
+  label: string;
+  detail: string;
+};
+
 type District = {
   key: DistrictKey;
   label: string;
@@ -763,6 +781,49 @@ const TARGET_HOME = new THREE.Vector3(2, 1.8, -1);
 const MIN_ZOOM = 0.62;
 const MAX_ZOOM = 1.55;
 
+const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
+  {
+    label: 'frontend apps',
+    terms: ['frontend', 'web app', 'ui', 'ux', 'react', 'components', 'browser', 'css', 'website'],
+    districts: ['web'],
+    topics: ['frontend', 'ui', 'components', 'css', 'framework'],
+    languages: ['TypeScript', 'JavaScript', 'CSS'],
+  },
+  {
+    label: 'ai and machine learning',
+    terms: ['ai', 'ml', 'machine learning', 'llm', 'model', 'inference', 'agents', 'rag', 'gpu', 'nlp'],
+    districts: ['ai'],
+    topics: ['ml', 'llm', 'models', 'inference', 'agents', 'rag', 'gpu', 'nlp'],
+    languages: ['Python', 'C++', 'CUDA'],
+  },
+  {
+    label: 'developer tools',
+    terms: ['devtool', 'developer tool', 'testing', 'lint', 'format', 'editor', 'automation', 'build tool', 'tooling'],
+    districts: ['devtools'],
+    topics: ['developer-tools', 'testing', 'linting', 'formatting', 'editor', 'automation', 'build-tool', 'tooling'],
+    languages: ['TypeScript', 'JavaScript', 'Rust'],
+  },
+  {
+    label: 'infrastructure',
+    terms: ['infra', 'infrastructure', 'cloud', 'monitoring', 'observability', 'metrics', 'server', 'proxy', 'iac', 'tracing'],
+    districts: ['infra'],
+    topics: ['cloud', 'monitoring', 'observability', 'metrics', 'server', 'proxy', 'iac', 'tracing'],
+    languages: ['Go', 'HCL', 'Shell'],
+  },
+  {
+    label: 'systems programming',
+    terms: ['systems', 'kernel', 'runtime', 'database', 'networking', 'compiler', 'cache', 'server', 'low level'],
+    districts: ['systems'],
+    topics: ['systems', 'kernel', 'runtime', 'database', 'networking', 'compiler', 'cache'],
+    languages: ['Rust', 'C', 'Go', 'Zig'],
+  },
+  {
+    label: 'beginner contribution',
+    terms: ['beginner', 'good first', 'good-first', 'new contributor', 'easy', 'safe', 'trusted', 'contribute'],
+    topics: ['safety'],
+  },
+];
+
 const TUTORIAL_STEPS = [
   {
     title: 'Read The City',
@@ -815,9 +876,179 @@ function districtFor(repo: Repo) {
 }
 
 function colorForSafety(score: number) {
-  if (score >= 88) return '#34d399';
-  if (score >= 76) return '#fbbf24';
+  if (score > 75) return '#34d399';
+  if (score >= 60) return '#fbbf24';
   return '#ff6b6b';
+}
+
+function tokenizeSearch(query: string) {
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9+#./\s-]/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function includesAny(haystack: string, terms: string[]) {
+  return terms.some((term) => haystack.includes(term.toLowerCase()));
+}
+
+function getSafetyReasons(repo: Repo): SafetyReason[] {
+  const reasons: SafetyReason[] = [];
+
+  if (repo.safetyScore > 75) {
+    reasons.push({
+      type: 'positive',
+      label: 'Green contribution score',
+      detail: `At ${repo.safetyScore}%, this clears the 75% safety threshold for a generally healthy first contribution path.`,
+    });
+  } else {
+    reasons.push({
+      type: 'risk',
+      label: 'Below green threshold',
+      detail: `At ${repo.safetyScore}%, this needs extra caution before contributing because it misses the 75% green threshold.`,
+    });
+  }
+
+  if (repo.verifiedMaintainers) {
+    reasons.push({ type: 'positive', label: 'Verified maintainers', detail: 'Maintainer ownership is clear, which reduces spoofing and abandoned-review risk.' });
+  } else {
+    reasons.push({ type: 'risk', label: 'Maintainer uncertainty', detail: 'Maintainer ownership is unclear, so review authority may be harder to trust.' });
+  }
+
+  if (repo.branchProtection) {
+    reasons.push({ type: 'positive', label: 'Protected branches', detail: 'Direct pushes are gated, so malicious or accidental changes are less likely to land unchecked.' });
+  } else {
+    reasons.push({ type: 'risk', label: 'Loose branch controls', detail: 'Branch protection is missing, so contribution review discipline matters more.' });
+  }
+
+  if (repo.signedReleases) {
+    reasons.push({ type: 'positive', label: 'Signed releases', detail: 'Release artifacts have stronger provenance signals.' });
+  } else {
+    reasons.push({ type: 'risk', label: 'Unsigned releases', detail: 'Release provenance is weaker, so verify install paths and maintainers before trusting artifacts.' });
+  }
+
+  if (repo.responseHours <= 18) {
+    reasons.push({ type: 'positive', label: 'Fast maintainer response', detail: `Typical response is around ${repo.responseHours} hours, so PR feedback should not stall for long.` });
+  } else if (repo.responseHours <= 30) {
+    reasons.push({ type: 'positive', label: 'Moderate response time', detail: `Typical response is around ${repo.responseHours} hours, which is workable for small PRs.` });
+  } else {
+    reasons.push({ type: 'risk', label: 'Slow review loop', detail: `Typical response is around ${repo.responseHours} hours, so first contributions may take longer to validate.` });
+  }
+
+  if (repo.goodFirstIssues >= 25) {
+    reasons.push({ type: 'positive', label: 'Beginner-friendly queue', detail: `${repo.goodFirstIssues} good-first issues give new contributors a safer starting surface.` });
+  } else if (repo.goodFirstIssues >= 10) {
+    reasons.push({ type: 'positive', label: 'Some starter issues', detail: `${repo.goodFirstIssues} good-first issues are available, but pick narrowly scoped changes.` });
+  } else {
+    reasons.push({ type: 'risk', label: 'Few starter issues', detail: `Only ${repo.goodFirstIssues} good-first issues are visible, so contribution fit may be harder to judge.` });
+  }
+
+  return reasons;
+}
+
+function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
+  const cleanQuery = query.trim().toLowerCase();
+  const tokens = tokenizeSearch(query);
+  if (!cleanQuery || tokens.length === 0) return null;
+
+  const district = districtFor(repo);
+  const haystacks = {
+    name: repo.name.toLowerCase(),
+    owner: repo.owner.toLowerCase(),
+    language: repo.language.toLowerCase(),
+    district: `${district.label} ${district.key}`.toLowerCase(),
+    topics: repo.topics.join(' ').toLowerCase(),
+    description: repo.description.toLowerCase(),
+    prs: repo.prs.map((pr) => pr.title).join(' ').toLowerCase(),
+  };
+
+  const pings: SearchPing[] = [];
+  const substantialTokens = tokens.filter((token) => token.length >= 3);
+  const addPing = (label: string, detail: string, weight: number) => {
+    const existing = pings.find((ping) => ping.label === label && ping.detail === detail);
+    if (existing) existing.weight = Math.max(existing.weight, weight);
+    else pings.push({ label, detail, weight });
+  };
+
+  const matchedNameToken = substantialTokens.find((token) => haystacks.name.includes(token));
+  if (haystacks.name === cleanQuery) addPing('name', `exact repo match: ${repo.name}`, 150);
+  else if (cleanQuery.length >= 3 && haystacks.name.includes(cleanQuery)) addPing('name', `repo name contains "${cleanQuery}"`, 95);
+  else if (matchedNameToken) addPing('name', `repo name contains "${matchedNameToken}"`, 82);
+
+  if ((cleanQuery.length >= 3 && haystacks.owner.includes(cleanQuery)) || substantialTokens.some((token) => haystacks.owner.includes(token))) {
+    addPing('owner', `${repo.owner} owns this repo`, 46);
+  }
+  if (haystacks.language.includes(cleanQuery) || substantialTokens.some((token) => haystacks.language === token || haystacks.language.includes(token))) {
+    addPing('language', `${repo.language} codebase`, 72);
+  }
+  if (haystacks.district.includes(cleanQuery) || tokens.some((token) => haystacks.district.includes(token))) {
+    addPing('type', `${district.label} district`, 78);
+  }
+
+  const matchedTopics = repo.topics.filter((topic) => tokens.some((token) => topic.toLowerCase().includes(token)) || cleanQuery.includes(topic.toLowerCase()));
+  if (matchedTopics.length) addPing('topic', matchedTopics.slice(0, 3).join(', '), 58 + matchedTopics.length * 8);
+
+  if (tokens.some((token) => haystacks.description.includes(token)) || haystacks.description.includes(cleanQuery)) {
+    addPing('function', repo.description, 42);
+  }
+
+  const matchedPr = repo.prs.find((pr) => tokens.some((token) => pr.title.toLowerCase().includes(token)) || pr.title.toLowerCase().includes(cleanQuery));
+  if (matchedPr) addPing('PR activity', `PR #${matchedPr.number}: ${matchedPr.title}`, 38);
+
+  FUNCTION_ALIASES.forEach((alias) => {
+    if (!includesAny(cleanQuery, alias.terms)) return;
+    let weight = 0;
+    const details: string[] = [];
+    if (alias.districts?.includes(repo.district)) {
+      weight += 78;
+      details.push(`${district.label} type`);
+    }
+    const topicMatches = repo.topics.filter((topic) => alias.topics?.some((aliasTopic) => topic.toLowerCase().includes(aliasTopic)));
+    if (topicMatches.length) {
+      weight += 44 + topicMatches.length * 8;
+      details.push(topicMatches.slice(0, 2).join(', '));
+    }
+    if (alias.languages?.includes(repo.language)) {
+      weight += 26;
+      details.push(repo.language);
+    }
+    if (alias.label === 'beginner contribution') {
+      weight += repo.safetyScore > 75 ? 42 : 12;
+      weight += Math.min(36, repo.goodFirstIssues);
+      details.push(`${repo.safetyScore}% safe, ${repo.goodFirstIssues} good-first issues`);
+    }
+    if (weight > 0) addPing('intent', `${alias.label}: ${details.join(' · ')}`, weight);
+  });
+
+  if (includesAny(cleanQuery, ['safe', 'trusted', 'secure', 'beginner', 'contribute', 'good first'])) {
+    addPing('safety', `${repo.safetyScore}% safe with ${repo.goodFirstIssues} good-first issues`, Math.round(repo.safetyScore * 0.72 + repo.goodFirstIssues * 0.35));
+  }
+
+  if (includesAny(cleanQuery, ['popular', 'stars', 'big', 'famous'])) {
+    addPing('popularity', `${formatMetric(repo.stars)} stars`, Math.min(86, Math.log10(repo.stars) * 16));
+  }
+
+  if (includesAny(cleanQuery, ['active', 'activity', 'prs', 'commits', 'traffic', 'busy'])) {
+    addPing('activity', `${repo.commitsPerWeek} commits/week and ${repo.openPRs} open PRs`, Math.min(90, repo.commitsPerWeek / 4 + repo.openPRs / 12));
+  }
+
+  const score = Math.round(pings.reduce((total, ping) => total + ping.weight, 0));
+  if (score <= 0) return null;
+
+  return {
+    repo,
+    score,
+    pings: pings.sort((a, b) => b.weight - a.weight).slice(0, 4),
+  };
+}
+
+function searchRepos(query: string) {
+  return REPOS.map((repo) => scoreSearchResult(repo, query))
+    .filter((result): result is SearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || b.repo.safetyScore - a.repo.safetyScore || b.repo.stars - a.repo.stars)
+    .slice(0, 6);
 }
 
 function makeSpriteTexture(title: string, subtitle: string, color: string, width = 420, height = 150) {
@@ -1268,6 +1499,8 @@ export default function Home() {
       repos: REPOS.filter((repo) => repo.district === district.key),
     }));
   }, []);
+  const searchResults = useMemo(() => searchRepos(query), [query]);
+  const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
 
   useEffect(() => {
     enteredRef.current = entered;
@@ -1588,20 +1821,26 @@ export default function Home() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const lower = query.toLowerCase();
+    if (searchResults[0]) {
+      selectSearchResult(searchResults[0]);
+      return;
+    }
     const district = DISTRICTS.find(
       (item) => lower.includes(item.label.toLowerCase()) || lower.includes(item.key) || lower.includes(item.label.split('/')[0].toLowerCase()),
     );
-    const repo = REPOS.find((item) => lower && item.name.toLowerCase().includes(lower));
-    if (repo) {
-      setSelectedRepo(repo);
-      setFilter(repo.district);
-      return;
-    }
     if (district) {
       setFilter(district.key);
       similarDistrictRef.current = district.key;
       similarUntilRef.current = performance.now() + 5200;
     }
+  };
+
+  const selectSearchResult = (result: SearchResult) => {
+    setEntered(true);
+    setSelectedRepo(result.repo);
+    setFilter(result.repo.district);
+    similarDistrictRef.current = result.repo.district;
+    similarUntilRef.current = performance.now() + 3600;
   };
 
   const handleFilter = (next: FilterKey) => {
@@ -1701,11 +1940,41 @@ export default function Home() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="search repos, districts, contribution paths..."
+              placeholder="try: frontend testing, safe ai, observability, rust runtime..."
               aria-label="Search the SIFT city"
             />
             <button type="submit">EXPLORE</button>
           </div>
+          {query.trim() ? (
+            <div className="search-results" aria-label="Ranked search results">
+              <div className="search-results-head">
+                <span>{searchResults.length ? 'ranked by matched pings' : 'no strong pings yet'}</span>
+                <strong>{searchResults.length ? `${searchResults.length} results` : 'try a type, function, language, or safety term'}</strong>
+              </div>
+              {searchResults.map((result) => (
+                <button
+                  className="search-result"
+                  type="button"
+                  key={result.repo.id}
+                  style={{ '--repo-color': districtFor(result.repo).color } as CSSProperties}
+                  onClick={() => selectSearchResult(result)}
+                >
+                  <div className="search-result-main">
+                    <span>{result.repo.name}</span>
+                    <strong>{districtFor(result.repo).label} · {result.repo.language} · {result.repo.safetyScore}% safe</strong>
+                  </div>
+                  <div className="search-pings">
+                    {result.pings.map((ping) => (
+                      <i key={`${result.repo.id}-${ping.label}-${ping.detail}`}>
+                        {ping.label}: {ping.detail}
+                      </i>
+                    ))}
+                  </div>
+                  <b>{result.score}</b>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="filter-row" aria-label="City filters">
             {DISTRICTS.map((district) => (
               <button
@@ -1810,6 +2079,16 @@ export default function Home() {
               <i>
                 <b style={{ width: `${selectedRepo.safetyScore}%` }} />
               </i>
+            </div>
+
+            <div className="safety-reasons">
+              <span className="section-label">why this score</span>
+              {safetyReasons.map((reason) => (
+                <div className={`safety-reason ${reason.type}`} key={`${reason.type}-${reason.label}`}>
+                  <strong>{reason.label}</strong>
+                  <span>{reason.detail}</span>
+                </div>
+              ))}
             </div>
 
             <div className="repo-badges">
@@ -2130,6 +2409,7 @@ export default function Home() {
         .sift-page.is-day .mode-toggle,
         .sift-page.is-day .guide-button,
         .sift-page.is-day .glass-search,
+        .sift-page.is-day .search-results,
         .sift-page.is-day .filter-chip,
         .sift-page.is-day .repo-tooltip,
         .sift-page.is-day .repo-panel,
@@ -2255,6 +2535,121 @@ export default function Home() {
           font-weight: 700;
           letter-spacing: 0;
           cursor: pointer;
+        }
+
+        .search-results {
+          display: grid;
+          gap: 8px;
+          max-height: 292px;
+          padding: 10px;
+          border: 1px solid rgba(255,255,255,0.11);
+          border-radius: 18px;
+          background:
+            linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.024)),
+            rgba(4,9,20,0.62);
+          box-shadow: 0 18px 54px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.1);
+          backdrop-filter: blur(34px) saturate(190%);
+          -webkit-backdrop-filter: blur(34px) saturate(190%);
+          overflow-y: auto;
+        }
+
+        .search-results-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 2px 4px 4px;
+          font-family: "Space Mono", monospace;
+          letter-spacing: 0;
+        }
+
+        .search-results-head span {
+          color: rgba(255,255,255,0.46);
+          font-size: 9px;
+          text-transform: uppercase;
+        }
+
+        .search-results-head strong {
+          color: rgba(255,255,255,0.68);
+          font-size: 10px;
+          font-weight: 400;
+          text-align: right;
+        }
+
+        .search-result {
+          position: relative;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 8px;
+          width: 100%;
+          padding: 11px 46px 11px 12px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 13px;
+          background: rgba(255,255,255,0.035);
+          text-align: left;
+          cursor: pointer;
+          transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+        }
+
+        .search-result:hover {
+          transform: translateY(-1px);
+          border-color: color-mix(in srgb, var(--repo-color, #4f8cff), transparent 42%);
+          background: rgba(79,140,255,0.1);
+        }
+
+        .search-result-main {
+          display: grid;
+          gap: 3px;
+          min-width: 0;
+        }
+
+        .search-result-main span,
+        .search-result-main strong,
+        .search-pings i,
+        .search-result b {
+          font-family: "Space Mono", monospace;
+          letter-spacing: 0;
+        }
+
+        .search-result-main span {
+          color: var(--repo-color, #4f8cff);
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .search-result-main strong {
+          color: rgba(255,255,255,0.58);
+          font-size: 10px;
+          font-weight: 400;
+        }
+
+        .search-pings {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          min-width: 0;
+        }
+
+        .search-pings i {
+          max-width: 100%;
+          padding: 4px 7px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 999px;
+          color: rgba(255,255,255,0.5);
+          background: rgba(255,255,255,0.035);
+          font-size: 9px;
+          font-style: normal;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .search-result b {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          color: rgba(255,255,255,0.42);
+          font-size: 10px;
         }
 
         .filter-row {
@@ -2654,6 +3049,48 @@ export default function Home() {
           box-shadow: 0 0 20px var(--safe-color);
         }
 
+        .safety-reasons {
+          display: grid;
+          gap: 8px;
+          margin: 0 0 22px;
+        }
+
+        .safety-reason {
+          display: grid;
+          gap: 4px;
+          padding: 11px 12px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px;
+          background: rgba(255,255,255,0.035);
+        }
+
+        .safety-reason.positive {
+          border-color: rgba(52,211,153,0.2);
+          background: rgba(52,211,153,0.055);
+        }
+
+        .safety-reason.risk {
+          border-color: rgba(255,107,107,0.22);
+          background: rgba(255,107,107,0.052);
+        }
+
+        .safety-reason strong,
+        .safety-reason span {
+          font-family: "Space Mono", monospace;
+          letter-spacing: 0;
+        }
+
+        .safety-reason strong {
+          color: rgba(255,255,255,0.84);
+          font-size: 11px;
+        }
+
+        .safety-reason span {
+          color: rgba(255,255,255,0.48);
+          font-size: 10px;
+          line-height: 1.55;
+        }
+
         .repo-badges {
           display: flex;
           flex-wrap: wrap;
@@ -2874,6 +3311,21 @@ export default function Home() {
 
           .glass-search button {
             width: 100%;
+          }
+
+          .search-results {
+            max-height: 190px;
+            padding: 8px;
+          }
+
+          .search-results-head {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 3px;
+          }
+
+          .search-result {
+            padding-right: 40px;
           }
 
           .stat-bar {
