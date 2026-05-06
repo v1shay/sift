@@ -22,9 +22,21 @@ type SearchResult = {
 };
 
 type SafetyReason = {
-  type: 'positive' | 'risk';
+  type: 'positive' | 'risk' | 'unknown';
   label: string;
   detail: string;
+  weight: number;
+  awardedPoints: number;
+};
+
+type SafetyProfile = {
+  score: number;
+  status: 'green' | 'amber' | 'red';
+  color: string;
+  breakdown: SafetyReason[];
+  reasons: SafetyReason[];
+  unknowns: string[];
+  maxScore: number;
 };
 
 type District = {
@@ -63,6 +75,15 @@ type Repo = {
   responseHours: number;
   topics: string[];
   prs: PullRequest[];
+  ownershipDocs?: boolean;
+  requiredReviews?: boolean;
+  contributionGuide?: boolean;
+  issueTemplates?: boolean;
+  smallScopedIssues?: boolean;
+  license?: string;
+  hasTests?: boolean;
+  manageableLocalDev?: boolean;
+  safetyProfile?: SafetyProfile;
 };
 
 type BuildingObject = {
@@ -120,6 +141,150 @@ const DISTRICTS: District[] = [
   { key: 'devtools', label: 'DevTools', color: '#34d399', accent: '#8ff5ca', x: 30, z: 11, shape: 'wide' },
   { key: 'infra', label: 'Infra', color: '#fbbf24', accent: '#ffe08a', x: 55, z: -7, shape: 'blocks' },
 ];
+
+const SAFETY_GREEN_THRESHOLD = 75;
+const SAFETY_AMBER_THRESHOLD = 60;
+const SAFETY_MAX_SCORE = 100;
+const SAFETY_WEIGHTS = {
+  verifiedMaintainers: 12,
+  recentMaintainerActivity: 5,
+  clearOwnershipDocs: 3,
+  branchProtection: 10,
+  requiredReviews: 6,
+  signedReleases: 4,
+  goodFirstIssues: 8,
+  contributionGuide: 5,
+  templatesAndLabels: 4,
+  smallScopedIssues: 3,
+  responseTime: 8,
+  recentCommitsOrReleases: 4,
+  prCadence: 3,
+  lowVisibleRisk: 5,
+  licensePresent: 3,
+  descriptionQuality: 3,
+  noSuspiciousMetadata: 4,
+  clearLanguageAndBuild: 4,
+  testInstructions: 3,
+  manageableLocalDev: 3,
+};
+
+const SUSPICIOUS_TERMS = [
+  'paste your token',
+  'paste token',
+  'disable antivirus',
+  'curl | sh',
+  'private key',
+  'seed phrase',
+  'wallet',
+  'airdrop',
+  'free crypto',
+  'download binary',
+  'run as administrator',
+];
+
+function isGreenSafety(score: number) {
+  return score > SAFETY_GREEN_THRESHOLD;
+}
+
+function safetyStatus(score: number): SafetyProfile['status'] {
+  if (isGreenSafety(score)) return 'green';
+  if (score >= SAFETY_AMBER_THRESHOLD) return 'amber';
+  return 'red';
+}
+
+function hasSuspiciousMetadata(repo: Repo) {
+  const text = `${repo.name} ${repo.owner} ${repo.description} ${repo.topics.join(' ')}`.toLowerCase();
+  return SUSPICIOUS_TERMS.some((term) => text.includes(term));
+}
+
+function safetyType(points: number, weight: number): SafetyReason['type'] {
+  return points >= weight * 0.5 ? 'positive' : 'risk';
+}
+
+function buildRepoSafetyProfile(repo: Repo): SafetyProfile {
+  const breakdown: SafetyReason[] = [];
+  const unknowns: string[] = [];
+
+  const add = (label: string, detail: string, weight: number, awardedPoints: number, unknown = false) => {
+    const points = unknown ? 0 : clamp(awardedPoints, 0, weight);
+    if (unknown) unknowns.push(label);
+    breakdown.push({
+      label,
+      detail,
+      weight,
+      awardedPoints: points,
+      type: unknown ? 'unknown' : safetyType(points, weight),
+    });
+  };
+
+  const suspicious = hasSuspiciousMetadata(repo);
+  const recentActivity = repo.commitsPerWeek > 0;
+  const hasTemplates = repo.issueTemplates ?? repo.topics.some((topic) => ['good-first-issue', 'help-wanted', 'documentation'].includes(topic.toLowerCase()));
+  const hasSmallIssues = repo.smallScopedIssues ?? repo.goodFirstIssues > 0;
+  const manageableLocalDev = repo.manageableLocalDev ?? repo.contributors <= 4500;
+  const hasRequiredReviews = repo.requiredReviews ?? repo.branchProtection;
+
+  add('Verified maintainers', repo.verifiedMaintainers ? 'Maintainer ownership is clear.' : 'Maintainer ownership is unclear.', SAFETY_WEIGHTS.verifiedMaintainers, repo.verifiedMaintainers ? 12 : 0);
+  add('Recent maintainer activity', recentActivity ? 'Recent commits indicate active stewardship.' : 'Recent maintainer activity is sparse.', SAFETY_WEIGHTS.recentMaintainerActivity, recentActivity ? 5 : 0);
+  add('Clear ownership docs', repo.ownershipDocs ? 'Ownership or governance docs are visible.' : 'Ownership docs are missing from current demo data.', SAFETY_WEIGHTS.clearOwnershipDocs, repo.ownershipDocs ? 3 : 0, repo.ownershipDocs === undefined);
+  add('Protected default branch', repo.branchProtection ? 'Default branch changes are gated.' : 'Default branch protection is missing.', SAFETY_WEIGHTS.branchProtection, repo.branchProtection ? 10 : 0);
+  add('Required reviews or checks', hasRequiredReviews ? 'Reviews or status checks reduce unsafe merges.' : 'Required reviews or checks are missing.', SAFETY_WEIGHTS.requiredReviews, hasRequiredReviews ? 6 : 0);
+  add('Signed releases', repo.signedReleases ? 'Release artifacts have provenance signals.' : 'Release signing is missing or unavailable.', SAFETY_WEIGHTS.signedReleases, repo.signedReleases ? 4 : 0);
+  add('Good-first issues', repo.goodFirstIssues > 0 ? `${repo.goodFirstIssues} good-first issues are visible.` : 'No good-first issues are visible.', SAFETY_WEIGHTS.goodFirstIssues, repo.goodFirstIssues > 0 ? 8 : 0);
+  add('Contribution guide', repo.contributionGuide ? 'Contribution instructions are available.' : 'Contribution instructions are missing from current demo data.', SAFETY_WEIGHTS.contributionGuide, repo.contributionGuide ? 5 : 0, repo.contributionGuide === undefined);
+  add('Templates and labels', hasTemplates ? 'Issue labels or templates guide new contributors.' : 'Contributor labels/templates are not visible.', SAFETY_WEIGHTS.templatesAndLabels, hasTemplates ? 4 : 0);
+  add('Small scoped issues', hasSmallIssues ? 'Starter work appears scoped.' : 'Starter work may be hard to scope.', SAFETY_WEIGHTS.smallScopedIssues, hasSmallIssues ? 3 : 0);
+  add('Maintainer response time', repo.responseHours <= 24 ? `Typical response is around ${repo.responseHours} hours.` : `Typical response is around ${repo.responseHours} hours, so feedback may be slow.`, SAFETY_WEIGHTS.responseTime, repo.responseHours <= 24 ? 8 : repo.responseHours <= 72 ? 5 : 1);
+  add('Recent commits or releases', recentActivity ? 'Recent activity suggests the repo is alive.' : 'Recent commits/releases are sparse.', SAFETY_WEIGHTS.recentCommitsOrReleases, recentActivity ? 4 : 0);
+  add('PR review cadence', repo.openPRs > 0 ? 'Open PR activity is visible.' : 'PR activity is not visible.', SAFETY_WEIGHTS.prCadence, repo.openPRs > 0 ? 3 : 0);
+  add('Low visible metadata risk', suspicious ? 'Metadata contains suspicious contribution language.' : 'Metadata avoids obvious contribution traps.', SAFETY_WEIGHTS.lowVisibleRisk, suspicious ? 0 : 5);
+  add('License present', repo.license ? 'A license is visible.' : 'License metadata is missing from current demo data.', SAFETY_WEIGHTS.licensePresent, repo.license ? 3 : 0, repo.license === undefined);
+  add('Readable project description', repo.description.length >= 40 ? 'Description gives enough context to judge fit.' : 'Description is too thin to judge fit confidently.', SAFETY_WEIGHTS.descriptionQuality, repo.description.length >= 40 ? 3 : 0);
+  add('No suspicious links or binaries', suspicious ? 'Suspicious links, binaries, or secret requests need review.' : 'No obvious unsafe links, binaries, or secret requests were detected.', SAFETY_WEIGHTS.noSuspiciousMetadata, suspicious ? 0 : 4);
+  add('Clear language/build setup', repo.language ? `${repo.language} stack is visible.` : 'Language/build setup is missing.', SAFETY_WEIGHTS.clearLanguageAndBuild, repo.language ? 4 : 0);
+  add('Test instructions', repo.hasTests ? 'Test instructions are visible.' : 'Test instructions are missing from current demo data.', SAFETY_WEIGHTS.testInstructions, repo.hasTests ? 3 : 0, repo.hasTests === undefined);
+  add('Manageable local development', manageableLocalDev ? 'Local setup appears manageable.' : 'Local development may be heavy for a first contribution.', SAFETY_WEIGHTS.manageableLocalDev, manageableLocalDev ? 3 : 0);
+
+  const score = Math.round(breakdown.reduce((total, item) => total + item.awardedPoints, 0));
+  const status = safetyStatus(score);
+  const reasons = [...breakdown]
+    .sort((a, b) => {
+      if (a.type !== b.type) {
+        const order = { risk: 0, unknown: 1, positive: 2 };
+        return order[a.type] - order[b.type];
+      }
+      return b.weight - a.weight;
+    })
+    .slice(0, 8);
+
+  return {
+    score,
+    status,
+    color: colorForSafety(score),
+    breakdown,
+    reasons,
+    unknowns,
+    maxScore: SAFETY_MAX_SCORE,
+  };
+}
+
+function enrichRepoSafety(repo: Repo): Repo {
+  const safetyProfile = buildRepoSafetyProfile(repo);
+  return {
+    ...repo,
+    safetyScore: safetyProfile.score,
+    safetyProfile,
+  };
+}
+
+function applySafetyProfile(repo: Repo, safetyProfile?: SafetyProfile): Repo {
+  if (!safetyProfile) return repo;
+  return {
+    ...repo,
+    safetyScore: safetyProfile.score,
+    safetyProfile,
+  };
+}
 
 const REPOS: Repo[] = [
   {
@@ -747,7 +912,7 @@ const REPOS: Repo[] = [
       { number: 6699, title: 'repair exporter timeout fixture', priority: 'quiet' },
     ],
   },
-];
+].map(enrichRepoSafety);
 
 const ROAD_PAIRS: Array<[string, string, number, string]> = [
   ['linux', 'kubernetes', 9041, 'kernel primitives for orchestration'],
@@ -876,8 +1041,8 @@ function districtFor(repo: Repo) {
 }
 
 function colorForSafety(score: number) {
-  if (score > 75) return '#34d399';
-  if (score >= 60) return '#fbbf24';
+  if (isGreenSafety(score)) return '#34d399';
+  if (score >= SAFETY_AMBER_THRESHOLD) return '#fbbf24';
   return '#ff6b6b';
 }
 
@@ -895,57 +1060,7 @@ function includesAny(haystack: string, terms: string[]) {
 }
 
 function getSafetyReasons(repo: Repo): SafetyReason[] {
-  const reasons: SafetyReason[] = [];
-
-  if (repo.safetyScore > 75) {
-    reasons.push({
-      type: 'positive',
-      label: 'Green contribution score',
-      detail: `At ${repo.safetyScore}%, this clears the 75% safety threshold for a generally healthy first contribution path.`,
-    });
-  } else {
-    reasons.push({
-      type: 'risk',
-      label: 'Below green threshold',
-      detail: `At ${repo.safetyScore}%, this needs extra caution before contributing because it misses the 75% green threshold.`,
-    });
-  }
-
-  if (repo.verifiedMaintainers) {
-    reasons.push({ type: 'positive', label: 'Verified maintainers', detail: 'Maintainer ownership is clear, which reduces spoofing and abandoned-review risk.' });
-  } else {
-    reasons.push({ type: 'risk', label: 'Maintainer uncertainty', detail: 'Maintainer ownership is unclear, so review authority may be harder to trust.' });
-  }
-
-  if (repo.branchProtection) {
-    reasons.push({ type: 'positive', label: 'Protected branches', detail: 'Direct pushes are gated, so malicious or accidental changes are less likely to land unchecked.' });
-  } else {
-    reasons.push({ type: 'risk', label: 'Loose branch controls', detail: 'Branch protection is missing, so contribution review discipline matters more.' });
-  }
-
-  if (repo.signedReleases) {
-    reasons.push({ type: 'positive', label: 'Signed releases', detail: 'Release artifacts have stronger provenance signals.' });
-  } else {
-    reasons.push({ type: 'risk', label: 'Unsigned releases', detail: 'Release provenance is weaker, so verify install paths and maintainers before trusting artifacts.' });
-  }
-
-  if (repo.responseHours <= 18) {
-    reasons.push({ type: 'positive', label: 'Fast maintainer response', detail: `Typical response is around ${repo.responseHours} hours, so PR feedback should not stall for long.` });
-  } else if (repo.responseHours <= 30) {
-    reasons.push({ type: 'positive', label: 'Moderate response time', detail: `Typical response is around ${repo.responseHours} hours, which is workable for small PRs.` });
-  } else {
-    reasons.push({ type: 'risk', label: 'Slow review loop', detail: `Typical response is around ${repo.responseHours} hours, so first contributions may take longer to validate.` });
-  }
-
-  if (repo.goodFirstIssues >= 25) {
-    reasons.push({ type: 'positive', label: 'Beginner-friendly queue', detail: `${repo.goodFirstIssues} good-first issues give new contributors a safer starting surface.` });
-  } else if (repo.goodFirstIssues >= 10) {
-    reasons.push({ type: 'positive', label: 'Some starter issues', detail: `${repo.goodFirstIssues} good-first issues are available, but pick narrowly scoped changes.` });
-  } else {
-    reasons.push({ type: 'risk', label: 'Few starter issues', detail: `Only ${repo.goodFirstIssues} good-first issues are visible, so contribution fit may be harder to judge.` });
-  }
-
-  return reasons;
+  return repo.safetyProfile?.reasons ?? buildRepoSafetyProfile(repo).reasons;
 }
 
 function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
@@ -1015,7 +1130,7 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
       details.push(repo.language);
     }
     if (alias.label === 'beginner contribution') {
-      weight += repo.safetyScore > 75 ? 42 : 12;
+      weight += isGreenSafety(repo.safetyScore) ? 42 : 12;
       weight += Math.min(36, repo.goodFirstIssues);
       details.push(`${repo.safetyScore}% safe, ${repo.goodFirstIssues} good-first issues`);
     }
@@ -1023,7 +1138,8 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   });
 
   if (includesAny(cleanQuery, ['safe', 'trusted', 'secure', 'beginner', 'contribute', 'good first'])) {
-    addPing('safety', `${repo.safetyScore}% safe with ${repo.goodFirstIssues} good-first issues`, Math.round(repo.safetyScore * 0.72 + repo.goodFirstIssues * 0.35));
+    const topReason = repo.safetyProfile?.reasons[0]?.label ?? `${repo.goodFirstIssues} good-first issues`;
+    addPing('safety', `${repo.safetyScore}% contribution-ready · ${topReason}`, Math.round(repo.safetyScore * 0.72 + repo.goodFirstIssues * 0.35));
   }
 
   if (includesAny(cleanQuery, ['popular', 'stars', 'big', 'famous'])) {
@@ -1044,8 +1160,8 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   };
 }
 
-function searchRepos(query: string) {
-  return REPOS.map((repo) => scoreSearchResult(repo, query))
+function searchRepos(query: string, repos: Repo[] = REPOS) {
+  return repos.map((repo) => scoreSearchResult(repo, query))
     .filter((result): result is SearchResult => Boolean(result))
     .sort((a, b) => b.score - a.score || b.repo.safetyScore - a.repo.safetyScore || b.repo.stars - a.repo.stars)
     .slice(0, 6);
@@ -1432,7 +1548,7 @@ function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: Fil
       filter === 'all' ||
       building.repo.district === filter ||
       (filter === 'stars' && building.repo.stars >= 10000) ||
-      (filter === 'safe' && building.repo.safetyScore >= 85);
+      (filter === 'safe' && isGreenSafety(building.repo.safetyScore));
     const opacity = active ? 1 : 0.22;
     building.body.material.opacity = opacity;
     building.body.material.transparent = opacity < 1;
@@ -1446,12 +1562,12 @@ function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: Fil
       filter === 'all' ||
       road.source.district === filter ||
       (filter === 'stars' && road.source.stars >= 10000) ||
-      (filter === 'safe' && road.source.safetyScore >= 85);
+      (filter === 'safe' && isGreenSafety(road.source.safetyScore));
     const targetActive =
       filter === 'all' ||
       road.target.district === filter ||
       (filter === 'stars' && road.target.stars >= 10000) ||
-      (filter === 'safe' && road.target.safetyScore >= 85);
+      (filter === 'safe' && isGreenSafety(road.target.safetyScore));
     road.mesh.material.opacity = sourceActive || targetActive ? 0.5 : 0.08;
     road.label.material.opacity = sourceActive || targetActive ? 0.68 : 0.1;
     road.cars.forEach((car) => {
@@ -1492,14 +1608,19 @@ export default function Home() {
   const [hoveredRepo, setHoveredRepo] = useState<Repo | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [stats, setStats] = useState({ repos: 0, prs: 0, safe: 0 });
+  const [safetyProfiles, setSafetyProfiles] = useState<Record<string, SafetyProfile>>({});
+
+  const effectiveRepos = useMemo(() => {
+    return REPOS.map((repo) => applySafetyProfile(repo, safetyProfiles[repo.id] ?? repo.safetyProfile));
+  }, [safetyProfiles]);
 
   const reposByDistrict = useMemo(() => {
     return DISTRICTS.map((district) => ({
       district,
-      repos: REPOS.filter((repo) => repo.district === district.key),
+      repos: effectiveRepos.filter((repo) => repo.district === district.key),
     }));
-  }, []);
-  const searchResults = useMemo(() => searchRepos(query), [query]);
+  }, [effectiveRepos]);
+  const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
 
   useEffect(() => {
@@ -1526,6 +1647,39 @@ export default function Home() {
   useEffect(() => {
     hoverRef.current = hoveredRepo;
   }, [hoveredRepo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/py/safety-score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repos: REPOS }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Safety scoring failed with ${response.status}`);
+        return response.json();
+      })
+      .then((payload: { profiles?: Record<string, SafetyProfile> }) => {
+        if (!cancelled && payload.profiles) {
+          setSafetyProfiles(payload.profiles);
+        }
+      })
+      .catch((error) => {
+        console.warn('[Safety scoring] Using local fallback formula:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedRepo) return;
+    const updated = effectiveRepos.find((repo) => repo.id === selectedRepo.id);
+    if (updated && updated.safetyScore !== selectedRepo.safetyScore) {
+      setSelectedRepo(updated);
+    }
+  }, [effectiveRepos, selectedRepo]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -1771,13 +1925,13 @@ export default function Home() {
     if (!entered) return undefined;
     const started = performance.now();
     let frame = 0;
-    const safeRepos = REPOS.filter((repo) => repo.safetyScore >= 85).length;
+    const safeRepos = effectiveRepos.filter((repo) => isGreenSafety(repo.safetyScore)).length;
 
     const tick = () => {
       const progress = easeOutCubic((performance.now() - started) / 1600);
       setStats({
-        repos: Math.round(REPOS.length * progress),
-        prs: Math.round(REPOS.reduce((total, repo) => total + repo.openPRs, 0) * progress),
+        repos: Math.round(effectiveRepos.length * progress),
+        prs: Math.round(effectiveRepos.reduce((total, repo) => total + repo.openPRs, 0) * progress),
         safe: Math.round(safeRepos * progress),
       });
       if (progress < 1) frame = requestAnimationFrame(tick);
@@ -1785,7 +1939,7 @@ export default function Home() {
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [entered]);
+  }, [entered, effectiveRepos]);
 
   const handleEnter = () => {
     setEntered(true);
@@ -2073,7 +2227,7 @@ export default function Home() {
 
             <div className="safe-score">
               <div>
-                <span>safe to contribute</span>
+                <span>{selectedRepo.safetyProfile?.status ?? safetyStatus(selectedRepo.safetyScore)} contribution readiness</span>
                 <strong>{selectedRepo.safetyScore}%</strong>
               </div>
               <i>
@@ -2085,7 +2239,7 @@ export default function Home() {
               <span className="section-label">why this score</span>
               {safetyReasons.map((reason) => (
                 <div className={`safety-reason ${reason.type}`} key={`${reason.type}-${reason.label}`}>
-                  <strong>{reason.label}</strong>
+                  <strong>{reason.label} <b>{reason.awardedPoints}/{reason.weight}</b></strong>
                   <span>{reason.detail}</span>
                 </div>
               ))}
@@ -3074,6 +3228,11 @@ export default function Home() {
           background: rgba(255,107,107,0.052);
         }
 
+        .safety-reason.unknown {
+          border-color: rgba(251,191,36,0.2);
+          background: rgba(251,191,36,0.05);
+        }
+
         .safety-reason strong,
         .safety-reason span {
           font-family: "Space Mono", monospace;
@@ -3081,8 +3240,18 @@ export default function Home() {
         }
 
         .safety-reason strong {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
           color: rgba(255,255,255,0.84);
           font-size: 11px;
+        }
+
+        .safety-reason strong b {
+          color: var(--safe-color);
+          font-weight: 400;
+          white-space: nowrap;
         }
 
         .safety-reason span {

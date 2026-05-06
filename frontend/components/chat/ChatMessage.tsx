@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { ReactNode } from 'react';
 import { User, Bot } from 'lucide-react';
 
 interface ChatMessageProps {
@@ -37,39 +37,117 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content }) => {
         {isUser ? (
           <p>{content}</p>
         ) : (
-          <div
-            className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0"
-            dangerouslySetInnerHTML={{ __html: simpleMarkdown(content) }}
-          />
+          <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0">
+            {renderMarkdown(content)}
+          </div>
         )}
       </div>
     </div>
   );
 };
 
+function isSafeHref(href: string) {
+  try {
+    const parsed = new URL(href);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+function renderInline(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(\[([^\]]+)\]\(([^)\s]+)\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[2]) {
+      nodes.push(<strong key={`${keyPrefix}-strong-${match.index}`}>{match[2]}</strong>);
+    } else if (match[4]) {
+      nodes.push(<em key={`${keyPrefix}-em-${match.index}`}>{match[4]}</em>);
+    } else if (match[6] && match[7]) {
+      const href = match[7];
+      if (isSafeHref(href)) {
+        nodes.push(
+          <a
+            key={`${keyPrefix}-link-${match.index}`}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer nofollow ugc"
+            className="text-violet-400 hover:text-violet-300 underline"
+          >
+            {match[6]}
+          </a>,
+        );
+      } else {
+        nodes.push(match[6]);
+      }
+    }
+
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function flushList(items: string[], blockKey: string, blocks: ReactNode[]) {
+  if (!items.length) return;
+  blocks.push(
+    <ul key={blockKey}>
+      {items.map((item, index) => (
+        <li key={`${blockKey}-item-${index}`}>{renderInline(item, `${blockKey}-${index}`)}</li>
+      ))}
+    </ul>,
+  );
+  items.length = 0;
+}
+
 /**
- * Minimal markdown → HTML conversion for assistant messages.
- * Handles bold, italic, headers, links, and lists.
+ * Minimal safe markdown renderer for assistant messages.
+ * React escapes text nodes, and links are restricted to http/https.
  */
-function simpleMarkdown(text: string): string {
-  return text
-    // Headers
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-violet-400 hover:text-violet-300 underline">$1</a>')
-    // Unordered list items
-    .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
-    // Wrap consecutive <li> in <ul>
-    .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
-    // Line breaks
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br/>');
+function renderMarkdown(text: string): ReactNode[] {
+  const blocks: ReactNode[] = [];
+  const listItems: string[] = [];
+  const lines = text.split('\n');
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushList(listItems, `list-${index}`, blocks);
+      return;
+    }
+
+    const listMatch = /^[-•]\s+(.+)$/.exec(trimmed);
+    if (listMatch) {
+      listItems.push(listMatch[1]);
+      return;
+    }
+
+    flushList(listItems, `list-${index}`, blocks);
+
+    if (trimmed.startsWith('### ')) {
+      blocks.push(<h3 key={`h3-${index}`}>{renderInline(trimmed.slice(4), `h3-${index}`)}</h3>);
+    } else if (trimmed.startsWith('## ')) {
+      blocks.push(<h2 key={`h2-${index}`}>{renderInline(trimmed.slice(3), `h2-${index}`)}</h2>);
+    } else if (trimmed.startsWith('# ')) {
+      blocks.push(<h1 key={`h1-${index}`}>{renderInline(trimmed.slice(2), `h1-${index}`)}</h1>);
+    } else {
+      blocks.push(<p key={`p-${index}`}>{renderInline(trimmed, `p-${index}`)}</p>);
+    }
+  });
+
+  flushList(listItems, 'list-final', blocks);
+  return blocks;
 }
 
 export default ChatMessage;

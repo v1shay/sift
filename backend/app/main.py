@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from math import sqrt
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.db.session import SessionLocal
 from app.db.models.project import Project, Topic
@@ -14,6 +14,7 @@ from app.db.models.user import User
 from app.services.search_pipeline.orchestrator import orchestrate_search
 from app.services.llm.query_parser import LLMConfigurationError, LLMQueryError
 from app.services.github.pull_requests import GitHubPullRequestFetcher
+from app.services.ranking.score import calculate_weighted_safety_score, score_project_safety
 
 app = FastAPI(title="Sift Graph Backend")
 
@@ -79,6 +80,7 @@ def owner_login(project: Project) -> str:
 
 
 def repo_node(project: Project, muted: bool = False) -> Dict:
+    safety_profile = score_project_safety(project)
     return {
         "id": f"repo_{project.id}",
         "name": project.full_name,
@@ -93,6 +95,11 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "owner": owner_login(project),
         "topics": [topic.name for topic in project.topics[:8]],
         "url": project.url,
+        "safetyScore": safety_profile["score"],
+        "safetyStatus": safety_profile["status"],
+        "safetyReasons": safety_profile["reasons"],
+        "safetyBreakdown": safety_profile["breakdown"],
+        "safetyUnknowns": safety_profile["unknowns"],
     }
 
 
@@ -192,6 +199,10 @@ class SearchRequest(BaseModel):
 class PullRequestFlowRequest(BaseModel):
     repoIds: List[int] = Field(default_factory=list, max_length=100)
     days: int = Field(default=30, ge=1, le=365)
+
+
+class SafetyScoreRequest(BaseModel):
+    repos: List[Dict[str, Any]] = Field(default_factory=list, max_length=250)
 
 @app.post("/api/py/graph-search")
 async def graph_search(req: SearchRequest):
@@ -361,6 +372,17 @@ async def get_pull_request_flow(req: PullRequestFlowRequest):
         }
     finally:
         db.close()
+
+
+@app.post("/api/py/safety-score")
+def get_safety_scores(req: SafetyScoreRequest):
+    profiles = {}
+    for repo in req.repos:
+        repo_id = repo.get("id") or repo.get("fullName") or repo.get("full_name") or repo.get("name")
+        if not repo_id:
+            continue
+        profiles[str(repo_id)] = calculate_weighted_safety_score(repo)
+    return {"profiles": profiles}
 
 
 @app.get("/api/py/graph-facets")

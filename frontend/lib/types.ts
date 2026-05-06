@@ -150,6 +150,25 @@ export interface GraphNode {
   topics?: string[];
   repoCount?: number;
   url?: string;
+  safetyScore?: number;
+  safetyStatus?: 'green' | 'amber' | 'red' | string;
+  safetyReasons?: Array<{
+    label: string;
+    detail: string;
+    type: 'positive' | 'risk' | 'unknown' | string;
+    weight: number;
+    awardedPoints: number;
+  }>;
+  safetyBreakdown?: Array<{
+    category?: string;
+    key?: string;
+    label: string;
+    detail: string;
+    type: 'positive' | 'risk' | 'unknown' | string;
+    weight: number;
+    awardedPoints: number;
+  }>;
+  safetyUnknowns?: string[];
 }
 
 export interface GraphLink {
