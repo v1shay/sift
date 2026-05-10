@@ -1,12 +1,6 @@
 <div align="center">
-
-# sift
-
-### Your next PR starts here
-
-
-<img width="2550" height="1172" alt="sift demo" src="https://github.com/user-attachments/assets/ee084c75-30b9-4113-9907-7940fb784de5" />
-
+  
+<img width="800" height="450" alt="Adobe Express - Screen Recording 2026-05-08 at 7 23 24 PM" src="https://github.com/user-attachments/assets/bd1507ee-ed06-45cc-8522-4b15c4108815" />
 
 
 ---
