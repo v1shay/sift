@@ -48,7 +48,7 @@ sift/
 ## Install
 
 ```bash
-git clone https://github.com/your-username/sift.git
+git clone https://github.com/v1shay/sift.git
 cd sift
 npm install
 npm run dev
