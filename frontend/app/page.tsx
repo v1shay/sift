@@ -49,6 +49,33 @@ type District = {
   shape: 'spires' | 'glass' | 'clusters' | 'wide' | 'blocks';
 };
 
+type BuildingStyleKey =
+  | 'kernel-spire'
+  | 'orchestrator-core'
+  | 'runtime-stack'
+  | 'framework-glass'
+  | 'compiler-lattice'
+  | 'ai-lab'
+  | 'model-serving'
+  | 'tool-forge'
+  | 'editor-megablock'
+  | 'testing-rig'
+  | 'infra-plant'
+  | 'observability-array'
+  | 'data-vault';
+
+type BuildingStyle = {
+  key: BuildingStyleKey;
+  label: string;
+  heightBias: number;
+  widthBias: number;
+  depthBias: number;
+  roof: 'spire' | 'cap' | 'dish' | 'dome' | 'deck' | 'mast';
+  geometry: 'box' | 'cylinder' | 'hex' | 'octagon';
+  bodyColor: string;
+  windowDensity: number;
+};
+
 type PullRequest = {
   number: number;
   title: string;
@@ -89,12 +116,15 @@ type Repo = {
 type BuildingObject = {
   repo: Repo;
   district: District;
+  style: BuildingStyle;
   group: THREE.Group;
-  body: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
-  top: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+  body: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  top: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   windows: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   beacon: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
+  details: THREE.Object3D[];
+  animatedParts: THREE.Object3D[];
   position: THREE.Vector3;
   height: number;
   width: number;
@@ -1040,6 +1070,182 @@ function districtFor(repo: Repo) {
   return DISTRICTS.find((district) => district.key === repo.district) ?? DISTRICTS[0];
 }
 
+const BUILDING_STYLES: Record<BuildingStyleKey, BuildingStyle> = {
+  'kernel-spire': {
+    key: 'kernel-spire',
+    label: 'systems spire',
+    heightBias: 1.32,
+    widthBias: 0.82,
+    depthBias: 0.92,
+    roof: 'spire',
+    geometry: 'hex',
+    bodyColor: '#101923',
+    windowDensity: 0.82,
+  },
+  'orchestrator-core': {
+    key: 'orchestrator-core',
+    label: 'orchestrator core',
+    heightBias: 1.14,
+    widthBias: 1.18,
+    depthBias: 1.18,
+    roof: 'mast',
+    geometry: 'octagon',
+    bodyColor: '#0d1722',
+    windowDensity: 0.72,
+  },
+  'runtime-stack': {
+    key: 'runtime-stack',
+    label: 'runtime stack',
+    heightBias: 1.05,
+    widthBias: 0.98,
+    depthBias: 1.02,
+    roof: 'cap',
+    geometry: 'box',
+    bodyColor: '#0b1822',
+    windowDensity: 0.68,
+  },
+  'framework-glass': {
+    key: 'framework-glass',
+    label: 'framework glass',
+    heightBias: 1.18,
+    widthBias: 0.86,
+    depthBias: 1,
+    roof: 'deck',
+    geometry: 'box',
+    bodyColor: '#081827',
+    windowDensity: 0.9,
+  },
+  'compiler-lattice': {
+    key: 'compiler-lattice',
+    label: 'compiler lattice',
+    heightBias: 1.04,
+    widthBias: 0.94,
+    depthBias: 0.96,
+    roof: 'spire',
+    geometry: 'hex',
+    bodyColor: '#101622',
+    windowDensity: 0.62,
+  },
+  'ai-lab': {
+    key: 'ai-lab',
+    label: 'ai lab',
+    heightBias: 1.02,
+    widthBias: 1.06,
+    depthBias: 1.06,
+    roof: 'dome',
+    geometry: 'cylinder',
+    bodyColor: '#15142a',
+    windowDensity: 0.74,
+  },
+  'model-serving': {
+    key: 'model-serving',
+    label: 'serving tower',
+    heightBias: 1.18,
+    widthBias: 0.98,
+    depthBias: 1.08,
+    roof: 'mast',
+    geometry: 'octagon',
+    bodyColor: '#11182a',
+    windowDensity: 0.8,
+  },
+  'tool-forge': {
+    key: 'tool-forge',
+    label: 'tool forge',
+    heightBias: 0.82,
+    widthBias: 1.36,
+    depthBias: 1.06,
+    roof: 'deck',
+    geometry: 'box',
+    bodyColor: '#0c1d1a',
+    windowDensity: 0.58,
+  },
+  'editor-megablock': {
+    key: 'editor-megablock',
+    label: 'editor megablock',
+    heightBias: 0.96,
+    widthBias: 1.48,
+    depthBias: 1.18,
+    roof: 'cap',
+    geometry: 'box',
+    bodyColor: '#0e1a22',
+    windowDensity: 0.7,
+  },
+  'testing-rig': {
+    key: 'testing-rig',
+    label: 'testing rig',
+    heightBias: 0.92,
+    widthBias: 1.18,
+    depthBias: 1.14,
+    roof: 'mast',
+    geometry: 'box',
+    bodyColor: '#111a1d',
+    windowDensity: 0.66,
+  },
+  'infra-plant': {
+    key: 'infra-plant',
+    label: 'infra plant',
+    heightBias: 0.72,
+    widthBias: 1.55,
+    depthBias: 1.42,
+    roof: 'dish',
+    geometry: 'box',
+    bodyColor: '#1a1720',
+    windowDensity: 0.48,
+  },
+  'observability-array': {
+    key: 'observability-array',
+    label: 'observability array',
+    heightBias: 0.9,
+    widthBias: 1.32,
+    depthBias: 1.24,
+    roof: 'dish',
+    geometry: 'octagon',
+    bodyColor: '#151822',
+    windowDensity: 0.82,
+  },
+  'data-vault': {
+    key: 'data-vault',
+    label: 'data vault',
+    heightBias: 0.88,
+    widthBias: 1.22,
+    depthBias: 1.34,
+    roof: 'dome',
+    geometry: 'cylinder',
+    bodyColor: '#17151b',
+    windowDensity: 0.54,
+  },
+};
+
+function repoHas(repo: Repo, terms: string[]) {
+  const text = `${repo.id} ${repo.name} ${repo.owner} ${repo.language} ${repo.description} ${repo.topics.join(' ')}`.toLowerCase();
+  return terms.some((term) => text.includes(term));
+}
+
+function buildingStyleFor(repo: Repo): BuildingStyle {
+  if (repoHas(repo, ['kernel', 'linux', 'systems'])) return BUILDING_STYLES['kernel-spire'];
+  if (repoHas(repo, ['kubernetes', 'orchestration', 'containers'])) return BUILDING_STYLES['orchestrator-core'];
+  if (repoHas(repo, ['runtime', 'deno', 'tokio', 'server-components'])) return BUILDING_STYLES['runtime-stack'];
+  if (repoHas(repo, ['framework', 'react', 'frontend', 'ui', 'css', 'svelte', 'next.js', 'tailwind'])) return BUILDING_STYLES['framework-glass'];
+  if (repoHas(repo, ['compiler', 'language', 'parser'])) return BUILDING_STYLES['compiler-lattice'];
+  if (repoHas(repo, ['serving', 'inference', 'gpu', 'local-llm', 'quantization'])) return BUILDING_STYLES['model-serving'];
+  if (repo.district === 'ai' || repoHas(repo, ['llm', 'models', 'ml', 'nlp', 'tensor', 'agents', 'rag'])) return BUILDING_STYLES['ai-lab'];
+  if (repoHas(repo, ['editor', 'extensions', 'vscode'])) return BUILDING_STYLES['editor-megablock'];
+  if (repoHas(repo, ['testing', 'browser', 'automation', 'playwright'])) return BUILDING_STYLES['testing-rig'];
+  if (repoHas(repo, ['monitoring', 'observability', 'metrics', 'tracing', 'dashboards', 'visualization'])) return BUILDING_STYLES['observability-array'];
+  if (repoHas(repo, ['database', 'cache', 'redis'])) return BUILDING_STYLES['data-vault'];
+  if (repo.district === 'infra' || repoHas(repo, ['cloud', 'iac', 'server', 'proxy', 'providers'])) return BUILDING_STYLES['infra-plant'];
+  return repo.district === 'devtools' ? BUILDING_STYLES['tool-forge'] : BUILDING_STYLES['runtime-stack'];
+}
+
+function repoScale(repo: Repo) {
+  const stars = clamp((Math.log10(repo.stars) - 4.05) / 1.35, 0.16, 1);
+  const forks = clamp(Math.log10(repo.forks + 1) / 5, 0.2, 1);
+  const activity = clamp((repo.commitsPerWeek * 0.65 + repo.openPRs * 0.35) / 360, 0.08, 1);
+  const community = clamp(Math.log10(repo.contributors + 20) / 3.75, 0.22, 1);
+  const beginnerSurface = clamp(repo.goodFirstIssues / 90, 0.05, 1);
+  return { stars, forks, activity, community, beginnerSurface };
+}
+
 function colorForSafety(score: number) {
   if (isGreenSafety(score)) return '#34d399';
   if (score >= SAFETY_AMBER_THRESHOLD) return '#fbbf24';
@@ -1221,39 +1427,220 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: n
 
 function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[]) {
   const district = districtFor(repo);
+  const style = buildingStyleFor(repo);
+  const scale = repoScale(repo);
   const column = index % 3;
   const row = Math.floor(index / 3);
   const stagger = district.shape === 'clusters' ? Math.sin(index * 1.7) * 2.4 : 0;
-  const x = district.x + (column - 1) * 8.4 + stagger;
-  const z = district.z + (row - 0.8) * 9.2 + (column % 2) * 2.1;
-  const starRank = clamp(Math.log10(repo.stars) / 5.4, 0.55, 1);
-  const heightBias = district.shape === 'spires' ? 1.18 : district.shape === 'wide' ? 0.78 : district.shape === 'blocks' ? 0.92 : 1;
-  const height = clamp(5 + starRank * 22 * heightBias + repo.commitsPerWeek / 48, 7, 34);
-  const widthBias = district.shape === 'wide' ? 1.42 : district.shape === 'glass' ? 0.86 : district.shape === 'spires' ? 0.82 : 1;
-  const width = clamp(3.2 + repo.commitsPerWeek / 80, 3.2, 7.2) * widthBias;
-  const depth = clamp(3.4 + repo.contributors / 1400, 3.4, 7.8) * (district.shape === 'blocks' ? 1.22 : 1);
+  const x = district.x + (column - 1) * 9.8 + stagger + Math.sin((repo.stars % 37) * 0.2) * 1.2;
+  const z = district.z + (row - 0.8) * 10.5 + (column % 2) * 2.6 + Math.cos((repo.forks % 43) * 0.16) * 1.1;
+  const districtHeightBias = district.shape === 'spires' ? 1.12 : district.shape === 'wide' ? 0.84 : district.shape === 'blocks' ? 0.9 : 1;
+  const height = clamp(6 + Math.pow(scale.stars, 1.22) * 40 * style.heightBias * districtHeightBias + scale.activity * 7, 7, 52);
+  const width = clamp(2.5 + scale.forks * 5.7 + scale.activity * 1.8, 3, 9.2) * style.widthBias;
+  const depth = clamp(2.9 + scale.community * 4.8 + scale.beginnerSurface * 1.2, 3.2, 9.8) * style.depthBias;
 
   return {
     position: new THREE.Vector3(x, 0, z + (districtRepos.length === 4 ? 2 : 0)),
     height,
     width,
     depth,
+    style,
+    scale,
   };
+}
+
+function createBodyGeometry(style: BuildingStyle, width: number, height: number, depth: number) {
+  if (style.geometry === 'cylinder') {
+    return new THREE.CylinderGeometry(width * 0.5, width * 0.62, height, 24);
+  }
+  if (style.geometry === 'hex') {
+    return new THREE.CylinderGeometry(width * 0.5, width * 0.66, height, 6);
+  }
+  if (style.geometry === 'octagon') {
+    return new THREE.CylinderGeometry(width * 0.55, width * 0.7, height, 8);
+  }
+  return new THREE.BoxGeometry(width, height, depth);
+}
+
+function createRoofGeometry(style: BuildingStyle, width: number, depth: number) {
+  const radius = Math.max(width, depth) * 0.42;
+  if (style.roof === 'spire') return new THREE.ConeGeometry(radius * 0.72, Math.max(2.5, radius * 1.1), style.geometry === 'hex' ? 6 : 8);
+  if (style.roof === 'dome') return new THREE.SphereGeometry(radius, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  if (style.roof === 'dish') return new THREE.CylinderGeometry(radius * 0.92, radius * 1.12, 0.32, 28);
+  if (style.roof === 'mast') return new THREE.CylinderGeometry(radius * 0.22, radius * 0.32, 1.9, 10);
+  return new THREE.BoxGeometry(width + 0.42, 0.32, depth + 0.42);
+}
+
+function setObjectMaterialOpacity(object: THREE.Object3D, opacity: number) {
+  const mesh = object as THREE.Mesh;
+  const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+  if (!material) return;
+  const materials = Array.isArray(material) ? material : [material];
+  materials.forEach((item) => {
+    item.transparent = true;
+    item.opacity = opacity;
+  });
+}
+
+function addDetail(details: THREE.Object3D[], group: THREE.Group, object: THREE.Object3D, baseOpacity = 1) {
+  object.userData.baseOpacity = baseOpacity;
+  details.push(object);
+  group.add(object);
+  return object;
+}
+
+function createFacadePanel(width: number, height: number, color: string, opacity: number) {
+  return new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, 0.08),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+}
+
+function addBuildingDetails(group: THREE.Group, layout: ReturnType<typeof createRepoLayout>, repo: Repo, district: District) {
+  const { width, height, depth, style, scale } = layout;
+  const details: THREE.Object3D[] = [];
+  const animatedParts: THREE.Object3D[] = [];
+  const accent = district.accent;
+  const color = district.color;
+
+  const plinth = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 1.32, 0.42, depth * 1.28),
+    new THREE.MeshStandardMaterial({
+      color: '#11151a',
+      roughness: 0.72,
+      metalness: 0.22,
+      emissive: new THREE.Color(color),
+      emissiveIntensity: 0.025,
+      transparent: true,
+      opacity: 0.96,
+    }),
+  );
+  plinth.position.y = 0.21;
+  addDetail(details, group, plinth, 0.96);
+
+  if (style.key === 'framework-glass') {
+    [-1, 1].forEach((side) => {
+      const fin = createFacadePanel(width * 0.18, height * 0.92, accent, 0.24);
+      fin.position.set(side * (width * 0.55), height * 0.52, depth * 0.24);
+      fin.rotation.y = side * 0.08;
+      addDetail(details, group, fin, 0.24);
+    });
+    const skybridge = new THREE.Mesh(
+      new THREE.BoxGeometry(width * 0.92, 0.16, depth * 1.22),
+      new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.36, blending: THREE.AdditiveBlending }),
+    );
+    skybridge.position.y = height * 0.72;
+    addDetail(details, group, skybridge, 0.36);
+  }
+
+  if (style.key === 'ai-lab' || style.key === 'model-serving') {
+    [0.62, 0.82].forEach((radiusScale, ringIndex) => {
+      const orbit = new THREE.Mesh(
+        new THREE.TorusGeometry(Math.max(width, depth) * radiusScale, 0.035, 8, 92),
+        new THREE.MeshBasicMaterial({ color: ringIndex === 0 ? accent : '#f6e7ff', transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending }),
+      );
+      orbit.rotation.x = Math.PI * 0.5;
+      orbit.rotation.z = ringIndex * 0.72;
+      orbit.position.y = height * (0.5 + ringIndex * 0.13);
+      addDetail(details, group, orbit, 0.28);
+      animatedParts.push(orbit);
+    });
+    const labCore = new THREE.Mesh(
+      new THREE.SphereGeometry(Math.max(0.35, width * 0.11), 18, 18),
+      new THREE.MeshBasicMaterial({ color: '#f8f7ff', transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending }),
+    );
+    labCore.position.set(width * 0.24, height * 0.62, depth * 0.52);
+    addDetail(details, group, labCore, 0.62);
+  }
+
+  if (style.key === 'tool-forge' || style.key === 'editor-megablock' || style.key === 'testing-rig') {
+    const moduleCount = style.key === 'editor-megablock' ? 4 : 3;
+    for (let i = 0; i < moduleCount; i += 1) {
+      const module = new THREE.Mesh(
+        new THREE.BoxGeometry(width * (0.32 + scale.activity * 0.14), height * (0.22 + i * 0.02), depth * 0.28),
+        new THREE.MeshStandardMaterial({
+          color: '#111c1d',
+          roughness: 0.54,
+          metalness: 0.28,
+          emissive: new THREE.Color(color),
+          emissiveIntensity: 0.08,
+          transparent: true,
+          opacity: 0.9,
+        }),
+      );
+      module.position.set((i - (moduleCount - 1) / 2) * width * 0.3, height * (0.18 + i * 0.12), -depth * 0.62);
+      addDetail(details, group, module, 0.9);
+    }
+    const rail = createFacadePanel(width * 1.08, 0.12, accent, 0.42);
+    rail.position.set(0, height * 0.52, depth * 0.52);
+    addDetail(details, group, rail, 0.42);
+  }
+
+  if (style.key === 'infra-plant' || style.key === 'observability-array' || style.key === 'data-vault') {
+    const stackCount = style.key === 'infra-plant' ? 3 : 2;
+    for (let i = 0; i < stackCount; i += 1) {
+      const stack = new THREE.Mesh(
+        new THREE.CylinderGeometry(width * 0.08, width * 0.1, height * (0.45 + scale.activity * 0.22), 12),
+        new THREE.MeshStandardMaterial({
+          color: '#1d1c20',
+          roughness: 0.5,
+          metalness: 0.34,
+          emissive: new THREE.Color(color),
+          emissiveIntensity: 0.12,
+          transparent: true,
+          opacity: 0.92,
+        }),
+      );
+      stack.position.set((i - (stackCount - 1) / 2) * width * 0.32, height * 0.27, depth * 0.62);
+      addDetail(details, group, stack, 0.92);
+    }
+    const dish = new THREE.Mesh(
+      new THREE.TorusGeometry(Math.max(width, depth) * 0.24, 0.035, 8, 48),
+      new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.36, blending: THREE.AdditiveBlending }),
+    );
+    dish.rotation.x = Math.PI * 0.66;
+    dish.position.set(width * 0.22, height + 0.86, depth * 0.06);
+    addDetail(details, group, dish, 0.36);
+    animatedParts.push(dish);
+  }
+
+  if (style.key === 'kernel-spire' || style.key === 'compiler-lattice' || style.key === 'orchestrator-core') {
+    const ribCount = style.key === 'orchestrator-core' ? 8 : 6;
+    for (let i = 0; i < ribCount; i += 1) {
+      const angle = (i / ribCount) * Math.PI * 2;
+      const rib = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, height * 0.88, 0.08),
+        new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending }),
+      );
+      rib.position.set(Math.cos(angle) * width * 0.43, height * 0.5, Math.sin(angle) * depth * 0.43);
+      rib.rotation.y = -angle;
+      addDetail(details, group, rib, 0.22);
+    }
+  }
+
+  return { details, animatedParts };
 }
 
 function createBuilding(repo: Repo, index: number, districtRepos: Repo[]) {
   const district = districtFor(repo);
   const layout = createRepoLayout(repo, index, districtRepos);
+  const { style } = layout;
   const group = new THREE.Group();
   group.position.copy(layout.position);
 
-  const bodyGeometry = new THREE.BoxGeometry(layout.width, layout.height, layout.depth);
+  const bodyGeometry = createBodyGeometry(style, layout.width, layout.height, layout.depth);
   const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#071123'),
-    roughness: 0.42,
-    metalness: 0.22,
+    color: new THREE.Color(style.bodyColor),
+    roughness: style.geometry === 'box' ? 0.36 : 0.46,
+    metalness: style.key === 'framework-glass' ? 0.42 : 0.26,
     emissive: new THREE.Color(district.color),
-    emissiveIntensity: 0.035,
+    emissiveIntensity: style.key === 'framework-glass' ? 0.055 : 0.04,
   });
   const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
   body.position.y = layout.height / 2;
@@ -1269,8 +1656,9 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[]) {
     emissive: new THREE.Color(district.color),
     emissiveIntensity: 0.35,
   });
-  const top = new THREE.Mesh(new THREE.BoxGeometry(layout.width + 0.22, 0.22, layout.depth + 0.22), topMaterial);
-  top.position.y = layout.height + 0.13;
+  const top = new THREE.Mesh(createRoofGeometry(style, layout.width, layout.depth), topMaterial);
+  top.position.y = layout.height + (style.roof === 'spire' ? Math.max(1.4, Math.max(layout.width, layout.depth) * 0.28) : style.roof === 'dome' ? Math.max(layout.width, layout.depth) * 0.2 : 0.22);
+  if (style.roof === 'dish') top.rotation.x = Math.PI * 0.08;
   top.userData.repoId = repo.id;
   group.add(top);
 
@@ -1288,14 +1676,14 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[]) {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const cols = Math.max(2, Math.floor(layout.width / 0.78));
-  const rows = Math.max(3, Math.floor(layout.height / 1.05));
+  const cols = Math.max(2, Math.floor(layout.width / 0.72));
+  const rows = Math.max(3, Math.floor(layout.height / (style.key === 'infra-plant' ? 1.35 : 0.96)));
   const litWindows: THREE.Matrix4[] = [];
   const dummy = new THREE.Object3D();
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < cols; col += 1) {
       const litSeed = Math.sin((row + 1) * 12.9898 + (col + 1) * 78.233 + repo.stars * 0.0001);
-      if (litSeed - Math.floor(litSeed) < 0.34) continue;
+      if (litSeed - Math.floor(litSeed) < 1 - style.windowDensity) continue;
       const wx = -layout.width / 2 + 0.58 + col * ((layout.width - 1.16) / Math.max(1, cols - 1));
       const wy = 0.8 + row * ((layout.height - 1.6) / rows);
       dummy.position.set(wx, wy, layout.depth / 2 + 0.012);
@@ -1325,6 +1713,8 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[]) {
   beacon.position.set(layout.width * 0.18, layout.height + antennaHeight + 0.24, layout.depth * 0.08);
   group.add(beacon);
 
+  const architecture = addBuildingDetails(group, layout, repo, district);
+
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(Math.max(layout.width, layout.depth) * 0.78, 0.045, 10, 84),
     new THREE.MeshBasicMaterial({ color: district.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }),
@@ -1336,12 +1726,15 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[]) {
   return {
     repo,
     district,
+    style,
     group,
     body,
     top,
     windows,
     beacon,
     ring,
+    details: architecture.details,
+    animatedParts: architecture.animatedParts,
     position: layout.position.clone(),
     height: layout.height,
     width: layout.width,
@@ -1555,6 +1948,10 @@ function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: Fil
     building.top.material.opacity = active ? 1 : 0.28;
     building.top.material.transparent = !active;
     building.windows.material.opacity = active ? 0.76 : 0.12;
+    building.details.forEach((detail) => {
+      const baseOpacity = typeof detail.userData.baseOpacity === 'number' ? detail.userData.baseOpacity : 0.78;
+      setObjectMaterialOpacity(detail, active ? baseOpacity : Math.min(0.18, baseOpacity * 0.32));
+    });
   }
 
   for (const road of roads) {
@@ -1833,7 +2230,8 @@ export default function Home() {
       }
 
       if (selectedBuilding && enteredRef.current) {
-        desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(13, 17, 18));
+        const focusDistance = clamp(selectedBuilding.height * 0.9 + Math.max(selectedBuilding.width, selectedBuilding.depth) * 1.2, 24, 48);
+        desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(focusDistance * 0.72, focusDistance * 0.82, focusDistance));
         desiredTarget = selectedBuilding.position.clone().add(new THREE.Vector3(0, selectedBuilding.height * 0.52, 0));
       }
 
@@ -1866,6 +2264,12 @@ export default function Home() {
         building.beacon.material.opacity = 0.32 + pulse * 0.62;
         building.ring.material.opacity = isSimilar || isSelected ? 0.22 + pulse * 0.42 : 0;
         building.ring.scale.setScalar(1 + pulse * 0.12);
+        building.animatedParts.forEach((part, partIndex) => {
+          part.rotation.y += 0.0024 + partIndex * 0.0008;
+          if (part instanceof THREE.Mesh && part.geometry instanceof THREE.TorusGeometry) {
+            part.rotation.z += 0.0012;
+          }
+        });
       }
 
       for (const road of roads) {
@@ -2037,7 +2441,7 @@ export default function Home() {
           <>
             <span>{hoveredRepo.name}</span>
             <strong>{hoveredRepo.safetyScore}% safe to contribute</strong>
-            <small>{formatMetric(hoveredRepo.stars)} stars · {hoveredRepo.openPRs} open PRs</small>
+            <small>{buildingStyleFor(hoveredRepo).label} · {formatMetric(hoveredRepo.stars)} stars · {hoveredRepo.openPRs} PRs</small>
           </>
         ) : null}
       </div>
@@ -2088,13 +2492,13 @@ export default function Home() {
           </button>
         </div>
 
-        <form className="search-cluster" onSubmit={handleSubmit}>
+        <form className={`search-cluster ${selectedRepo ? 'has-panel' : ''}`} onSubmit={handleSubmit}>
           <div className="glass-search" onMouseMove={handleSearchMove}>
             <span className="glass-pulse" aria-hidden="true" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="try: frontend testing, safe ai, observability, rust runtime..."
+              placeholder="try: safe ai, observability, rust runtime..."
               aria-label="Search the SIFT city"
             />
             <button type="submit">EXPLORE</button>
@@ -2167,7 +2571,7 @@ export default function Home() {
 
         <div className="cinema-readout">
           <span>3D contribution atlas</span>
-          <strong>buildings: repos · roads: PRs · cars: activity</strong>
+          <strong>height: repo size · footprint: community · silhouette: function</strong>
         </div>
       </section>
 
@@ -2251,6 +2655,7 @@ export default function Home() {
               <span>{formatMetric(selectedRepo.forks)} forks</span>
               <span>{selectedRepo.openPRs} PRs</span>
               <span>{selectedRepo.goodFirstIssues} good first</span>
+              <span>{buildingStyleFor(selectedRepo).label}</span>
             </div>
 
             <div className="trust-grid">
@@ -2299,15 +2704,16 @@ export default function Home() {
 
       <style suppressHydrationWarning>{`
         :root {
-          --sift-bg-deep: #020408;
-          --sift-bg-mid: #080d1a;
-          --sift-bg-surface: #0d1428;
-          --sift-glass-surface: rgba(255,255,255,0.04);
-          --sift-glass-border: rgba(255,255,255,0.12);
-          --sift-primary-blue: #4f8cff;
+          --sift-bg-deep: #050607;
+          --sift-bg-mid: #0b1113;
+          --sift-bg-surface: #12191b;
+          --sift-glass-surface: rgba(230,246,242,0.055);
+          --sift-glass-border: rgba(230,246,242,0.13);
+          --sift-primary-blue: #5bc0be;
+          --sift-accent-warm: #f4b860;
           --sift-text-primary: rgba(255,255,255,0.92);
-          --sift-text-secondary: rgba(255,255,255,0.45);
-          --sift-text-tertiary: rgba(255,255,255,0.22);
+          --sift-text-secondary: rgba(236,244,241,0.56);
+          --sift-text-tertiary: rgba(236,244,241,0.28);
         }
 
         html,
@@ -2324,9 +2730,10 @@ export default function Home() {
           overflow: hidden;
           color: var(--sift-text-primary);
           background:
-            radial-gradient(circle at 78% 18%, rgba(79,140,255,0.18), transparent 30%),
-            radial-gradient(circle at 20% 72%, rgba(167,139,250,0.13), transparent 28%),
-            linear-gradient(180deg, #020408 0%, #080d1a 50%, #0d1428 100%);
+            radial-gradient(circle at 78% 16%, rgba(244,184,96,0.16), transparent 30%),
+            radial-gradient(circle at 18% 70%, rgba(91,192,190,0.14), transparent 30%),
+            radial-gradient(circle at 50% 105%, rgba(52,211,153,0.1), transparent 42%),
+            linear-gradient(180deg, #050607 0%, #0b1113 52%, #12191b 100%);
           font-family: Inter, system-ui, sans-serif;
           isolation: isolate;
         }
@@ -2336,9 +2743,9 @@ export default function Home() {
           --sift-glass-border: rgba(255,255,255,0.28);
           --sift-text-primary: rgba(255,255,255,0.95);
           background:
-            radial-gradient(circle at 76% 16%, rgba(255,244,207,0.34), transparent 28%),
-            radial-gradient(circle at 22% 72%, rgba(79,140,255,0.18), transparent 30%),
-            linear-gradient(180deg, #bcd7ff 0%, #7fa7d6 48%, #20324a 100%);
+            radial-gradient(circle at 76% 16%, rgba(255,244,207,0.32), transparent 28%),
+            radial-gradient(circle at 22% 72%, rgba(91,192,190,0.18), transparent 30%),
+            linear-gradient(180deg, #bfd5e8 0%, #7fa8b2 48%, #24323a 100%);
         }
 
         .sift-page::before {
@@ -2348,8 +2755,8 @@ export default function Home() {
           z-index: 1;
           pointer-events: none;
           background:
-            linear-gradient(90deg, rgba(2,4,8,0.34), transparent 22%, transparent 76%, rgba(2,4,8,0.38)),
-            radial-gradient(circle at 50% 72%, transparent 22%, rgba(2,4,8,0.16) 78%);
+            linear-gradient(90deg, rgba(5,6,7,0.38), transparent 22%, transparent 76%, rgba(5,6,7,0.4)),
+            radial-gradient(circle at 50% 72%, transparent 22%, rgba(5,6,7,0.2) 78%);
         }
 
         .sift-page.is-day::before {
@@ -2407,7 +2814,7 @@ export default function Home() {
           line-height: 0.78;
           letter-spacing: 0;
           color: rgba(255,255,255,0.97);
-          text-shadow: 0 0 70px rgba(79,140,255,0.36), 0 22px 100px rgba(0,0,0,0.9);
+          text-shadow: 0 0 54px rgba(91,192,190,0.28), 0 20px 84px rgba(0,0,0,0.88);
         }
 
         .intro-copy h1 span {
@@ -2439,13 +2846,13 @@ export default function Home() {
           opacity: 0;
           pointer-events: auto;
           text-transform: lowercase;
-          text-shadow: 0 0 24px rgba(79,140,255,0.55);
+          text-shadow: 0 0 24px rgba(91,192,190,0.48);
           animation: enterIn 900ms cubic-bezier(.16,1,.3,1) 3s forwards;
         }
 
         .enter-city:hover {
           color: #fff;
-          text-shadow: 0 0 32px rgba(79,140,255,0.9);
+          text-shadow: 0 0 32px rgba(244,184,96,0.7);
         }
 
         .city-ui {
@@ -2476,13 +2883,13 @@ export default function Home() {
         .tool-group,
         .mode-toggle,
         .guide-button {
-          border: 1px solid rgba(255,255,255,0.11);
+          border: 1px solid rgba(230,246,242,0.12);
           background:
-            linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025)),
-            rgba(4,9,20,0.52);
-          box-shadow: 0 12px 34px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.1);
-          backdrop-filter: blur(28px) saturate(180%);
-          -webkit-backdrop-filter: blur(28px) saturate(180%);
+            linear-gradient(135deg, rgba(230,246,242,0.075), rgba(230,246,242,0.026)),
+            rgba(6,11,12,0.64);
+          box-shadow: 0 12px 34px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08);
+          backdrop-filter: blur(24px) saturate(160%);
+          -webkit-backdrop-filter: blur(24px) saturate(160%);
         }
 
         .tool-group {
@@ -2491,7 +2898,7 @@ export default function Home() {
           align-items: center;
           gap: 6px;
           padding: 7px;
-          border-radius: 16px;
+          border-radius: 10px;
         }
 
         .tool-group button,
@@ -2501,10 +2908,10 @@ export default function Home() {
           place-items: center;
           min-width: 34px;
           height: 34px;
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 12px;
+          border: 1px solid rgba(230,246,242,0.1);
+          border-radius: 8px;
           color: rgba(255,255,255,0.72);
-          background: rgba(255,255,255,0.035);
+          background: rgba(230,246,242,0.035);
           cursor: pointer;
           transition: transform 160ms ease, color 160ms ease, border-color 160ms ease, background 160ms ease;
         }
@@ -2514,8 +2921,8 @@ export default function Home() {
         .guide-button:hover {
           transform: translateY(-1px);
           color: rgba(255,255,255,0.96);
-          border-color: rgba(79,140,255,0.44);
-          background: rgba(79,140,255,0.13);
+          border-color: rgba(91,192,190,0.48);
+          background: rgba(91,192,190,0.13);
         }
 
         .tool-group span {
@@ -2533,7 +2940,7 @@ export default function Home() {
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 6px;
           padding: 7px;
-          border-radius: 16px;
+          border-radius: 10px;
         }
 
         .mode-toggle button,
@@ -2549,14 +2956,14 @@ export default function Home() {
 
         .mode-toggle button.is-active {
           color: rgba(255,255,255,0.96);
-          border-color: rgba(79,140,255,0.58);
-          background: rgba(79,140,255,0.22);
-          box-shadow: 0 0 22px rgba(79,140,255,0.18), inset 0 1px 0 rgba(255,255,255,0.16);
+          border-color: rgba(91,192,190,0.58);
+          background: rgba(91,192,190,0.22);
+          box-shadow: 0 0 22px rgba(91,192,190,0.16), inset 0 1px 0 rgba(255,255,255,0.16);
         }
 
         .guide-button {
           width: 100%;
-          border-radius: 16px;
+          border-radius: 10px;
         }
 
         .sift-page.is-day .tool-group,
@@ -2577,12 +2984,17 @@ export default function Home() {
         .search-cluster {
           position: absolute;
           left: 50%;
-          bottom: 42px;
+          bottom: 38px;
           width: min(760px, calc(100vw - 32px));
           transform: translateX(-50%);
           display: grid;
           gap: 13px;
           pointer-events: auto;
+        }
+
+        .search-cluster.has-panel {
+          left: calc(50% - 205px);
+          width: min(620px, calc(100vw - 470px));
         }
 
         .glass-search {
@@ -2596,13 +3008,13 @@ export default function Home() {
           min-height: 70px;
           padding: 12px 12px 12px 22px;
           border: 1px solid transparent;
-          border-radius: 20px;
+          border-radius: 14px;
           background:
-            radial-gradient(circle at var(--mx) var(--my), rgba(255,255,255,0.09), rgba(255,255,255,0.026) 32%, rgba(255,255,255,0.012) 62%),
-            linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.026) 36%, rgba(79,140,255,0.035));
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15);
-          backdrop-filter: blur(40px) saturate(200%);
-          -webkit-backdrop-filter: blur(40px) saturate(200%);
+            radial-gradient(circle at var(--mx) var(--my), rgba(244,184,96,0.09), rgba(230,246,242,0.026) 32%, rgba(230,246,242,0.012) 62%),
+            linear-gradient(135deg, rgba(230,246,242,0.065), rgba(230,246,242,0.026) 38%, rgba(91,192,190,0.04));
+          box-shadow: 0 12px 38px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.12);
+          backdrop-filter: blur(34px) saturate(180%);
+          -webkit-backdrop-filter: blur(34px) saturate(180%);
           overflow: hidden;
         }
 
@@ -2612,7 +3024,7 @@ export default function Home() {
           inset: -2px;
           border-radius: inherit;
           padding: 1px;
-          background: conic-gradient(from 0deg, rgba(255,255,255,0), rgba(255,255,255,0.34), rgba(79,140,255,0.75), rgba(255,255,255,0), rgba(167,139,250,0.38), rgba(255,255,255,0));
+          background: conic-gradient(from 0deg, rgba(255,255,255,0), rgba(236,244,241,0.24), rgba(91,192,190,0.62), rgba(255,255,255,0), rgba(244,184,96,0.35), rgba(255,255,255,0));
           -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           -webkit-mask-composite: xor;
           mask-composite: exclude;
@@ -2649,7 +3061,7 @@ export default function Home() {
           border-radius: inherit;
           pointer-events: none;
           opacity: 0;
-          border: 1px solid rgba(79,140,255,0.34);
+          border: 1px solid rgba(91,192,190,0.34);
         }
 
         .glass-search:focus-within .glass-pulse {
@@ -2680,10 +3092,10 @@ export default function Home() {
           height: 46px;
           padding: 0 22px;
           border: 1px solid rgba(255,255,255,0.16);
-          border-radius: 15px;
+          border-radius: 9px;
           color: rgba(255,255,255,0.94);
-          background: linear-gradient(135deg, rgba(79,140,255,0.72), rgba(79,140,255,0.28)), rgba(255,255,255,0.04);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 28px rgba(79,140,255,0.24);
+          background: linear-gradient(135deg, rgba(91,192,190,0.78), rgba(244,184,96,0.34)), rgba(255,255,255,0.04);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 10px 28px rgba(91,192,190,0.2);
           font-family: "Space Mono", monospace;
           font-size: 10px;
           font-weight: 700;
@@ -2697,10 +3109,10 @@ export default function Home() {
           max-height: 292px;
           padding: 10px;
           border: 1px solid rgba(255,255,255,0.11);
-          border-radius: 18px;
+          border-radius: 12px;
           background:
-            linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.024)),
-            rgba(4,9,20,0.62);
+            linear-gradient(145deg, rgba(230,246,242,0.07), rgba(230,246,242,0.024)),
+            rgba(6,11,12,0.68);
           box-shadow: 0 18px 54px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.1);
           backdrop-filter: blur(34px) saturate(190%);
           -webkit-backdrop-filter: blur(34px) saturate(190%);
@@ -2738,8 +3150,8 @@ export default function Home() {
           width: 100%;
           padding: 11px 46px 11px 12px;
           border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 13px;
-          background: rgba(255,255,255,0.035);
+          border-radius: 8px;
+          background: rgba(230,246,242,0.035);
           text-align: left;
           cursor: pointer;
           transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
@@ -2748,7 +3160,7 @@ export default function Home() {
         .search-result:hover {
           transform: translateY(-1px);
           border-color: color-mix(in srgb, var(--repo-color, #4f8cff), transparent 42%);
-          background: rgba(79,140,255,0.1);
+          background: rgba(91,192,190,0.1);
         }
 
         .search-result-main {
@@ -2788,7 +3200,7 @@ export default function Home() {
           max-width: 100%;
           padding: 4px 7px;
           border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 999px;
+          border-radius: 8px;
           color: rgba(255,255,255,0.5);
           background: rgba(255,255,255,0.035);
           font-size: 9px;
@@ -2818,7 +3230,7 @@ export default function Home() {
           min-height: 33px;
           padding: 0 14px;
           border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 999px;
+          border-radius: 8px;
           color: rgba(255,255,255,0.62);
           background: linear-gradient(135deg, rgba(255,255,255,0.052), rgba(255,255,255,0.018)), rgba(255,255,255,0.03);
           box-shadow: inset 0 1px 0 rgba(255,255,255,0.09), 0 8px 24px rgba(0,0,0,0.24);
@@ -2874,7 +3286,7 @@ export default function Home() {
           line-height: 1;
           font-weight: 700;
           color: rgba(255,255,255,0.94);
-          text-shadow: 0 0 24px rgba(79,140,255,0.24);
+          text-shadow: 0 0 24px rgba(91,192,190,0.22);
         }
 
         .stat-bar span,
@@ -2912,7 +3324,7 @@ export default function Home() {
           opacity: 0;
           visibility: hidden;
           pointer-events: none;
-          background: radial-gradient(circle at 50% 52%, rgba(79,140,255,0.12), rgba(2,4,8,0.42) 58%, rgba(2,4,8,0.68));
+          background: radial-gradient(circle at 50% 52%, rgba(91,192,190,0.12), rgba(5,6,7,0.44) 58%, rgba(5,6,7,0.7));
           transition: opacity 220ms ease, visibility 220ms ease;
         }
 
@@ -2927,11 +3339,11 @@ export default function Home() {
           width: min(520px, calc(100vw - 32px));
           padding: 26px;
           border: 1px solid rgba(255,255,255,0.13);
-          border-radius: 20px;
+          border-radius: 12px;
           background:
-            radial-gradient(circle at 15% 0%, rgba(79,140,255,0.18), transparent 36%),
-            linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.026)),
-            rgba(4,9,20,0.76);
+            radial-gradient(circle at 15% 0%, rgba(91,192,190,0.16), transparent 36%),
+            linear-gradient(145deg, rgba(230,246,242,0.08), rgba(230,246,242,0.026)),
+            rgba(6,11,12,0.8);
           box-shadow: 0 28px 90px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.12);
           backdrop-filter: blur(38px) saturate(190%);
           -webkit-backdrop-filter: blur(38px) saturate(190%);
@@ -2946,7 +3358,7 @@ export default function Home() {
           width: 32px;
           height: 32px;
           border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 12px;
+          border-radius: 8px;
           color: rgba(255,255,255,0.72);
           background: rgba(255,255,255,0.04);
           cursor: pointer;
@@ -2969,13 +3381,13 @@ export default function Home() {
         }
 
         .tutorial-progress button.is-active {
-          background: #4f8cff;
-          box-shadow: 0 0 18px rgba(79,140,255,0.65);
+          background: #5bc0be;
+          box-shadow: 0 0 18px rgba(91,192,190,0.58);
         }
 
         .tutorial-kicker {
           display: block;
-          color: #4f8cff;
+          color: #5bc0be;
           font-family: "Space Mono", monospace;
           font-size: 10px;
           letter-spacing: 0;
@@ -3003,9 +3415,9 @@ export default function Home() {
           gap: 5px;
           margin: 20px 0 22px;
           padding: 14px;
-          border: 1px solid rgba(79,140,255,0.24);
-          border-radius: 12px;
-          background: rgba(79,140,255,0.075);
+          border: 1px solid rgba(91,192,190,0.24);
+          border-radius: 8px;
+          background: rgba(91,192,190,0.075);
         }
 
         .tutorial-action strong,
@@ -3036,7 +3448,7 @@ export default function Home() {
         .tutorial-nav button {
           min-height: 42px;
           border: 1px solid rgba(255,255,255,0.13);
-          border-radius: 14px;
+          border-radius: 8px;
           color: rgba(255,255,255,0.86);
           background: rgba(255,255,255,0.045);
           cursor: pointer;
@@ -3044,8 +3456,8 @@ export default function Home() {
         }
 
         .tutorial-nav button:last-child {
-          background: linear-gradient(135deg, rgba(79,140,255,0.64), rgba(79,140,255,0.25));
-          box-shadow: 0 12px 32px rgba(79,140,255,0.22), inset 0 1px 0 rgba(255,255,255,0.14);
+          background: linear-gradient(135deg, rgba(91,192,190,0.66), rgba(244,184,96,0.26));
+          box-shadow: 0 12px 32px rgba(91,192,190,0.18), inset 0 1px 0 rgba(255,255,255,0.14);
         }
 
         .tutorial-nav button:disabled {
@@ -3061,8 +3473,8 @@ export default function Home() {
           min-width: 160px;
           padding: 10px 12px;
           border: 1px solid color-mix(in srgb, var(--repo-color), transparent 40%);
-          border-radius: 12px;
-          background: rgba(4,9,20,0.72);
+          border-radius: 8px;
+          background: rgba(6,11,12,0.78);
           box-shadow: 0 18px 50px rgba(0,0,0,0.42), 0 0 24px color-mix(in srgb, var(--repo-color), transparent 78%);
           backdrop-filter: blur(28px) saturate(190%);
           -webkit-backdrop-filter: blur(28px) saturate(190%);
@@ -3102,14 +3514,14 @@ export default function Home() {
           top: 0;
           right: 0;
           z-index: 7;
-          width: min(390px, calc(100vw - 20px));
+          width: min(410px, calc(100vw - 20px));
           height: 100vh;
           padding: 34px 28px 28px;
           border-left: 1px solid rgba(255,255,255,0.13);
           background:
             radial-gradient(circle at 20% 5%, color-mix(in srgb, var(--repo-color), transparent 82%), rgba(255,255,255,0) 32%),
-            linear-gradient(145deg, rgba(255,255,255,0.075), rgba(255,255,255,0.028)),
-            rgba(4,9,20,0.72);
+            linear-gradient(145deg, rgba(230,246,242,0.075), rgba(230,246,242,0.028)),
+            rgba(6,11,12,0.78);
           box-shadow: -24px 0 80px rgba(0,0,0,0.46), inset 1px 0 0 rgba(255,255,255,0.09);
           backdrop-filter: blur(38px) saturate(195%);
           -webkit-backdrop-filter: blur(38px) saturate(195%);
@@ -3129,7 +3541,7 @@ export default function Home() {
           width: 30px;
           height: 30px;
           border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 12px;
+          border-radius: 8px;
           color: rgba(255,255,255,0.74);
           background: rgba(255,255,255,0.04);
           cursor: pointer;
@@ -3214,7 +3626,7 @@ export default function Home() {
           gap: 4px;
           padding: 11px 12px;
           border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 8px;
+          border-radius: 6px;
           background: rgba(255,255,255,0.035);
         }
 
@@ -3270,7 +3682,7 @@ export default function Home() {
         .repo-badges span {
           padding: 8px 10px;
           border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 999px;
+          border-radius: 8px;
           background: rgba(255,255,255,0.045);
           color: rgba(255,255,255,0.72);
           font-family: "Space Mono", monospace;
@@ -3290,7 +3702,7 @@ export default function Home() {
           gap: 4px;
           padding: 12px;
           border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 8px;
+          border-radius: 6px;
           background: rgba(255,255,255,0.035);
         }
 
@@ -3382,7 +3794,7 @@ export default function Home() {
           place-items: center;
           min-height: 44px;
           border: 1px solid rgba(255,255,255,0.13);
-          border-radius: 14px;
+          border-radius: 8px;
           color: rgba(255,255,255,0.88);
           background: linear-gradient(135deg, color-mix(in srgb, var(--repo-color), transparent 78%), rgba(255,255,255,0.032));
           box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
@@ -3448,6 +3860,11 @@ export default function Home() {
 
           .search-cluster {
             bottom: 22px;
+          }
+
+          .search-cluster.has-panel {
+            left: 50%;
+            width: min(760px, calc(100vw - 32px));
           }
 
           .control-dock {
