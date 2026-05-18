@@ -8,6 +8,10 @@ const nextConfig = {
                 source: "/api/py/:path*",
                 destination: `${backendUrl}/api/py/:path*`,
             },
+            {
+                source: "/api/github/:path*",
+                destination: `${backendUrl}/api/github/:path*`,
+            },
         ];
     },
 };

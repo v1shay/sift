@@ -1,8 +1,12 @@
+import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from urllib.parse import urlencode
+
+import httpx
 from math import sqrt
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
@@ -82,9 +86,12 @@ def owner_login(project: Project) -> str:
 
 def repo_node(project: Project, muted: bool = False) -> Dict:
     safety_profile = score_project_safety(project)
+    topics = [topic.name for topic in project.topics[:8]]
     return {
         "id": f"repo_{project.id}",
-        "name": project.full_name,
+        "name": project.name,
+        "fullName": project.full_name,
+        "description": project.description or "",
         "group": "repository",
         "nodeType": "repository",
         "val": project_node_size(project.stars),
@@ -93,8 +100,14 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "stars": project.stars or 0,
         "forks": project.forks or 0,
         "openIssues": project.open_issues or 0,
+        "contributorsCount": len(project.contributors or []),
         "owner": owner_login(project),
-        "topics": [topic.name for topic in project.topics[:8]],
+        "topics": topics,
+        "license": project.license_spdx,
+        "isBeginnerFriendly": bool(project.is_beginner_friendly),
+        "createdAt": project.created_at.isoformat() if project.created_at else None,
+        "updatedAt": project.updated_at.isoformat() if project.updated_at else None,
+        "pushedAt": project.pushed_at.isoformat() if project.pushed_at else None,
         "url": project.url,
         "safetyScore": safety_profile["score"],
         "safetyStatus": safety_profile["status"],
@@ -203,7 +216,7 @@ class PullRequestFlowRequest(BaseModel):
 
 
 class SafetyScoreRequest(BaseModel):
-    repos: List[Dict[str, Any]] = Field(default_factory=list, max_length=250)
+    repos: List[Dict[str, Any]] = Field(default_factory=list, max_length=2000)
 
 @app.post("/api/py/graph-search")
 async def graph_search(req: SearchRequest):
@@ -415,26 +428,29 @@ async def github_webhook(request: Request):
     return {"status": "ok", "event": event_type}
 
 
-import os
-import httpx
-
 @app.get("/api/github/auth")
 async def github_auth_login():
     client_id = os.getenv("GITHUB_CLIENT_ID")
     if not client_id:
         raise HTTPException(status_code=500, detail="Missing GITHUB_CLIENT_ID")
-    # Redirect to GitHub App installation/authorization page
-    url = f"https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri=http://localhost:3001&scope=read:user,user:email"
+
+    backend_public_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    params = urlencode({
+        "client_id": client_id,
+        "redirect_uri": f"{backend_public_url}/api/github/callback",
+        "scope": "read:user,user:email",
+    })
+    url = f"https://github.com/login/oauth/authorize?{params}"
     return RedirectResponse(url)
 
 @app.get("/api/github/callback")
 async def github_auth_callback(code: str):
     client_id = os.getenv("GITHUB_CLIENT_ID")
     client_secret = os.getenv("GITHUB_CLIENT_SECRET")
-    
+
     if not client_id or not client_secret:
         raise HTTPException(status_code=500, detail="Missing Client ID or Secret")
-        
+
     async with httpx.AsyncClient() as client:
         # Exchange code for token
         response = await client.post(
@@ -448,18 +464,18 @@ async def github_auth_callback(code: str):
         )
         token_data = response.json()
         access_token = token_data.get("access_token")
-        
+
         if not access_token:
             raise HTTPException(status_code=400, detail=f"Failed to get token: {token_data}")
-            
+
         # Here we would normally save the token for the user, fetch their repositories,
         # and insert them into the Sift DB using the same logic from backfill.py.
         # For now, we simulate fetching their repos to add to Sift.
-        
+
         user_resp = await client.get("https://api.github.com/user", headers={"Authorization": f"Bearer {access_token}"})
         user_info = user_resp.json()
         print(f"User {user_info.get('login')} connected their GitHub!")
-        
+
     return {"message": "Successfully authenticated with GitHub!", "user": user_info.get("login")}
 
 
