@@ -22,6 +22,13 @@ It turns GitHub into a living graph of projects, languages, domains, and similar
 - Use natural language prompts with sift companion to zoom into relevant repo spaces
 - Identify projects that match your contribution interests faster
 
+## Recent fixes
+
+- OAuth login now uses a resilient public backend URL resolution for `/api/github/auth`, preferring `BACKEND_PUBLIC_URL`, then proxy headers (`X-Forwarded-Host` / `X-Forwarded-Proto`), then request base URL.
+- Search filters now match district parents using tokenized query terms to avoid substring false positives (for example avoiding `"ai"` matching `"plain"`).
+- Import/graph repo workflows now preserve open-work counts in both `openIssues` and `openPRs`, and UI labels now show neutral “open items” where that signal is shown.
+- Safety-score posting is now batched client-side to reduce request-size related failures when many repositories are loaded.
+
 ## Architecture
 
 | Layer | Purpose | Stack |

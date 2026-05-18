@@ -117,6 +117,21 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
     }
 
 
+def resolve_backend_public_url(request: Request) -> str:
+    configured_url = os.getenv("BACKEND_PUBLIC_URL", "").rstrip("/")
+    if configured_url:
+        return configured_url
+
+    forwarded_host = request.headers.get("x-forwarded-host")
+    if forwarded_host:
+        host = forwarded_host.split(",")[0].strip()
+        if host:
+            scheme = request.headers.get("x-forwarded-proto", "https").split(",")[0].strip() or "https"
+            return f"{scheme}://{host}".rstrip("/")
+
+    return str(request.base_url).rstrip("/")
+
+
 def cluster_node(node_id: str, label: str, group: str, projects: Iterable[Project], color: str) -> Dict:
     project_list = list(projects)
     total_stars = sum(project.stars or 0 for project in project_list)
@@ -216,7 +231,7 @@ class PullRequestFlowRequest(BaseModel):
 
 
 class SafetyScoreRequest(BaseModel):
-    repos: List[Dict[str, Any]] = Field(default_factory=list, max_length=2000)
+    repos: List[Dict[str, Any]] = Field(default_factory=list, max_length=5000)
 
 @app.post("/api/py/graph-search")
 async def graph_search(req: SearchRequest):
@@ -429,12 +444,12 @@ async def github_webhook(request: Request):
 
 
 @app.get("/api/github/auth")
-async def github_auth_login():
+async def github_auth_login(request: Request):
     client_id = os.getenv("GITHUB_CLIENT_ID")
     if not client_id:
         raise HTTPException(status_code=500, detail="Missing GITHUB_CLIENT_ID")
 
-    backend_public_url = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    backend_public_url = resolve_backend_public_url(request)
     params = urlencode({
         "client_id": client_id,
         "redirect_uri": f"{backend_public_url}/api/github/callback",

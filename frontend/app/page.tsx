@@ -67,6 +67,7 @@ type Repo = {
   stars: number;
   forks: number;
   openPRs: number;
+  openIssues?: number;
   commitsPerWeek: number;
   contributors: number;
   goodFirstIssues: number;
@@ -246,6 +247,8 @@ const SAFETY_WEIGHTS = {
   manageableLocalDev: 3,
 };
 
+const SAFETY_SCORE_BATCH_SIZE = 500;
+
 const SUSPICIOUS_TERMS = [
   'paste your token',
   'paste token',
@@ -314,7 +317,7 @@ function buildRepoSafetyProfile(repo: Repo): SafetyProfile {
   add('Small scoped issues', hasSmallIssues ? 'Starter work appears scoped.' : 'Starter work may be hard to scope.', SAFETY_WEIGHTS.smallScopedIssues, hasSmallIssues ? 3 : 0);
   add('Maintainer response time', repo.responseHours <= 24 ? `Typical response is around ${repo.responseHours} hours.` : `Typical response is around ${repo.responseHours} hours, so feedback may be slow.`, SAFETY_WEIGHTS.responseTime, repo.responseHours <= 24 ? 8 : repo.responseHours <= 72 ? 5 : 1);
   add('Recent commits or releases', recentActivity ? 'Recent activity suggests the repo is alive.' : 'Recent commits/releases are sparse.', SAFETY_WEIGHTS.recentCommitsOrReleases, recentActivity ? 4 : 0);
-  add('PR review cadence', repo.openPRs > 0 ? 'Open PR activity is visible.' : 'PR activity is not visible.', SAFETY_WEIGHTS.prCadence, repo.openPRs > 0 ? 3 : 0);
+  add('Open work cadence', getOpenWorkItems(repo) > 0 ? 'Open contribution work is visible.' : 'Open contribution work is not visible.', SAFETY_WEIGHTS.prCadence, getOpenWorkItems(repo) > 0 ? 3 : 0);
   add('Low visible metadata risk', suspicious ? 'Metadata contains suspicious contribution language.' : 'Metadata avoids obvious contribution traps.', SAFETY_WEIGHTS.lowVisibleRisk, suspicious ? 0 : 5);
   add('License present', repo.license ? 'A license is visible.' : 'License metadata is missing from current demo data.', SAFETY_WEIGHTS.licensePresent, repo.license ? 3 : 0, repo.license === undefined);
   add('Readable project description', repo.description.length >= 40 ? 'Description gives enough context to judge fit.' : 'Description is too thin to judge fit confidently.', SAFETY_WEIGHTS.descriptionQuality, repo.description.length >= 40 ? 3 : 0);
@@ -424,6 +427,7 @@ function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boo
     description: payload.description || 'GitHub repository imported into SIFT.',
     stars,
     forks: payload.forks_count ?? 0,
+    openIssues,
     openPRs: openIssues,
     commitsPerWeek,
     contributors: clamp(Math.round(Math.sqrt(Math.max(1, stars)) * 4), 8, 1200),
@@ -515,6 +519,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
     description: node.description || 'Local graph repository imported into SIFT.',
     stars,
     forks: node.forks ?? 0,
+    openIssues,
     openPRs: openIssues,
     commitsPerWeek: commitsPerWeekFromDate(node.pushedAt ?? node.updatedAt),
     contributors,
@@ -726,7 +731,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Inspect Repos',
-    body: 'Hover a building to preview its safety score, stars, and open PRs. Click a tower to fly closer and open the repo detail panel.',
+    body: 'Hover a building to preview its safety score, stars, and open work items. Click a tower to fly closer and open the repo detail panel.',
     action: 'Try clicking a tower with a bright roof beacon.',
   },
   {
@@ -786,7 +791,8 @@ function repoHas(repo: Repo, terms: string[]) {
 function repoScale(repo: Repo) {
   const stars = clamp((Math.log10(repo.stars + 1) - 1.2) / 5, 0.08, 1);
   const forks = clamp(Math.log10(repo.forks + 1) / 5, 0.12, 1);
-  const activity = clamp((repo.commitsPerWeek * 0.7 + repo.openPRs * 0.45) / 260, 0.08, 1);
+  const openWorkItems = getOpenWorkItems(repo);
+  const activity = clamp((repo.commitsPerWeek * 0.7 + openWorkItems * 0.45) / 260, 0.08, 1);
   const community = clamp(Math.log10(repo.contributors + 20) / 3.75, 0.18, 1);
   const beginnerSurface = clamp(repo.goodFirstIssues / 80, 0.04, 1);
   return { stars, forks, activity, community, beginnerSurface };
@@ -831,6 +837,10 @@ function tokenizeSearch(query: string) {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter(Boolean);
+}
+
+function getOpenWorkItems(repo: Repo) {
+  return repo.openIssues ?? repo.openPRs;
 }
 
 function includesAny(haystack: string, terms: string[]) {
@@ -925,7 +935,8 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   }
 
   if (includesAny(cleanQuery, ['active', 'activity', 'prs', 'commits', 'traffic', 'busy'])) {
-    addPing('activity', `${repo.commitsPerWeek} commits/week and ${repo.openPRs} open PRs`, Math.min(90, repo.commitsPerWeek / 4 + repo.openPRs / 12));
+    const openWorkItems = getOpenWorkItems(repo);
+    addPing('activity', `${repo.commitsPerWeek} commits/week and ${openWorkItems} open items`, Math.min(90, repo.commitsPerWeek / 4 + openWorkItems / 12));
   }
 
   const score = Math.round(pings.reduce((total, ping) => total + ping.weight, 0));
@@ -1254,7 +1265,7 @@ export default function Home() {
   const lowStarPromising = useMemo(() => {
     return [...effectiveRepos]
       .filter((repo) => repo.stars < 10000)
-      .sort((a, b) => (b.goodFirstIssues * 12 + b.safetyScore + b.openPRs * 0.4) - (a.goodFirstIssues * 12 + a.safetyScore + a.openPRs * 0.4))
+      .sort((a, b) => (b.goodFirstIssues * 12 + b.safetyScore + getOpenWorkItems(b) * 0.4) - (a.goodFirstIssues * 12 + a.safetyScore + getOpenWorkItems(a) * 0.4))
       .slice(0, 3);
   }, [effectiveRepos]);
 
@@ -1286,23 +1297,38 @@ export default function Home() {
   useEffect(() => {
     if (allRepos.length === 0) return;
     let cancelled = false;
-    fetch('/api/py/safety-score', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repos: allRepos }),
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Safety scoring failed with ${response.status}`);
-        return response.json();
-      })
-      .then((payload: { profiles?: Record<string, SafetyProfile> }) => {
-        if (!cancelled && payload.profiles) {
-          setSafetyProfiles(payload.profiles);
-        }
-      })
-      .catch((error) => {
-        console.warn('[Safety scoring] Using local fallback formula:', error);
+    const chunks = Array.from({ length: Math.max(1, Math.ceil(allRepos.length / SAFETY_SCORE_BATCH_SIZE)) }, (_, index) => {
+      const start = index * SAFETY_SCORE_BATCH_SIZE;
+      return allRepos.slice(start, start + SAFETY_SCORE_BATCH_SIZE);
+    });
+    const allProfiles: Record<string, SafetyProfile> = {};
+    const postSafetyBatch = async (repos: Repo[]) => {
+      const response = await fetch('/api/py/safety-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos }),
       });
+      if (!response.ok) {
+        throw new Error(`Safety scoring failed with ${response.status}`);
+      }
+      const payload = await response.json() as { profiles?: Record<string, SafetyProfile> };
+      if (!payload.profiles) return;
+      Object.assign(allProfiles, payload.profiles);
+    };
+
+    (async () => {
+      try {
+        for (const chunk of chunks) {
+          if (cancelled) return;
+          await postSafetyBatch(chunk);
+        }
+        if (!cancelled) {
+          setSafetyProfiles(allProfiles);
+        }
+      } catch (error) {
+        console.warn('[Safety scoring] Using local fallback formula:', error);
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -1697,7 +1723,7 @@ export default function Home() {
       const progress = easeOutCubic((performance.now() - started) / 1600);
       setStats({
         repos: Math.round(effectiveRepos.length * progress),
-        prs: Math.round(effectiveRepos.reduce((total, repo) => total + repo.openPRs, 0) * progress),
+        prs: Math.round(effectiveRepos.reduce((total, repo) => total + getOpenWorkItems(repo), 0) * progress),
         safe: Math.round(safeRepos * progress),
       });
       if (progress < 1) frame = requestAnimationFrame(tick);
@@ -1745,10 +1771,12 @@ export default function Home() {
       selectSearchResult(searchResults[0]);
       return;
     }
+    const tokens = tokenizeSearch(query);
     const district = DISTRICTS.find(
       (item) => lower.includes(item.label.toLowerCase()) || lower.includes(item.key) || lower.includes(item.label.split('/')[0].toLowerCase()),
     );
-    const parentDistrict = DISTRICTS.map((item) => item.parent).find((parent) => lower.includes(parent));
+    const uniqueParents = DISTRICTS.map((item) => item.parent).filter((parent, index, allParents) => allParents.indexOf(parent) === index);
+    const parentDistrict = uniqueParents.find((parent) => tokens.includes(parent));
     const nextFilter = district?.key ?? parentDistrict;
     if (nextFilter) {
       setFilter(nextFilter);
@@ -1841,7 +1869,7 @@ export default function Home() {
           <>
             <span>{hoveredRepo.name}</span>
             <strong>{hoveredRepo.safetyScore}% safe to contribute</strong>
-            <small>{contributionStyleFor(hoveredRepo)} · {formatMetric(hoveredRepo.stars)} stars · {hoveredRepo.openPRs} PRs</small>
+            <small>{contributionStyleFor(hoveredRepo)} · {formatMetric(hoveredRepo.stars)} stars · {getOpenWorkItems(hoveredRepo)} open items</small>
           </>
         ) : null}
       </div>
@@ -2015,7 +2043,7 @@ export default function Home() {
           </div>
           <div>
             <strong>{stats.prs.toLocaleString()}</strong>
-            <span>open PRs</span>
+            <span>open items</span>
           </div>
           <div>
             <strong>{stats.safe}</strong>
@@ -2104,7 +2132,7 @@ export default function Home() {
             {lowStarPromising.map((repo) => (
               <button key={`promising-${repo.id}`} type="button" onClick={() => focusRepo(repo)}>
                 <strong>{repo.name}</strong>
-                <span>{repo.goodFirstIssues || repo.openPRs} starter signals</span>
+                <span>{repo.goodFirstIssues || getOpenWorkItems(repo)} starter signals</span>
               </button>
             ))}
           </div>
@@ -2189,7 +2217,7 @@ export default function Home() {
               <span>{selectedRepo.language}</span>
               <span>{formatMetric(selectedRepo.stars)} stars</span>
               <span>{formatMetric(selectedRepo.forks)} forks</span>
-              <span>{selectedRepo.openPRs} PRs</span>
+              <span>{getOpenWorkItems(selectedRepo)} open items</span>
               <span>{selectedRepo.goodFirstIssues} good first</span>
               <span>{contributionStyleFor(selectedRepo)}</span>
               {selectedRepo.wantsContributions ? <span>seeking contributors</span> : null}
@@ -4184,7 +4212,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   windows.userData.repoId = repo.id;
   group.add(windows);
 
-  const antennaHeight = 1.5 + (repo.openPRs % 10) * 0.2;
+  const antennaHeight = 1.5 + (getOpenWorkItems(repo) % 10) * 0.2;
   const antenna = new THREE.Mesh(
     new THREE.CylinderGeometry(0.04, 0.04, antennaHeight, 8),
     new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.5 }),
