@@ -1,6 +1,7 @@
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from math import sqrt
 from pydantic import BaseModel, Field
@@ -223,7 +224,7 @@ async def graph_search(req: SearchRequest):
 def get_full_graph(
     group_by: str = Query("domain", alias="groupBy", pattern="^(domain|language|topic|org|stars|raw)$"),
     sort_by: str = Query("stars", alias="sortBy", pattern="^(stars|forks|issues|updated|name)$"),
-    limit: int = Query(250, ge=1, le=1000),
+    limit: int = Query(250, ge=1, le=2000),
     min_stars: int = Query(0, alias="minStars", ge=0),
     language: Optional[str] = None,
     topic: Optional[str] = None,
@@ -405,6 +406,62 @@ def get_graph_facets():
         }
     finally:
         db.close()
+
+@app.post("/api/github/webhook")
+async def github_webhook(request: Request):
+    payload = await request.json()
+    event_type = request.headers.get("X-GitHub-Event", "unknown")
+    print(f"Received GitHub webhook event: {event_type}")
+    return {"status": "ok", "event": event_type}
+
+
+import os
+import httpx
+
+@app.get("/api/github/auth")
+async def github_auth_login():
+    client_id = os.getenv("GITHUB_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Missing GITHUB_CLIENT_ID")
+    # Redirect to GitHub App installation/authorization page
+    url = f"https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri=http://localhost:3001&scope=read:user,user:email"
+    return RedirectResponse(url)
+
+@app.get("/api/github/callback")
+async def github_auth_callback(code: str):
+    client_id = os.getenv("GITHUB_CLIENT_ID")
+    client_secret = os.getenv("GITHUB_CLIENT_SECRET")
+    
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="Missing Client ID or Secret")
+        
+    async with httpx.AsyncClient() as client:
+        # Exchange code for token
+        response = await client.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code
+            },
+            headers={"Accept": "application/json"}
+        )
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        
+        if not access_token:
+            raise HTTPException(status_code=400, detail=f"Failed to get token: {token_data}")
+            
+        # Here we would normally save the token for the user, fetch their repositories,
+        # and insert them into the Sift DB using the same logic from backfill.py.
+        # For now, we simulate fetching their repos to add to Sift.
+        
+        user_resp = await client.get("https://api.github.com/user", headers={"Authorization": f"Bearer {access_token}"})
+        user_info = user_resp.json()
+        print(f"User {user_info.get('login')} connected their GitHub!")
+        
+    return {"message": "Successfully authenticated with GitHub!", "user": user_info.get("login")}
+
 
 @app.get("/health")
 def health_check():

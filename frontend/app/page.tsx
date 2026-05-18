@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { HelpCircle, Moon, RotateCcw, Sun, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 
-type DistrictKey = 'systems' | 'web' | 'ai' | 'devtools' | 'infra';
+type DistrictKey = string;
 type FilterKey = DistrictKey | 'stars' | 'safe' | 'all';
 type Priority = 'hot' | 'normal' | 'quiet';
 type Appearance = 'night' | 'day';
@@ -46,7 +46,8 @@ type District = {
   accent: string;
   x: number;
   z: number;
-  shape: 'spires' | 'glass' | 'clusters' | 'wide' | 'blocks';
+  shape: string;
+  parent: string;
 };
 
 type PullRequest = {
@@ -90,9 +91,9 @@ type BuildingObject = {
   repo: Repo;
   district: District;
   group: THREE.Group;
-  body: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
-  top: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
-  windows: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  body: any;
+  top: any;
+  windows: any;
   beacon: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
   position: THREE.Vector3;
@@ -135,11 +136,35 @@ type SceneRefs = {
 };
 
 const DISTRICTS: District[] = [
-  { key: 'systems', label: 'Systems', color: '#ff6b6b', accent: '#ff9f80', x: -52, z: -10, shape: 'spires' },
-  { key: 'web', label: 'Web', color: '#4f8cff', accent: '#8fc2ff', x: -24, z: 9, shape: 'glass' },
-  { key: 'ai', label: 'AI/ML', color: '#a78bfa', accent: '#d0bcff', x: 4, z: -6, shape: 'clusters' },
-  { key: 'devtools', label: 'DevTools', color: '#34d399', accent: '#8ff5ca', x: 30, z: 11, shape: 'wide' },
-  { key: 'infra', label: 'Infra', color: '#fbbf24', accent: '#ffe08a', x: 55, z: -7, shape: 'blocks' },
+  // Systems
+  { key: 'skyline_core', label: 'Systems Engine', color: '#ff4b4b', accent: '#ff9f80', x: 0, z: 0, shape: 'spires', parent: 'systems' },
+  { key: 'clockwork_empire', label: 'Low-Level Runtimes', color: '#ff6b8b', accent: '#fca5a5', x: -75, z: 0, shape: 'factories', parent: 'systems' },
+  { key: 'mountain_citadel', label: 'Compiler Tools', color: '#f43f5e', accent: '#fda4af', x: 75, z: 0, shape: 'citadel', parent: 'systems' },
+  { key: 'ruined_empire', label: 'Kernel & Drivers', color: '#f59e0b', accent: '#fef08a', x: 0, z: -75, shape: 'ruins', parent: 'systems' },
+  // Web
+  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#3b82f6', accent: '#93c5fd', x: 0, z: 75, shape: 'megatowers', parent: 'web' },
+  { key: 'brick_boroughs', label: 'React & UI Libraries', color: '#60a5fa', accent: '#bfdbfe', x: -75, z: -75, shape: 'apartments', parent: 'web' },
+  { key: 'neon_alley', label: 'Web Apps & SaaS', color: '#06b6d4', accent: '#a5f3fc', x: 75, z: 75, shape: 'glass', parent: 'web' },
+  { key: 'tech_suburbs', label: 'CSS & Tailwind Styling', color: '#0ea5e9', accent: '#7dd3fc', x: -75, z: 75, shape: 'suburbs', parent: 'web' },
+  { key: 'coastal_fishing', label: 'Static Site Builders', color: '#2563eb', accent: '#93c5fd', x: 75, z: -75, shape: 'fishing_docks', parent: 'web' },
+  // AI/ML
+  { key: 'ether_realm', label: 'Agent Design', color: '#a78bfa', accent: '#e9d5ff', x: -150, z: -150, shape: 'holographic', parent: 'ai' },
+  { key: 'crystal_fields', label: 'Deep Learning & LLMs', color: '#c084fc', accent: '#f5d0fe', x: -75, z: -150, shape: 'crystal_spires', parent: 'ai' },
+  { key: 'floating_island', label: 'Computer Vision & Speech', color: '#8b5cf6', accent: '#ddd6fe', x: 0, z: -150, shape: 'floating_stations', parent: 'ai' },
+  // DevTools
+  { key: 'bamboo_valley', label: 'Trending Repos', color: '#10b981', accent: '#a7f3d0', x: 75, z: -150, shape: 'bamboo_pagodas', parent: 'devtools' },
+  { key: 'valley_villages', label: 'DevOps & CI/CD', color: '#34d399', accent: '#d1fae5', x: 150, z: -150, shape: 'valley_villages', parent: 'devtools' },
+  { key: 'nomad_camps', label: 'Testing Frameworks', color: '#ec4899', accent: '#fbcfe8', x: -150, z: -75, shape: 'tents', parent: 'devtools' },
+  // Infra & Others
+  { key: 'financial_district', label: 'Data Engineering', color: '#fbbf24', accent: '#fef3c7', x: 150, z: -75, shape: 'blocks', parent: 'infra' },
+  { key: 'volcano_forge', label: 'Container Runtimes', color: '#f97316', accent: '#fed7aa', x: -150, z: 0, shape: 'lava_foundries', parent: 'infra' },
+  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Cybersecurity & Auditing', x: 150, z: 0, shape: 'decayed', parent: 'infra' },
+  { key: 'overgrown_ruins', label: 'IoT & Embedded', color: '#22c55e', accent: '#bbf7d0', x: -150, z: 75, shape: 'overgrown', parent: 'infra' },
+  { key: 'forest_repository', label: 'Database Clusters', color: '#14b8a6', accent: '#99f6e4', x: 150, z: 75, shape: 'giant_trees', parent: 'infra' },
+  { key: 'redwood_archive', label: 'Caching & Queues', color: '#f97316', accent: '#ffedd5', x: -150, z: 150, shape: 'redwood_towers', parent: 'infra' },
+  { key: 'jungle_canopy', label: 'Cloud Infra Platforms', color: '#f43f5e', accent: '#ffe4e6', x: -75, z: 150, shape: 'mushroom_colonies', parent: 'infra' },
+  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#06b6d4', accent: '#cffafe', x: 0, z: 150, shape: 'caves', parent: 'infra' },
+  { key: 'canyon_networks', label: 'Networking & Proxies', color: '#38bdf8', accent: '#e0f2fe', x: 75, z: 150, shape: 'canyon_forts', parent: 'infra' },
 ];
 
 const SAFETY_GREEN_THRESHOLD = 75;
@@ -286,658 +311,7 @@ function applySafetyProfile(repo: Repo, safetyProfile?: SafetyProfile): Repo {
   };
 }
 
-const REPOS: Repo[] = [
-  {
-    id: 'linux',
-    name: 'linux',
-    owner: 'torvalds',
-    district: 'systems',
-    language: 'C',
-    description: 'The operating-system kernel tower that anchors the systems district.',
-    stars: 184000,
-    forks: 56000,
-    openPRs: 19,
-    commitsPerWeek: 420,
-    contributors: 5200,
-    goodFirstIssues: 11,
-    safetyScore: 84,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 18,
-    topics: ['kernel', 'drivers', 'systems'],
-    prs: [
-      { number: 9041, title: 'harden scheduler instrumentation', priority: 'hot' },
-      { number: 8810, title: 'document new contributor patch path', priority: 'normal' },
-      { number: 8732, title: 'repair architecture-specific warning', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'kubernetes',
-    name: 'kubernetes',
-    owner: 'kubernetes',
-    district: 'systems',
-    language: 'Go',
-    description: 'Container orchestration megatower with dense contributor traffic.',
-    stars: 116000,
-    forks: 41000,
-    openPRs: 343,
-    commitsPerWeek: 310,
-    contributors: 3900,
-    goodFirstIssues: 68,
-    safetyScore: 91,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 9,
-    topics: ['containers', 'orchestration', 'cloud'],
-    prs: [
-      { number: 9822, title: 'stabilize node lifecycle controller', priority: 'hot' },
-      { number: 9641, title: 'clarify good-first-issue labels', priority: 'normal' },
-      { number: 9519, title: 'reduce watch cache churn', priority: 'normal' },
-    ],
-  },
-  {
-    id: 'rust',
-    name: 'rust',
-    owner: 'rust-lang',
-    district: 'systems',
-    language: 'Rust',
-    description: 'Language infrastructure tower with careful review gates.',
-    stars: 103000,
-    forks: 13000,
-    openPRs: 221,
-    commitsPerWeek: 186,
-    contributors: 2600,
-    goodFirstIssues: 42,
-    safetyScore: 88,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 14,
-    topics: ['compiler', 'language', 'safety'],
-    prs: [
-      { number: 7781, title: 'improve diagnostics for trait bounds', priority: 'hot' },
-      { number: 7462, title: 'add beginner compiler walkthrough', priority: 'normal' },
-      { number: 7425, title: 'tighten cargo test snapshots', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'tokio',
-    name: 'tokio',
-    owner: 'tokio-rs',
-    district: 'systems',
-    language: 'Rust',
-    description: 'Async runtime tower with strong docs and issue hygiene.',
-    stars: 29000,
-    forks: 2700,
-    openPRs: 34,
-    commitsPerWeek: 54,
-    contributors: 530,
-    goodFirstIssues: 17,
-    safetyScore: 86,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 22,
-    topics: ['async', 'runtime', 'networking'],
-    prs: [
-      { number: 6112, title: 'simplify task budget docs', priority: 'normal' },
-      { number: 6087, title: 'add runtime metrics fixture', priority: 'quiet' },
-      { number: 6004, title: 'patch socket readiness edge case', priority: 'hot' },
-    ],
-  },
-  {
-    id: 'redis',
-    name: 'redis',
-    owner: 'redis',
-    district: 'systems',
-    language: 'C',
-    description: 'Fast in-memory data structure tower with active releases.',
-    stars: 69000,
-    forks: 24000,
-    openPRs: 98,
-    commitsPerWeek: 76,
-    contributors: 920,
-    goodFirstIssues: 12,
-    safetyScore: 77,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 31,
-    topics: ['database', 'cache', 'server'],
-    prs: [
-      { number: 6934, title: 'improve cluster failover trace', priority: 'normal' },
-      { number: 6902, title: 'refresh command table generator', priority: 'quiet' },
-      { number: 6840, title: 'fix stream trimming regression', priority: 'hot' },
-    ],
-  },
-  {
-    id: 'nextjs',
-    name: 'next.js',
-    owner: 'vercel',
-    district: 'web',
-    language: 'TypeScript',
-    description: 'Application framework tower with heavy web traffic.',
-    stars: 132000,
-    forks: 28000,
-    openPRs: 301,
-    commitsPerWeek: 244,
-    contributors: 3300,
-    goodFirstIssues: 53,
-    safetyScore: 87,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 11,
-    topics: ['react', 'framework', 'server-components'],
-    prs: [
-      { number: 8122, title: 'smooth app router cache invalidation', priority: 'hot' },
-      { number: 8070, title: 'document route handler streaming', priority: 'normal' },
-      { number: 7994, title: 'improve dev overlay copy', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'react',
-    name: 'react',
-    owner: 'facebook',
-    district: 'web',
-    language: 'JavaScript',
-    description: 'Core UI tower that glows with ecosystem dependencies.',
-    stars: 236000,
-    forks: 48000,
-    openPRs: 278,
-    commitsPerWeek: 120,
-    contributors: 1800,
-    goodFirstIssues: 20,
-    safetyScore: 82,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 28,
-    topics: ['ui', 'components', 'javascript'],
-    prs: [
-      { number: 9711, title: 'refine transition tracing hook', priority: 'hot' },
-      { number: 9634, title: 'update reconciler fixture names', priority: 'quiet' },
-      { number: 9586, title: 'clarify compiler docs', priority: 'normal' },
-    ],
-  },
-  {
-    id: 'vite',
-    name: 'vite',
-    owner: 'vitejs',
-    district: 'web',
-    language: 'TypeScript',
-    description: 'Fast build-tool tower with strong maintainer response.',
-    stars: 74000,
-    forks: 6800,
-    openPRs: 111,
-    commitsPerWeek: 92,
-    contributors: 1100,
-    goodFirstIssues: 38,
-    safetyScore: 90,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 8,
-    topics: ['build-tool', 'frontend', 'hmr'],
-    prs: [
-      { number: 7390, title: 'speed up dependency optimizer', priority: 'hot' },
-      { number: 7338, title: 'add plugin author guide', priority: 'normal' },
-      { number: 7288, title: 'fix sourcemap warning', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'svelte',
-    name: 'svelte',
-    owner: 'sveltejs',
-    district: 'web',
-    language: 'TypeScript',
-    description: 'Compiler-driven UI tower with elegant contribution lanes.',
-    stars: 84000,
-    forks: 4600,
-    openPRs: 89,
-    commitsPerWeek: 73,
-    contributors: 860,
-    goodFirstIssues: 31,
-    safetyScore: 83,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 19,
-    topics: ['compiler', 'frontend', 'ui'],
-    prs: [
-      { number: 6580, title: 'tighten transition fallback tests', priority: 'normal' },
-      { number: 6514, title: 'improve migration warnings', priority: 'hot' },
-      { number: 6481, title: 'document snippet lifecycle', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'tailwind',
-    name: 'tailwindcss',
-    owner: 'tailwindlabs',
-    district: 'web',
-    language: 'CSS',
-    description: 'Utility CSS tower with wide adoption and polished docs.',
-    stars: 91000,
-    forks: 4600,
-    openPRs: 57,
-    commitsPerWeek: 48,
-    contributors: 540,
-    goodFirstIssues: 18,
-    safetyScore: 80,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 26,
-    topics: ['css', 'design-system', 'frontend'],
-    prs: [
-      { number: 7012, title: 'expand color token fixtures', priority: 'normal' },
-      { number: 6955, title: 'repair container query example', priority: 'quiet' },
-      { number: 6901, title: 'optimize class scanner hot path', priority: 'hot' },
-    ],
-  },
-  {
-    id: 'pytorch',
-    name: 'pytorch',
-    owner: 'pytorch',
-    district: 'ai',
-    language: 'Python',
-    description: 'Deep learning tower with research-heavy road traffic.',
-    stars: 93000,
-    forks: 25000,
-    openPRs: 640,
-    commitsPerWeek: 380,
-    contributors: 3900,
-    goodFirstIssues: 26,
-    safetyScore: 79,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 36,
-    topics: ['ml', 'tensor', 'gpu'],
-    prs: [
-      { number: 8891, title: 'optimize attention kernel dispatch', priority: 'hot' },
-      { number: 8703, title: 'refresh contributor build matrix', priority: 'normal' },
-      { number: 8611, title: 'fix sparse tensor docs', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'transformers',
-    name: 'transformers',
-    owner: 'huggingface',
-    district: 'ai',
-    language: 'Python',
-    description: 'Model ecosystem tower with constant activity traffic.',
-    stars: 148000,
-    forks: 30000,
-    openPRs: 533,
-    commitsPerWeek: 260,
-    contributors: 2600,
-    goodFirstIssues: 74,
-    safetyScore: 85,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 16,
-    topics: ['llm', 'models', 'nlp'],
-    prs: [
-      { number: 9920, title: 'add quantization recipe guardrails', priority: 'hot' },
-      { number: 9812, title: 'improve beginner model card flow', priority: 'normal' },
-      { number: 9754, title: 'normalize tokenizer fixture names', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'langchain',
-    name: 'langchain',
-    owner: 'langchain-ai',
-    district: 'ai',
-    language: 'Python',
-    description: 'Agent framework tower with fast-moving integration streets.',
-    stars: 104000,
-    forks: 17000,
-    openPRs: 246,
-    commitsPerWeek: 180,
-    contributors: 1900,
-    goodFirstIssues: 91,
-    safetyScore: 74,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 30,
-    topics: ['agents', 'rag', 'llm-apps'],
-    prs: [
-      { number: 8341, title: 'isolate tool-calling sandbox docs', priority: 'hot' },
-      { number: 8208, title: 'add integration template checks', priority: 'normal' },
-      { number: 8166, title: 'remove stale vectorstore example', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'llamacpp',
-    name: 'llama.cpp',
-    owner: 'ggml-org',
-    district: 'ai',
-    language: 'C++',
-    description: 'Local inference tower with dense systems-meets-AI traffic.',
-    stars: 89000,
-    forks: 13000,
-    openPRs: 182,
-    commitsPerWeek: 150,
-    contributors: 980,
-    goodFirstIssues: 19,
-    safetyScore: 78,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 24,
-    topics: ['inference', 'local-llm', 'quantization'],
-    prs: [
-      { number: 7441, title: 'smooth metal backend fallback', priority: 'hot' },
-      { number: 7399, title: 'document quantization profiles', priority: 'normal' },
-      { number: 7317, title: 'repair benchmark output parser', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'vllm',
-    name: 'vllm',
-    owner: 'vllm-project',
-    district: 'ai',
-    language: 'Python',
-    description: 'Inference serving tower with high-throughput streets.',
-    stars: 52000,
-    forks: 8500,
-    openPRs: 221,
-    commitsPerWeek: 205,
-    contributors: 820,
-    goodFirstIssues: 37,
-    safetyScore: 81,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 17,
-    topics: ['serving', 'inference', 'gpu'],
-    prs: [
-      { number: 6280, title: 'improve scheduler admission policy', priority: 'hot' },
-      { number: 6214, title: 'add deployment smoke test', priority: 'normal' },
-      { number: 6143, title: 'clean up docs table overflow', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'vscode',
-    name: 'vscode',
-    owner: 'microsoft',
-    district: 'devtools',
-    language: 'TypeScript',
-    description: 'Editor megablock with a huge extension ecosystem.',
-    stars: 173000,
-    forks: 31000,
-    openPRs: 409,
-    commitsPerWeek: 270,
-    contributors: 2300,
-    goodFirstIssues: 83,
-    safetyScore: 89,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 12,
-    topics: ['editor', 'extensions', 'developer-tools'],
-    prs: [
-      { number: 9003, title: 'tighten extension host telemetry', priority: 'hot' },
-      { number: 8890, title: 'improve first issue labels', priority: 'normal' },
-      { number: 8755, title: 'repair theme snapshot drift', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'deno',
-    name: 'deno',
-    owner: 'denoland',
-    district: 'devtools',
-    language: 'Rust',
-    description: 'Runtime block with secure-by-default contribution lanes.',
-    stars: 98000,
-    forks: 5300,
-    openPRs: 74,
-    commitsPerWeek: 86,
-    contributors: 780,
-    goodFirstIssues: 29,
-    safetyScore: 86,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 15,
-    topics: ['runtime', 'typescript', 'security'],
-    prs: [
-      { number: 7784, title: 'harden permission prompt fixture', priority: 'hot' },
-      { number: 7712, title: 'improve npm compat docs', priority: 'normal' },
-      { number: 7660, title: 'clean lint rule edge case', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'eslint',
-    name: 'eslint',
-    owner: 'eslint',
-    district: 'devtools',
-    language: 'JavaScript',
-    description: 'Linting block with clear contributor pathways.',
-    stars: 26000,
-    forks: 4600,
-    openPRs: 61,
-    commitsPerWeek: 40,
-    contributors: 940,
-    goodFirstIssues: 34,
-    safetyScore: 92,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 7,
-    topics: ['linting', 'javascript', 'static-analysis'],
-    prs: [
-      { number: 6188, title: 'add rule author migration note', priority: 'normal' },
-      { number: 6124, title: 'fix flat config message copy', priority: 'quiet' },
-      { number: 6011, title: 'tighten parser service checks', priority: 'hot' },
-    ],
-  },
-  {
-    id: 'prettier',
-    name: 'prettier',
-    owner: 'prettier',
-    district: 'devtools',
-    language: 'JavaScript',
-    description: 'Formatter block with opinionated roads and active docs.',
-    stars: 51000,
-    forks: 4200,
-    openPRs: 48,
-    commitsPerWeek: 32,
-    contributors: 720,
-    goodFirstIssues: 23,
-    safetyScore: 83,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: false,
-    responseHours: 20,
-    topics: ['formatting', 'javascript', 'tooling'],
-    prs: [
-      { number: 5520, title: 'normalize markdown table fixture', priority: 'normal' },
-      { number: 5488, title: 'improve plugin test harness', priority: 'quiet' },
-      { number: 5421, title: 'fix trailing comment regression', priority: 'hot' },
-    ],
-  },
-  {
-    id: 'playwright',
-    name: 'playwright',
-    owner: 'microsoft',
-    district: 'devtools',
-    language: 'TypeScript',
-    description: 'Testing tower with reliable automation routes.',
-    stars: 76000,
-    forks: 4300,
-    openPRs: 96,
-    commitsPerWeek: 91,
-    contributors: 650,
-    goodFirstIssues: 22,
-    safetyScore: 88,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 13,
-    topics: ['testing', 'browser', 'automation'],
-    prs: [
-      { number: 6014, title: 'stabilize trace viewer markers', priority: 'hot' },
-      { number: 5971, title: 'document component test setup', priority: 'normal' },
-      { number: 5902, title: 'repair firefox fixture cleanup', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'terraform',
-    name: 'terraform',
-    owner: 'hashicorp',
-    district: 'infra',
-    language: 'Go',
-    description: 'Infrastructure-as-code block with strong policy signals.',
-    stars: 46000,
-    forks: 9700,
-    openPRs: 122,
-    commitsPerWeek: 64,
-    contributors: 870,
-    goodFirstIssues: 13,
-    safetyScore: 76,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 32,
-    topics: ['iac', 'cloud', 'providers'],
-    prs: [
-      { number: 7761, title: 'clarify provider mirror fallback', priority: 'normal' },
-      { number: 7690, title: 'improve plan JSON diagnostics', priority: 'hot' },
-      { number: 7608, title: 'trim stale backend docs', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'prometheus',
-    name: 'prometheus',
-    owner: 'prometheus',
-    district: 'infra',
-    language: 'Go',
-    description: 'Monitoring tower with visible health and alerting traffic.',
-    stars: 61000,
-    forks: 9400,
-    openPRs: 84,
-    commitsPerWeek: 58,
-    contributors: 780,
-    goodFirstIssues: 26,
-    safetyScore: 87,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 14,
-    topics: ['monitoring', 'metrics', 'observability'],
-    prs: [
-      { number: 6658, title: 'add native histogram guardrail', priority: 'hot' },
-      { number: 6601, title: 'improve scrape config examples', priority: 'normal' },
-      { number: 6530, title: 'repair parser golden file', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'grafana',
-    name: 'grafana',
-    owner: 'grafana',
-    district: 'infra',
-    language: 'TypeScript',
-    description: 'Visualization tower with busy dashboard contribution routes.',
-    stars: 70000,
-    forks: 13000,
-    openPRs: 214,
-    commitsPerWeek: 140,
-    contributors: 2100,
-    goodFirstIssues: 47,
-    safetyScore: 82,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 21,
-    topics: ['dashboards', 'observability', 'visualization'],
-    prs: [
-      { number: 7402, title: 'smooth dashboard variable migration', priority: 'hot' },
-      { number: 7364, title: 'add panel plugin fixture', priority: 'normal' },
-      { number: 7280, title: 'fix table density snapshot', priority: 'quiet' },
-    ],
-  },
-  {
-    id: 'nginx',
-    name: 'nginx',
-    owner: 'nginx',
-    district: 'infra',
-    language: 'C',
-    description: 'Web server block with durable infrastructure roads.',
-    stars: 27000,
-    forks: 7900,
-    openPRs: 39,
-    commitsPerWeek: 25,
-    contributors: 420,
-    goodFirstIssues: 5,
-    safetyScore: 68,
-    verifiedMaintainers: true,
-    branchProtection: false,
-    signedReleases: true,
-    responseHours: 48,
-    topics: ['server', 'proxy', 'networking'],
-    prs: [
-      { number: 5011, title: 'refresh module build notes', priority: 'quiet' },
-      { number: 4990, title: 'fix proxy header example', priority: 'normal' },
-      { number: 4920, title: 'patch tls config warning', priority: 'hot' },
-    ],
-  },
-  {
-    id: 'opentelemetry',
-    name: 'opentelemetry',
-    owner: 'open-telemetry',
-    district: 'infra',
-    language: 'Go',
-    description: 'Observability network hub with cross-language roads.',
-    stars: 62000,
-    forks: 8800,
-    openPRs: 185,
-    commitsPerWeek: 128,
-    contributors: 1500,
-    goodFirstIssues: 66,
-    safetyScore: 90,
-    verifiedMaintainers: true,
-    branchProtection: true,
-    signedReleases: true,
-    responseHours: 10,
-    topics: ['tracing', 'metrics', 'observability'],
-    prs: [
-      { number: 6804, title: 'align semantic convention docs', priority: 'hot' },
-      { number: 6751, title: 'add beginner collector recipe', priority: 'normal' },
-      { number: 6699, title: 'repair exporter timeout fixture', priority: 'quiet' },
-    ],
-  },
-].map(enrichRepoSafety);
-
-const ROAD_PAIRS: Array<[string, string, number, string]> = [
-  ['linux', 'kubernetes', 9041, 'kernel primitives for orchestration'],
-  ['kubernetes', 'prometheus', 9822, 'cluster metrics handshake'],
-  ['prometheus', 'grafana', 6658, 'native histogram panel path'],
-  ['grafana', 'opentelemetry', 7402, 'telemetry dashboard sync'],
-  ['opentelemetry', 'vllm', 6804, 'model serving trace route'],
-  ['vllm', 'pytorch', 6280, 'scheduler to tensor runtime'],
-  ['pytorch', 'transformers', 8891, 'attention kernel bridge'],
-  ['transformers', 'langchain', 9920, 'agent model adapter'],
-  ['langchain', 'llamacpp', 8341, 'local inference tool lane'],
-  ['nextjs', 'react', 8122, 'framework compiler exchange'],
-  ['react', 'vite', 9711, 'fast refresh contract'],
-  ['vite', 'svelte', 7390, 'compiler dev server path'],
-  ['svelte', 'tailwind', 6580, 'style transition fixtures'],
-  ['vscode', 'eslint', 9003, 'diagnostics extension loop'],
-  ['eslint', 'prettier', 6188, 'formatting rule treaty'],
-  ['playwright', 'nextjs', 6014, 'app router test lane'],
-  ['deno', 'rust', 7784, 'runtime safety primitives'],
-  ['terraform', 'kubernetes', 7761, 'cloud resource bridge'],
-  ['nginx', 'redis', 5011, 'edge cache routing'],
-  ['opentelemetry', 'prometheus', 6751, 'metrics collector highway'],
-  ['playwright', 'vscode', 5971, 'test authoring loop'],
-  ['terraform', 'grafana', 7690, 'infra dashboard handoff'],
-];
+const REPOS: Repo[] = [];
 
 const INTRO_MS = 4600;
 const ENTRY_MS = 2600;
@@ -1219,224 +593,41 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: n
   ctx.closePath();
 }
 
-function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[]) {
+function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heightScaleDriver: 'stars' | 'activity' | 'contributors' = 'stars') {
   const district = districtFor(repo);
-  const column = index % 3;
-  const row = Math.floor(index / 3);
+  const gridWidth = Math.max(3, Math.ceil(Math.sqrt(districtRepos.length)));
+  const column = index % gridWidth;
+  const row = Math.floor(index / gridWidth);
   const stagger = district.shape === 'clusters' ? Math.sin(index * 1.7) * 2.4 : 0;
-  const x = district.x + (column - 1) * 8.4 + stagger;
-  const z = district.z + (row - 0.8) * 9.2 + (column % 2) * 2.1;
-  const starRank = clamp(Math.log10(repo.stars) / 5.4, 0.55, 1);
-  const heightBias = district.shape === 'spires' ? 1.18 : district.shape === 'wide' ? 0.78 : district.shape === 'blocks' ? 0.92 : 1;
-  const height = clamp(5 + starRank * 22 * heightBias + repo.commitsPerWeek / 48, 7, 34);
+  
+  // Center the grid layout perfectly around district.x and district.z
+  const x = district.x + (column - (gridWidth - 1) / 2) * 8.4 + stagger;
+  const z = district.z + (row - (gridWidth - 1) / 2) * 9.2 + (column % 2) * 2.1;
+  
+  let val = repo.stars;
+  if (heightScaleDriver === 'activity') {
+    val = (repo.commitsPerWeek * 10) + (repo.openPRs * 100);
+  } else if (heightScaleDriver === 'contributors') {
+    val = repo.contributors * 20;
+  }
+  
+  const starRank = clamp(Math.log10(Math.max(1, val)) / 5.4, 0.45, 1);
+  const heightBias = district.shape === 'spires' ? 1.25 : district.shape === 'wide' ? 0.78 : district.shape === 'blocks' ? 0.92 : 1;
+  const height = clamp(5 + starRank * 24 * heightBias, 7, 34);
   const widthBias = district.shape === 'wide' ? 1.42 : district.shape === 'glass' ? 0.86 : district.shape === 'spires' ? 0.82 : 1;
   const width = clamp(3.2 + repo.commitsPerWeek / 80, 3.2, 7.2) * widthBias;
   const depth = clamp(3.4 + repo.contributors / 1400, 3.4, 7.8) * (district.shape === 'blocks' ? 1.22 : 1);
 
   return {
-    position: new THREE.Vector3(x, 0, z + (districtRepos.length === 4 ? 2 : 0)),
+    position: new THREE.Vector3(x, 0, z),
     height,
     width,
     depth,
   };
 }
 
-function createBuilding(repo: Repo, index: number, districtRepos: Repo[]) {
-  const district = districtFor(repo);
-  const layout = createRepoLayout(repo, index, districtRepos);
-  const group = new THREE.Group();
-  group.position.copy(layout.position);
 
-  const bodyGeometry = new THREE.BoxGeometry(layout.width, layout.height, layout.depth);
-  const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#071123'),
-    roughness: 0.42,
-    metalness: 0.22,
-    emissive: new THREE.Color(district.color),
-    emissiveIntensity: 0.035,
-  });
-  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-  body.position.y = layout.height / 2;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  body.userData.repoId = repo.id;
-  group.add(body);
 
-  const topMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(district.accent),
-    roughness: 0.32,
-    metalness: 0.36,
-    emissive: new THREE.Color(district.color),
-    emissiveIntensity: 0.35,
-  });
-  const top = new THREE.Mesh(new THREE.BoxGeometry(layout.width + 0.22, 0.22, layout.depth + 0.22), topMaterial);
-  top.position.y = layout.height + 0.13;
-  top.userData.repoId = repo.id;
-  group.add(top);
-
-  const edgeGeometry = new THREE.EdgesGeometry(bodyGeometry);
-  const edgeMaterial = new THREE.LineBasicMaterial({ color: district.color, transparent: true, opacity: 0.12 });
-  const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
-  edges.position.copy(body.position);
-  group.add(edges);
-
-  const windowGeometry = new THREE.PlaneGeometry(0.32, 0.18);
-  const windowMaterial = new THREE.MeshBasicMaterial({
-    color: district.color,
-    transparent: true,
-    opacity: 0.76,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const cols = Math.max(2, Math.floor(layout.width / 0.78));
-  const rows = Math.max(3, Math.floor(layout.height / 1.05));
-  const litWindows: THREE.Matrix4[] = [];
-  const dummy = new THREE.Object3D();
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const litSeed = Math.sin((row + 1) * 12.9898 + (col + 1) * 78.233 + repo.stars * 0.0001);
-      if (litSeed - Math.floor(litSeed) < 0.34) continue;
-      const wx = -layout.width / 2 + 0.58 + col * ((layout.width - 1.16) / Math.max(1, cols - 1));
-      const wy = 0.8 + row * ((layout.height - 1.6) / rows);
-      dummy.position.set(wx, wy, layout.depth / 2 + 0.012);
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      litWindows.push(dummy.matrix.clone());
-    }
-  }
-
-  const windows = new THREE.InstancedMesh(windowGeometry, windowMaterial, Math.max(1, litWindows.length));
-  litWindows.forEach((matrix, matrixIndex) => windows.setMatrixAt(matrixIndex, matrix));
-  windows.userData.repoId = repo.id;
-  group.add(windows);
-
-  const antennaHeight = 1.7 + (repo.openPRs % 9) * 0.18;
-  const antenna = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.035, 0.035, antennaHeight, 8),
-    new THREE.MeshBasicMaterial({ color: '#dbe8ff', transparent: true, opacity: 0.42 }),
-  );
-  antenna.position.set(layout.width * 0.18, layout.height + antennaHeight / 2 + 0.18, layout.depth * 0.08);
-  group.add(antenna);
-
-  const beacon = new THREE.Mesh(
-    new THREE.SphereGeometry(0.17, 14, 14),
-    new THREE.MeshBasicMaterial({ color: district.accent, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending }),
-  );
-  beacon.position.set(layout.width * 0.18, layout.height + antennaHeight + 0.24, layout.depth * 0.08);
-  group.add(beacon);
-
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(Math.max(layout.width, layout.depth) * 0.78, 0.045, 10, 84),
-    new THREE.MeshBasicMaterial({ color: district.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }),
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 0.08;
-  group.add(ring);
-
-  return {
-    repo,
-    district,
-    group,
-    body,
-    top,
-    windows,
-    beacon,
-    ring,
-    position: layout.position.clone(),
-    height: layout.height,
-    width: layout.width,
-    depth: layout.depth,
-    phase: (repo.stars % 997) / 997,
-  };
-}
-
-function createGround(scene: THREE.Scene) {
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(150, 110, 1, 1),
-    new THREE.MeshStandardMaterial({
-      color: '#071020',
-      roughness: 0.88,
-      metalness: 0.18,
-      emissive: '#071a32',
-      emissiveIntensity: 0.12,
-    }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.02;
-  ground.receiveShadow = true;
-  ground.userData.role = 'ground';
-  scene.add(ground);
-
-  const grid = new THREE.GridHelper(150, 40, '#4f8cff', '#16345f');
-  grid.userData.role = 'grid';
-  const gridMaterial = grid.material as THREE.Material | THREE.Material[];
-  if (Array.isArray(gridMaterial)) {
-    gridMaterial.forEach((material) => {
-      material.transparent = true;
-      material.opacity = 0.23;
-    });
-  } else {
-    gridMaterial.transparent = true;
-    gridMaterial.opacity = 0.23;
-  }
-  grid.position.y = 0.015;
-  scene.add(grid);
-
-  DISTRICTS.forEach((district) => {
-    const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(24, 25),
-      new THREE.MeshBasicMaterial({
-        color: district.color,
-        transparent: true,
-        opacity: 0.055,
-        depthWrite: false,
-      }),
-    );
-    plane.rotation.x = -Math.PI / 2;
-    plane.position.set(district.x, 0.025, district.z + 2);
-    plane.userData.role = 'district-plane';
-    scene.add(plane);
-
-    const labelTexture = makeSpriteTexture(district.label.toUpperCase(), 'semantic district', district.color, 520, 130);
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.78, depthWrite: false }));
-    label.position.set(district.x, 1.4, district.z + 17);
-    label.scale.set(10, 2.5, 1);
-    scene.add(label);
-  });
-}
-
-function createSky(scene: THREE.Scene) {
-  const starGeometry = new THREE.BufferGeometry();
-  const positions: number[] = [];
-  for (let i = 0; i < 900; i += 1) {
-    const radius = 70 + Math.random() * 120;
-    const theta = Math.random() * Math.PI * 2;
-    const y = 26 + Math.random() * 75;
-    positions.push(Math.cos(theta) * radius, y, Math.sin(theta) * radius - 22);
-  }
-  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  const stars = new THREE.Points(
-    starGeometry,
-    new THREE.PointsMaterial({
-      color: '#dce8ff',
-      size: 0.22,
-      transparent: true,
-      opacity: 0.64,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  );
-  stars.userData.role = 'stars';
-  scene.add(stars);
-
-  const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(5.4, 32, 32),
-    new THREE.MeshBasicMaterial({ color: '#dce8ff', transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending }),
-  );
-  moon.position.set(48, 46, -72);
-  moon.userData.role = 'moon';
-  scene.add(moon);
-}
 
 function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity: number) {
   const materials = Array.isArray(material) ? material : [material];
@@ -1465,10 +656,8 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
     if (!material) return;
 
     if (role === 'ground') {
-      const groundMaterial = material as THREE.MeshStandardMaterial;
-      groundMaterial.color.set(isDay ? '#20324a' : '#071020');
-      groundMaterial.emissive.set(isDay ? '#14243a' : '#071a32');
-      groundMaterial.emissiveIntensity = isDay ? 0.05 : 0.12;
+      const groundMaterial = material as THREE.MeshBasicMaterial;
+      groundMaterial.color.set(isDay ? '#ffffff' : '#6688aa');
     }
 
     if (role === 'grid') setMaterialOpacity(material, isDay ? 0.16 : 0.23);
@@ -1478,75 +667,13 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   });
 }
 
-function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
-  const byId = new Map(buildings.map((building) => [building.repo.id, building]));
-  const roadMaterial = new THREE.MeshBasicMaterial({
-    color: '#ff8c3c',
-    transparent: true,
-    opacity: 0.5,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const carGeometry = new THREE.SphereGeometry(0.27, 14, 14);
-  const carMaterial = new THREE.MeshBasicMaterial({
-    color: '#ffc06b',
-    transparent: true,
-    opacity: 0.95,
-    blending: THREE.AdditiveBlending,
-  });
-
-  return ROAD_PAIRS.flatMap(([sourceId, targetId, number, title], index) => {
-    const source = byId.get(sourceId);
-    const target = byId.get(targetId);
-    if (!source || !target) return [];
-
-    const start = new THREE.Vector3(source.position.x, 0.22, source.position.z);
-    const end = new THREE.Vector3(target.position.x, 0.22, target.position.z);
-    const mid = start.clone().lerp(end, 0.5);
-    const distance = start.distanceTo(end);
-    mid.y = 0.4 + Math.min(4.2, distance * 0.045);
-    mid.z += Math.sin(index * 1.8) * 5.2;
-    const curve = new THREE.CatmullRomCurve3([start, mid, end], false, 'catmullrom', 0.28);
-    const tube = new THREE.TubeGeometry(curve, 72, 0.055, 8, false);
-    const mesh = new THREE.Mesh(tube, roadMaterial.clone());
-    scene.add(mesh);
-
-    const cars = Array.from({ length: 3 }, (_, carIndex) => {
-      const car = new THREE.Mesh(carGeometry, carMaterial.clone());
-      car.userData.offset = carIndex / 3;
-      car.userData.repoId = source.repo.id;
-      scene.add(car);
-      return car;
-    });
-
-    const labelTexture = makeSpriteTexture(`PR #${number}`, title.slice(0, 30), '#ff8c3c', 460, 142);
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.68, depthWrite: false }));
-    label.position.copy(mid);
-    label.position.y += 2.9;
-    label.scale.set(7.4, 2.28, 1);
-    scene.add(label);
-
-    return [
-      {
-        id: `${sourceId}-${targetId}`,
-        source: source.repo,
-        target: target.repo,
-        curve,
-        mesh,
-        cars,
-        label,
-        speed: 0.035 + (index % 5) * 0.006,
-        phase: (index % 7) / 7,
-      },
-    ];
-  });
-}
 
 function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: FilterKey) {
   for (const building of objects) {
     const active =
       filter === 'all' ||
       building.repo.district === filter ||
+      building.district.parent === filter ||
       (filter === 'stars' && building.repo.stars >= 10000) ||
       (filter === 'safe' && isGreenSafety(building.repo.safetyScore));
     const opacity = active ? 1 : 0.22;
@@ -1561,11 +688,13 @@ function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: Fil
     const sourceActive =
       filter === 'all' ||
       road.source.district === filter ||
+      districtFor(road.source).parent === filter ||
       (filter === 'stars' && road.source.stars >= 10000) ||
       (filter === 'safe' && isGreenSafety(road.source.safetyScore));
     const targetActive =
       filter === 'all' ||
       road.target.district === filter ||
+      districtFor(road.target).parent === filter ||
       (filter === 'stars' && road.target.stars >= 10000) ||
       (filter === 'safe' && isGreenSafety(road.target.safetyScore));
     road.mesh.material.opacity = sourceActive || targetActive ? 0.5 : 0.08;
@@ -1587,6 +716,84 @@ function getRepoScreenPosition(building: BuildingObject, camera: THREE.Perspecti
 }
 
 export default function Home() {
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(true);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/py/graph-full?limit=1200')
+      .then(res => res.json())
+      .then(data => {
+        // Map the graph-full nodes to Repo objects
+        const nodes = data.nodes.filter((n: any) => n.group === 'repository');
+        
+        // Complex biome clustering logic based on derived traits
+        const mappedRepos: Repo[] = nodes.map((node: any) => {
+          // Traits derivation
+          const stars = node.stars || 0;
+          const language = (node.language || '').toLowerCase();
+          const topics = node.topics || [];
+          const age = Math.random() * 10; // Mock age if not provided
+          
+          let biome: DistrictKey = 'tech_suburbs'; // Default
+          
+          if (stars > 80000) biome = 'skyline_core';
+          else if (stars > 25000) biome = 'vertical_arcology';
+          else if (topics.includes('finance') || topics.includes('fintech') || topics.includes('payment')) biome = 'financial_district';
+          else if (topics.includes('ml') || topics.includes('ai') || topics.includes('deep-learning') || topics.includes('llm')) biome = 'neon_alley';
+          else if (language === 'rust') biome = 'clockwork_empire';
+          else if (language === 'c' || language === 'c++') biome = 'mountain_citadel';
+          else if (language === 'go' || topics.includes('cloud') || topics.includes('kubernetes')) biome = 'floating_island';
+          else if (language === 'typescript' || language === 'javascript' || topics.includes('frontend')) biome = 'brick_boroughs';
+          else if (language === 'python') biome = 'ether_realm';
+          else if (topics.includes('crypto') || topics.includes('blockchain') || topics.includes('web3')) biome = 'crystal_fields';
+          else if (topics.includes('game') || topics.includes('graphics') || topics.includes('rendering')) biome = 'bamboo_valley';
+          else if (topics.includes('security') || topics.includes('cryptography')) biome = 'redwood_archive';
+          else if (topics.includes('database') || topics.includes('sql') || topics.includes('nosql')) biome = 'canyon_networks';
+          else if (topics.includes('compiler') || topics.includes('parser') || topics.includes('interpreter')) biome = 'frozen_kingdom';
+          else if (topics.includes('docker') || topics.includes('devops') || topics.includes('ci-cd')) biome = 'volcano_forge';
+          else if (topics.includes('linux') || topics.includes('kernel') || topics.includes('operating-system')) biome = 'ruined_empire';
+          else if (stars < 50) biome = 'valley_villages';
+          else if (stars < 250) biome = 'nomad_camps';
+          else if (stars < 1000) biome = 'coastal_fishing';
+          
+          // Fallbacks for tech_suburbs
+          const infraBiomes = ['overgrown_ruins', 'forest_repository', 'jungle_canopy', 'corruption_wasteland'];
+          if (biome === 'tech_suburbs') {
+             const hash = (node.name || '').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+             biome = infraBiomes[hash % infraBiomes.length];
+          }
+
+          return {
+            id: node.id.replace('repo_', ''),
+            name: node.name,
+            owner: node.owner,
+            district: biome,
+            language: node.language || 'Unknown',
+            description: node.description || '',
+            stars: stars,
+            forks: node.forks || 0,
+            openPRs: node.openIssues || 0,
+            commitsPerWeek: 10,
+            contributors: 10,
+            goodFirstIssues: 0,
+            safetyScore: node.safetyScore || 80,
+            verifiedMaintainers: true,
+            branchProtection: true,
+            signedReleases: false,
+            responseHours: 24,
+            topics: topics,
+            prs: []
+          };
+        });
+        setRepos(mappedRepos);
+        setLoadingRepos(false);
+      })
+      .catch(err => {
+         console.error('Failed to fetch real GitHub data', err);
+         setLoadingRepos(false);
+      });
+  }, []);
+
   const mountRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneRefs | null>(null);
@@ -1600,8 +807,11 @@ export default function Home() {
 
   const [entered, setEntered] = useState(false);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [appearance, setAppearance] = useState<Appearance>('night');
+  const [appearance, setAppearance] = useState<Appearance>('day');
+  const [heightScaleDriver, setHeightScaleDriver] = useState<'stars' | 'activity' | 'contributors'>('stars');
   const [zoomValue, setZoomValue] = useState(1);
+  const [sectionsOpen, setSectionsOpen] = useState(false);
+  const targetDistrictCenterRef = useRef<{ x: number; z: number } | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [query, setQuery] = useState('');
@@ -1611,8 +821,8 @@ export default function Home() {
   const [safetyProfiles, setSafetyProfiles] = useState<Record<string, SafetyProfile>>({});
 
   const effectiveRepos = useMemo(() => {
-    return REPOS.map((repo) => applySafetyProfile(repo, safetyProfiles[repo.id] ?? repo.safetyProfile));
-  }, [safetyProfiles]);
+    return repos.map((repo) => applySafetyProfile(repo, safetyProfiles[repo.id] ?? repo.safetyProfile));
+  }, [repos, safetyProfiles]);
 
   const reposByDistrict = useMemo(() => {
     return DISTRICTS.map((district) => ({
@@ -1649,11 +859,12 @@ export default function Home() {
   }, [hoveredRepo]);
 
   useEffect(() => {
+    if (repos.length === 0) return;
     let cancelled = false;
     fetch('/api/py/safety-score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repos: REPOS }),
+      body: JSON.stringify({ repos: repos }),
     })
       .then((response) => {
         if (!response.ok) throw new Error(`Safety scoring failed with ${response.status}`);
@@ -1671,7 +882,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [repos]);
 
   useEffect(() => {
     if (!selectedRepo) return;
@@ -1689,8 +900,8 @@ export default function Home() {
     scene.background = new THREE.Color('#020408');
     scene.fog = new THREE.FogExp2('#071126', 0.012);
 
-    const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 500);
-    camera.position.set(-84, 28, 68);
+    const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 3500);
+    camera.position.set(-220, 180, 260);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -1727,7 +938,7 @@ export default function Home() {
     const buildings: BuildingObject[] = [];
     reposByDistrict.forEach(({ repos }) => {
       repos.forEach((repo, index) => {
-        const building = createBuilding(repo, index, repos);
+        const building = createBuilding(repo, index, repos, heightScaleDriver);
         buildings.push(building);
         scene.add(building.group);
       });
@@ -1776,10 +987,67 @@ export default function Home() {
       setZoomValue(Number(nextZoom.toFixed(2)));
     };
 
-    const handlePointerMove = (event: PointerEvent) => {
+    // Free navigation offsets
+    let freeNavX = 0;
+    let freeNavY = 0; // Camera height adjustments (top-down vs face-on)
+    let freeNavZ = 0;
+    let isDragging = false;
+    let prevMouseX = 0;
+    let prevMouseY = 0;
+    const keysPressed: Record<string, boolean> = {};
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysPressed[e.key.toLowerCase()] = true;
+      if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
+        // Clear selection on keyboard input so the camera returns to free navigation control
+        setSelectedRepo(null);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed[e.key.toLowerCase()] = false;
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button === 0) { // Left click drag
+        isDragging = true;
+        prevMouseX = event.clientX;
+        prevMouseY = event.clientY;
+      }
+    };
+    const handlePointerUp = () => {
+      isDragging = false;
+    };
+
+    const handlePointerMoveDrag = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
       refs.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       refs.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      if (isDragging && enteredRef.current) {
+        const deltaX = event.clientX - prevMouseX;
+        const deltaY = event.clientY - prevMouseY;
+        prevMouseX = event.clientX;
+        prevMouseY = event.clientY;
+        
+        // Clear selection on drag pan
+        if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+          setSelectedRepo(null);
+        }
+        
+        // Pan the camera based on delta movement (scaled by zoom)
+        const panScale = 0.42 * refs.zoom;
+        if (event.shiftKey) {
+          // Adjust vertical angle/height when holding Shift
+          freeNavY -= deltaY * panScale * 1.5;
+          freeNavY = clamp(freeNavY, -165, 350);
+        } else {
+          // Normal panning
+          freeNavX -= deltaX * panScale;
+          freeNavZ -= deltaY * panScale;
+        }
+      }
     };
 
     const handlePointerLeave = () => {
@@ -1813,9 +1081,75 @@ export default function Home() {
 
       const selected = selectedRef.current;
       const selectedBuilding = selected ? findBuilding(selected.id) : null;
-      const mouseParallax = enteredRef.current
-        ? new THREE.Vector3(refs.pointer.x * 2.6, refs.pointer.y * 0.9, refs.pointer.x * 1.2)
-        : new THREE.Vector3(0, 0, 0);
+      
+      // Process keyboard movement (W, A, S, D / Arrow keys)
+      const moveSpeed = 4.6 * refs.zoom;
+      if (enteredRef.current) {
+        let isUserMoving = false;
+        if (keysPressed['w']) {
+          freeNavZ -= moveSpeed;
+          isUserMoving = true;
+        }
+        if (keysPressed['s']) {
+          freeNavZ += moveSpeed;
+          isUserMoving = true;
+        }
+        if (keysPressed['a']) {
+          freeNavX -= moveSpeed;
+          isUserMoving = true;
+        }
+        if (keysPressed['d']) {
+          freeNavX += moveSpeed;
+          isUserMoving = true;
+        }
+        
+        // Arrow keys: Up/Down tilts vertical angle (freeNavY), Left/Right pans horizontally
+        if (keysPressed['arrowup']) {
+          freeNavY += moveSpeed * 1.5;
+          isUserMoving = true;
+        }
+        if (keysPressed['arrowdown']) {
+          freeNavY -= moveSpeed * 1.5;
+          isUserMoving = true;
+        }
+        if (keysPressed['arrowleft']) {
+          freeNavX -= moveSpeed;
+          isUserMoving = true;
+        }
+        if (keysPressed['arrowright']) {
+          freeNavX += moveSpeed;
+          isUserMoving = true;
+        }
+
+        // Vertical look angle control (Q flies UP for top-down, E flies DOWN for face-on)
+        if (keysPressed['q']) {
+          freeNavY += moveSpeed * 1.2;
+          isUserMoving = true;
+        }
+        if (keysPressed['e']) {
+          freeNavY -= moveSpeed * 1.2;
+          isUserMoving = true;
+        }
+        freeNavY = clamp(freeNavY, -165, 350);
+
+        if (isUserMoving) {
+          targetDistrictCenterRef.current = null;
+        }
+
+        const targetCenter = targetDistrictCenterRef.current;
+        if (targetCenter) {
+          freeNavX += (targetCenter.x - freeNavX) * 0.08;
+          freeNavZ += (targetCenter.z - freeNavZ) * 0.08;
+          freeNavY += (-80 - freeNavY) * 0.08;
+          refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.46, 0.08);
+
+          if (Math.abs(targetCenter.x - freeNavX) < 1 && Math.abs(targetCenter.z - freeNavZ) < 1) {
+            targetDistrictCenterRef.current = null;
+          }
+        }
+      }
+
+      const mouseParallax = new THREE.Vector3(0, 0, 0);
 
       const introPosition = new THREE.Vector3(
         THREE.MathUtils.lerp(-92, 44, introT),
@@ -1828,8 +1162,9 @@ export default function Home() {
       let desiredTarget = introTarget;
 
       if (enteredRef.current) {
-        desiredPosition = CAMERA_HOME.clone().add(mouseParallax);
-        desiredTarget = TARGET_HOME.clone();
+        const freeOffset = new THREE.Vector3(freeNavX, freeNavY, freeNavZ);
+        desiredPosition = CAMERA_HOME.clone().add(mouseParallax).add(freeOffset);
+        desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
       }
 
       if (selectedBuilding && enteredRef.current) {
@@ -1894,7 +1229,9 @@ export default function Home() {
       refs.frame = requestAnimationFrame(animate);
     };
 
-    renderer.domElement.addEventListener('pointermove', handlePointerMove);
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointerup', handlePointerUp);
+    renderer.domElement.addEventListener('pointermove', handlePointerMoveDrag);
     renderer.domElement.addEventListener('pointerleave', handlePointerLeave);
     renderer.domElement.addEventListener('click', handleClick);
     renderer.domElement.addEventListener('wheel', handleWheel, { passive: false });
@@ -1902,7 +1239,11 @@ export default function Home() {
     refs.frame = requestAnimationFrame(animate);
 
     return () => {
-      renderer.domElement.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+      renderer.domElement.removeEventListener('pointermove', handlePointerMoveDrag);
       renderer.domElement.removeEventListener('pointerleave', handlePointerLeave);
       renderer.domElement.removeEventListener('click', handleClick);
       renderer.domElement.removeEventListener('wheel', handleWheel);
@@ -1919,7 +1260,7 @@ export default function Home() {
       renderer.domElement.remove();
       sceneRef.current = null;
     };
-  }, [reposByDistrict]);
+  }, [reposByDistrict, heightScaleDriver]);
 
   useEffect(() => {
     if (!entered) return undefined;
@@ -2002,6 +1343,12 @@ export default function Home() {
     if (next !== 'all' && next !== 'stars' && next !== 'safe') {
       similarDistrictRef.current = next;
       similarUntilRef.current = performance.now() + 2800;
+      const district = DISTRICTS.find((d) => d.key === next);
+      if (district) {
+        targetDistrictCenterRef.current = { x: district.x, z: district.z };
+      }
+    } else {
+      targetDistrictCenterRef.current = null;
     }
   };
 
@@ -2129,24 +1476,72 @@ export default function Home() {
               ))}
             </div>
           ) : null}
-          <div className="filter-row" aria-label="City filters">
-            {DISTRICTS.map((district) => (
-              <button
-                key={district.key}
-                className={`filter-chip ${filter === district.key ? 'is-active' : ''}`}
-                style={{ '--chip-color': district.color } as CSSProperties}
-                type="button"
-                onClick={() => handleFilter(district.key)}
-              >
-                {district.label}
-              </button>
-            ))}
+          <div className="filter-row" aria-label="City filters" style={{ position: 'relative', display: 'flex', gap: '8px', width: '100%', alignItems: 'center' }}>
+            <button
+              className={`filter-chip config-chip ${sectionsOpen ? 'is-active' : ''}`}
+              type="button"
+              onClick={() => setSectionsOpen(!sectionsOpen)}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              ⚙️ Configure City Sections
+            </button>
             <button className={`filter-chip star-chip ${filter === 'stars' ? 'is-active' : ''}`} type="button" onClick={() => handleFilter('stars')}>
               ★ 10k+
             </button>
             <button className={`filter-chip safe-chip ${filter === 'safe' ? 'is-active' : ''}`} type="button" onClick={() => handleFilter('safe')}>
               safe
             </button>
+
+            <div className="height-driver-container" style={{ display: 'flex', gap: '6px', marginLeft: 'auto', alignItems: 'center' }}>
+              <span className="scale-label" style={{ fontSize: '10px', opacity: 0.6, marginRight: '4px', textTransform: 'uppercase', fontFamily: '"Space Mono", monospace', letterSpacing: '0.04em' }}>Height By:</span>
+              <button 
+                className={`filter-chip scale-stars-chip ${heightScaleDriver === 'stars' ? 'is-active' : ''}`} 
+                type="button" 
+                onClick={() => setHeightScaleDriver('stars')}
+              >
+                ★ Stars
+              </button>
+              <button 
+                className={`filter-chip scale-activity-chip ${heightScaleDriver === 'activity' ? 'is-active' : ''}`} 
+                type="button" 
+                onClick={() => setHeightScaleDriver('activity')}
+              >
+                ⚡ Activity
+              </button>
+              <button 
+                className={`filter-chip scale-contributors-chip ${heightScaleDriver === 'contributors' ? 'is-active' : ''}`} 
+                type="button" 
+                onClick={() => setHeightScaleDriver('contributors')}
+              >
+                👥 Contributors
+              </button>
+            </div>
+
+            {sectionsOpen && (
+              <div className="city-sections-dropdown">
+                <div className="dropdown-header">
+                  <span>Select Sector to Zoom & Highlight</span>
+                  <button type="button" className="close-btn" onClick={() => setSectionsOpen(false)}>×</button>
+                </div>
+                <div className="dropdown-grid">
+                  {DISTRICTS.map((district) => (
+                    <button
+                      key={district.key}
+                      className={`dropdown-item ${filter === district.key ? 'is-active' : ''}`}
+                      style={{ '--item-color': district.color } as CSSProperties}
+                      type="button"
+                      onClick={() => {
+                        handleFilter(district.key);
+                        setSectionsOpen(false);
+                      }}
+                    >
+                      <span className="color-dot" style={{ background: district.color }} />
+                      {district.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </form>
 
@@ -2844,12 +2239,156 @@ export default function Home() {
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--chip-color), transparent 58%), 0 0 26px color-mix(in srgb, var(--chip-color), transparent 74%), inset 0 1px 0 rgba(255,255,255,0.12);
         }
 
+        .scale-stars-chip {
+          --chip-color: #fbbf24;
+        }
+
+        .scale-activity-chip {
+          --chip-color: #3b82f6;
+        }
+
+        .scale-contributors-chip {
+          --chip-color: #a855f7;
+        }
+
         .star-chip {
           --chip-color: #fbbf24;
         }
 
         .safe-chip {
           --chip-color: #34d399;
+        }
+
+        .city-sections-dropdown {
+          position: absolute;
+          bottom: calc(100% + 12px);
+          left: 50%;
+          transform: translateX(-50%);
+          width: 580px;
+          max-width: 95vw;
+          background: linear-gradient(135deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 12px;
+          padding: 16px;
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(28px);
+          z-index: 1000;
+          animation: slideUp 200ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .sift-page.is-day .city-sections-dropdown {
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.98));
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        @keyframes slideUp {
+          from {
+            transform: translate(-50%, 10px);
+            opacity: 0;
+          }
+          to {
+            transform: translate(-50%, 0);
+            opacity: 1;
+          }
+        }
+
+        .dropdown-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          padding-bottom: 8px;
+        }
+
+        .sift-page.is-day .dropdown-header {
+          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .dropdown-header span {
+          font-family: "Space Mono", monospace;
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: rgba(255, 255, 255, 0.76);
+        }
+
+        .sift-page.is-day .dropdown-header span {
+          color: rgba(15, 23, 42, 0.76);
+        }
+
+        .dropdown-header .close-btn {
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 18px;
+          cursor: pointer;
+          padding: 0 4px;
+        }
+
+        .sift-page.is-day .dropdown-header .close-btn {
+          color: rgba(15, 23, 42, 0.6);
+        }
+
+        .dropdown-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 6px;
+          max-height: 280px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .dropdown-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 6px;
+          color: rgba(255, 255, 255, 0.8);
+          font-family: "Space Mono", monospace;
+          font-size: 10px;
+          text-align: left;
+          cursor: pointer;
+          transition: all 150ms ease;
+        }
+
+        .sift-page.is-day .dropdown-item {
+          background: rgba(0, 0, 0, 0.02);
+          border: 1px solid rgba(0, 0, 0, 0.04);
+          color: rgba(15, 23, 42, 0.8);
+        }
+
+        .dropdown-item:hover {
+          background: rgba(255, 255, 255, 0.08);
+          border-color: var(--item-color);
+          color: white;
+        }
+
+        .sift-page.is-day .dropdown-item:hover {
+          background: rgba(0, 0, 0, 0.05);
+          color: rgba(15, 23, 42, 1);
+        }
+
+        .dropdown-item.is-active {
+          background: color-mix(in srgb, var(--item-color), transparent 82%);
+          border-color: var(--item-color);
+          color: white;
+        }
+
+        .sift-page.is-day .dropdown-item.is-active {
+          color: rgba(15, 23, 42, 1);
+        }
+
+        .dropdown-item .color-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex-shrink: 0;
         }
 
         .stat-bar {
@@ -3531,3 +3070,565 @@ export default function Home() {
     </main>
   );
 }
+
+
+function createBuilding(repo: Repo, index: number, districtRepos: Repo[], heightScaleDriver: 'stars' | 'activity' | 'contributors') {
+  const district = districtFor(repo);
+  const layout = createRepoLayout(repo, index, districtRepos, heightScaleDriver);
+  const group = new THREE.Group();
+  group.position.copy(layout.position);
+
+  const shape = district.shape;
+  
+  let baseGeo;
+  let topGeo;
+  let topHeightVal = 0.5;
+  const subMeshes: THREE.Mesh[] = [];
+  
+  // Choose geometry based on shape
+  if (['spires', 'skyline_core'].includes(shape)) {
+    // Stepped Spire skyscraper
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.6, layout.height * 0.6, 16);
+    
+    const tierGeo = new THREE.CylinderGeometry(layout.width * 0.3, layout.width * 0.45, layout.height * 0.3, 16);
+    const tier = new THREE.Mesh(tierGeo);
+    tier.position.y = layout.height * 0.35; // relative offset
+    subMeshes.push(tier);
+
+    topGeo = new THREE.ConeGeometry(layout.width * 0.18, layout.height * 0.3, 16);
+    topHeightVal = layout.height * 0.3;
+  } else if (['megatowers', 'vertical_arcology'].includes(shape)) {
+    // Hexagonal Megatower core with floating structural struts
+    baseGeo = new THREE.BoxGeometry(layout.width * 0.5, layout.height, layout.depth * 0.5);
+    
+    const strutMat1 = new THREE.BoxGeometry(layout.width * 0.15, layout.height * 0.95, layout.depth * 1.15);
+    const strut1 = new THREE.Mesh(strutMat1);
+    subMeshes.push(strut1);
+
+    const strutMat2 = new THREE.BoxGeometry(layout.width * 1.15, layout.height * 0.95, layout.depth * 0.15);
+    const strut2 = new THREE.Mesh(strutMat2);
+    subMeshes.push(strut2);
+
+    topGeo = new THREE.TorusGeometry(layout.width * 0.72, 0.12, 8, 24);
+    topGeo.rotateX(Math.PI / 2);
+    topHeightVal = 0.25;
+  } else if (['apartments', 'brick_boroughs'].includes(shape)) {
+    // Dynamic contemporary Jenga apartments
+    baseGeo = new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.28, layout.depth * 0.85);
+    
+    const block1 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.28, layout.depth * 0.85));
+    block1.position.y = layout.height * 0.32;
+    block1.rotateY(Math.PI / 4); // rotated 45 deg
+    subMeshes.push(block1);
+
+    const block2 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.28, layout.depth * 0.85));
+    block2.position.y = layout.height * 0.64;
+    block2.rotateY(Math.PI / 2); // rotated 90 deg
+    subMeshes.push(block2);
+
+    topGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.45, 0.1, 16);
+    topHeightVal = 0.1;
+  } else if (['suburban_homes', 'rooftop_villages', 'suburbs', 'valley_villages', 'tents', 'nomad_camps'].includes(shape)) {
+    // Beautiful triangular prism wedges representing tech tents!
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.48, layout.width * 0.48, layout.height * 0.45, 3);
+    baseGeo.rotateX(Math.PI / 2); // rotate horizontally to make a clean wedge prism!
+    
+    topGeo = new THREE.ConeGeometry(layout.width * 0.48, layout.height * 0.45, 4);
+    topHeightVal = layout.height * 0.45;
+  } else if (['glass', 'neon_alley'].includes(shape)) {
+    // Tech-SaaS Tri-Disc Core
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.15, layout.width * 0.15, layout.height, 12);
+    
+    const disc1 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.95, layout.width * 0.95, layout.height * 0.08, 16));
+    disc1.position.y = -layout.height * 0.3;
+    subMeshes.push(disc1);
+
+    const disc2 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.85, layout.width * 0.85, layout.height * 0.08, 16));
+    disc2.position.y = 0;
+    subMeshes.push(disc2);
+
+    const disc3 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.75, layout.width * 0.75, layout.height * 0.08, 16));
+    disc3.position.y = layout.height * 0.3;
+    subMeshes.push(disc3);
+
+    topGeo = new THREE.SphereGeometry(layout.width * 0.42, 24, 24);
+    topHeightVal = layout.width * 0.84;
+  } else if (['blocks', 'financial_district'].includes(shape)) {
+    // Nested floating microservice data blocks
+    baseGeo = new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.25, layout.depth * 0.85);
+    
+    const block1 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.65, layout.height * 0.25, layout.depth * 0.65));
+    block1.position.y = layout.height * 0.35;
+    subMeshes.push(block1);
+
+    const block2 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.45, layout.height * 0.25, layout.depth * 0.45));
+    block2.position.y = layout.height * 0.7;
+    subMeshes.push(block2);
+
+    topGeo = new THREE.OctahedronGeometry(layout.width * 0.25);
+    topHeightVal = layout.width * 0.5;
+  } else if (['giant_trees', 'forest_repository', 'redwood_archive', 'redwood_towers', 'mushroom_colonies'].includes(shape)) {
+    // Branching organic natural tree canopy with geodesic leaf clusters
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.18, layout.width * 0.32, layout.height, 12);
+    
+    const leaf1 = new THREE.Mesh(new THREE.IcosahedronGeometry(layout.width * 0.72, 1));
+    leaf1.position.set(-layout.width * 0.3, layout.height * 0.25, -layout.width * 0.2);
+    subMeshes.push(leaf1);
+
+    const leaf2 = new THREE.Mesh(new THREE.IcosahedronGeometry(layout.width * 0.64, 1));
+    leaf2.position.set(layout.width * 0.3, layout.height * 0.32, layout.width * 0.2);
+    subMeshes.push(leaf2);
+
+    const leaf3 = new THREE.Mesh(new THREE.IcosahedronGeometry(layout.width * 0.58, 1));
+    leaf3.position.set(-layout.width * 0.2, layout.height * 0.15, layout.width * 0.3);
+    subMeshes.push(leaf3);
+
+    topGeo = new THREE.IcosahedronGeometry(layout.width * 0.85, 2);
+    topHeightVal = layout.width * 1.7;
+  } else if (['bamboo_pagodas', 'bamboo_valley'].includes(shape)) {
+    // Realistic Asian pagoda with stacked flared eave roofs
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.25, layout.width * 0.25, layout.height, 8);
+    
+    const roof1 = new THREE.Mesh(new THREE.ConeGeometry(layout.width * 1.15, layout.height * 0.15, 8));
+    roof1.position.y = -layout.height * 0.2;
+    subMeshes.push(roof1);
+
+    const roof2 = new THREE.Mesh(new THREE.ConeGeometry(layout.width * 0.95, layout.height * 0.15, 8));
+    roof2.position.y = layout.height * 0.12;
+    subMeshes.push(roof2);
+
+    const roof3 = new THREE.Mesh(new THREE.ConeGeometry(layout.width * 0.75, layout.height * 0.15, 8));
+    roof3.position.y = layout.height * 0.4;
+    subMeshes.push(roof3);
+
+    topGeo = new THREE.CylinderGeometry(0, layout.width * 0.18, layout.height * 0.2, 8);
+    topHeightVal = layout.height * 0.2;
+  } else if (['crystal_spires', 'crystal_fields'].includes(shape)) {
+    // Overlapping crystalline double-pyramid cluster
+    const crystalBase = new THREE.OctahedronGeometry(layout.width * 0.5, 0);
+    crystalBase.scale(1, 2, 1);
+    baseGeo = crystalBase;
+    
+    const crystalGeo1 = new THREE.OctahedronGeometry(layout.width * 0.38, 0);
+    crystalGeo1.scale(1, 1.8, 1);
+    const cry1 = new THREE.Mesh(crystalGeo1);
+    cry1.position.set(-layout.width * 0.25, 0, -layout.width * 0.1);
+    cry1.rotateZ(0.3);
+    subMeshes.push(cry1);
+
+    const crystalGeo2 = new THREE.OctahedronGeometry(layout.width * 0.32, 0);
+    crystalGeo2.scale(1, 1.8, 1);
+    const cry2 = new THREE.Mesh(crystalGeo2);
+    cry2.position.set(layout.width * 0.25, 0, layout.width * 0.1);
+    cry2.rotateZ(-0.3);
+    subMeshes.push(cry2);
+
+    topGeo = new THREE.RingGeometry(layout.width * 1.1, layout.width * 1.3, 16);
+    topGeo.rotateX(Math.PI / 2);
+    topHeightVal = 0.1;
+  } else if (['citadel', 'fortresses', 'castles', 'canyon_forts'].includes(shape)) {
+    // Dynamic Burj Khalifa style stepped setback tower!
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.52, layout.width * 0.72, layout.height * 0.42, 6);
+    
+    const setback1 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.38, layout.width * 0.52, layout.height * 0.32, 6));
+    setback1.position.y = layout.height * 0.28;
+    subMeshes.push(setback1);
+
+    const setback2 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.22, layout.width * 0.38, layout.height * 0.22, 6));
+    setback2.position.y = layout.height * 0.5;
+    subMeshes.push(setback2);
+
+    topGeo = new THREE.ConeGeometry(layout.width * 0.12, layout.height * 0.25, 6);
+    topHeightVal = layout.height * 0.25;
+  } else if (['reactors', 'refineries', 'factories', 'lava_foundries'].includes(shape)) {
+    // Sculpted Industrial Volcano with glowing lava crater core!
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.28, layout.width * 0.95, layout.height, 16);
+    
+    const lavaCollar = new THREE.Mesh(new THREE.TorusGeometry(layout.width * 0.28, 0.15, 8, 16));
+    lavaCollar.position.y = layout.height * 0.46;
+    lavaCollar.rotateX(Math.PI / 2);
+    subMeshes.push(lavaCollar);
+
+    topGeo = new THREE.TorusGeometry(layout.width * 0.28, 0.08, 6, 12);
+    topGeo.rotateX(Math.PI / 2);
+    topHeightVal = 0.1;
+  } else if (['caves', 'stone_villages'].includes(shape)) {
+    // Highly textured crystalline geodes!
+    baseGeo = new THREE.IcosahedronGeometry(layout.width, 2);
+    baseGeo.scale(1, layout.height / layout.width, 1);
+    topGeo = new THREE.BoxGeometry(0.01, 0.01, 0.01);
+    topHeightVal = 0.01;
+  } else if (['observatories'].includes(shape)) {
+    // Clean capsule observatory base with nested sphere dome!
+    baseGeo = new THREE.CapsuleGeometry(layout.width * 0.38, layout.height * 0.42, 8, 16);
+    topGeo = new THREE.SphereGeometry(layout.width * 0.55, 24, 24);
+    topHeightVal = layout.width * 1.1;
+  } else if (['floating_stations', 'holographic_forms', 'holographic', 'ether_realm', 'skyline_core'].includes(shape)) {
+    // Mind-blowing organic Torus Knot representing dynamic agent logic & flows!
+    baseGeo = new THREE.TorusKnotGeometry(layout.width * 0.48, layout.width * 0.16, 64, 10, 3, 5);
+    topGeo = new THREE.RingGeometry(layout.width * 1.1, layout.width * 1.35, 24);
+    topGeo.rotateX(Math.PI / 2);
+    group.position.y += 6 + (repo.stars % 10) * 0.5; // majestic floating!
+    topHeightVal = 0.15;
+  } else if (['shipyards', 'fishing_docks'].includes(shape)) {
+    // Curved bridge dock arches!
+    baseGeo = new THREE.TorusGeometry(layout.width * 0.95, 0.22, 12, 24, Math.PI);
+    topGeo = new THREE.CylinderGeometry(0.12, 0.12, layout.height * 0.8, 8);
+    topHeightVal = layout.height * 0.8;
+  } else if (['ruins', 'decayed', 'overgrown'].includes(shape)) {
+    // Organic split column structure!
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.65, layout.height * 0.72, 5);
+    topGeo = new THREE.TorusKnotGeometry(layout.width * 0.32, 0.1, 24, 6, 2, 3);
+    topHeightVal = layout.width * 0.64;
+  } else {
+    // Organic rounded fluted pillar fallback
+    baseGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.52, layout.height, 12);
+    topGeo = new THREE.SphereGeometry(layout.width * 0.55, 12, 12);
+    topHeightVal = layout.width * 1.1;
+  }
+
+  const isHolo = ['holographic_forms', 'holographic', 'floating_stations', 'crystal_spires', 'crystal_fields', 'ether_realm'].includes(shape);
+  
+  const bodyMaterial = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(district.color),
+    roughness: isHolo ? 0.1 : 0.15,
+    metalness: isHolo ? 0.9 : 0.85,
+    emissive: new THREE.Color(district.color),
+    emissiveIntensity: isHolo ? 0.8 : 0.38,
+    wireframe: isHolo,
+    transparent: isHolo,
+    opacity: isHolo ? 0.5 : 1
+  });
+  
+  const body = new THREE.Mesh(baseGeo, bodyMaterial);
+  body.position.y = layout.height / 2;
+  body.castShadow = !isHolo;
+  body.receiveShadow = !isHolo;
+  body.userData.repoId = repo.id;
+  
+  subMeshes.forEach((sub) => {
+    sub.material = bodyMaterial;
+    sub.castShadow = !isHolo;
+    sub.receiveShadow = !isHolo;
+    sub.userData.repoId = repo.id;
+    body.add(sub);
+  });
+  
+  group.add(body);
+
+  const topMaterial = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(district.accent),
+    roughness: 0.3,
+    metalness: 0.5,
+    emissive: new THREE.Color(district.color),
+    emissiveIntensity: 0.3,
+    wireframe: isHolo
+  });
+  const top = new THREE.Mesh(topGeo, topMaterial);
+  top.position.y = layout.height + topHeightVal / 2;
+  top.userData.repoId = repo.id;
+  group.add(top);
+
+  // Edges only for boxy shapes
+  if (['spires', 'megatowers', 'apartments', 'glass'].includes(shape)) {
+    const edgeGeometry = new THREE.EdgesGeometry(baseGeo);
+    const edgeMaterial = new THREE.LineBasicMaterial({ color: district.color, transparent: true, opacity: 0.15 });
+    const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+    edges.position.copy(body.position);
+    group.add(edges);
+  }
+
+  // Windows for residential/industrial/office
+  if (['spires', 'megatowers', 'apartments', 'glass', 'factories'].includes(shape)) {
+    const windowGeometry = new THREE.PlaneGeometry(0.3, 0.2);
+    const windowMaterial = new THREE.MeshBasicMaterial({
+      color: district.color,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const cols = Math.max(2, Math.floor(layout.width / 0.8));
+    const rows = Math.max(3, Math.floor(layout.height / 1.1));
+    const litWindows: THREE.Matrix4[] = [];
+    const dummy = new THREE.Object3D();
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const litSeed = Math.sin((row + 1) * 12.9 + (col + 1) * 78.2 + repo.stars * 0.001);
+        if (litSeed - Math.floor(litSeed) < 0.4) continue;
+        const wx = -layout.width / 2 + 0.5 + col * ((layout.width - 1.0) / Math.max(1, cols - 1));
+        const wy = 0.8 + row * ((layout.height - 1.6) / rows);
+        dummy.position.set(wx, wy, layout.depth / 2 + 0.02);
+        dummy.updateMatrix();
+        litWindows.push(dummy.matrix.clone());
+      }
+    }
+    const windows = new THREE.InstancedMesh(windowGeometry, windowMaterial, Math.max(1, litWindows.length));
+    litWindows.forEach((matrix, matrixIndex) => windows.setMatrixAt(matrixIndex, matrix));
+    windows.userData.repoId = repo.id;
+    group.add(windows);
+  } else {
+    // Add dummy windows to satisfy BuildingObject type
+    const dummyWindows = new THREE.InstancedMesh(new THREE.PlaneGeometry(0,0), new THREE.MeshBasicMaterial(), 1);
+    group.add(dummyWindows);
+  }
+
+  const antennaHeight = 1.5 + (repo.openPRs % 10) * 0.2;
+  const antenna = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, antennaHeight, 8),
+    new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.5 }),
+  );
+  antenna.position.set(0, top.position.y + antennaHeight / 2, 0);
+  if (!['caves', 'giant_trees', 'mushroom_colonies'].includes(shape)) {
+    group.add(antenna);
+  }
+
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 12, 12),
+    new THREE.MeshBasicMaterial({ color: district.accent, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending }),
+  );
+  beacon.position.set(0, antenna.position.y + antennaHeight / 2 + 0.2, 0);
+  if (!['caves', 'giant_trees', 'mushroom_colonies'].includes(shape)) {
+    group.add(beacon);
+  }
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(Math.max(layout.width, layout.depth) * 0.8, 0.05, 8, 32),
+    new THREE.MeshBasicMaterial({ color: district.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.1;
+  group.add(ring);
+
+  // Fulfilling type BuildingObject
+  let windowsObj = group.children.find(c => c instanceof THREE.InstancedMesh) as THREE.InstancedMesh;
+
+  return {
+    repo,
+    district,
+    group,
+    body,
+    top,
+    windows: windowsObj,
+    beacon,
+    ring,
+    position: layout.position.clone(),
+    height: layout.height,
+    width: layout.width,
+    depth: layout.depth,
+    phase: (repo.stars % 1000) / 1000,
+  };
+}
+
+function createGround(scene: THREE.Scene) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  
+  // Dark blue tech-themed background
+  ctx.fillStyle = '#06090e';
+  ctx.fillRect(0, 0, 512, 512);
+  
+  // Tech grid lines
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 512; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 512);
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(512, i);
+    ctx.stroke();
+  }
+  
+  // Cyber circuit patterns
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#1e3a8a';
+  for (let i = 0; i < 15; i += 1) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const size = 30 + Math.random() * 50;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    if (Math.random() > 0.5) {
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x + size + 15, y + 15);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + size + 15, y + 15, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x + 15, y + size + 15);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + 15, y + size + 15, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(16, 16);
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(1000, 1000, 1, 1),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+    }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.05;
+  ground.receiveShadow = true;
+  ground.userData.role = 'ground';
+  scene.add(ground);
+
+  const grid = new THREE.GridHelper(1000, 200, '#4f8cff', '#16345f');
+  grid.userData.role = 'grid';
+  const gridMaterial = grid.material as THREE.Material;
+  gridMaterial.transparent = true;
+  gridMaterial.opacity = 0.1;
+  grid.position.y = 0.01;
+  scene.add(grid);
+
+  DISTRICTS.forEach((district) => {
+    const isNature = ['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins'].includes(district.key);
+    const isLava = district.key === 'volcano_forge';
+    const isIce = district.key === 'frozen_kingdom';
+    
+    let planeColor = district.color;
+    if (isNature) planeColor = '#064e3b';
+    if (isLava) planeColor = '#450a0a';
+    if (isIce) planeColor = '#e0f2fe';
+
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(35, 35),
+      new THREE.MeshBasicMaterial({
+        color: planeColor,
+        transparent: true,
+        opacity: isNature ? 0.2 : 0.08,
+        depthWrite: false,
+      }),
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.set(district.x, 0.02, district.z + 2);
+    plane.userData.role = 'district-plane';
+    scene.add(plane);
+
+    const labelTexture = makeSpriteTexture(district.label.toUpperCase(), 'semantic district', district.color, 520, 130);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.8, depthWrite: false }));
+    label.position.set(district.x, 1.4, district.z + 22);
+    label.scale.set(12, 3, 1);
+    scene.add(label);
+  });
+}
+
+function createSky(scene: THREE.Scene) {
+  const starGeometry = new THREE.BufferGeometry();
+  const positions: number[] = [];
+  for (let i = 0; i < 2000; i += 1) {
+    const radius = 400 + Math.random() * 600;
+    const theta = Math.random() * Math.PI * 2;
+    const y = 40 + Math.random() * 250;
+    positions.push(Math.cos(theta) * radius, y, Math.sin(theta) * radius);
+  }
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const stars = new THREE.Points(
+    starGeometry,
+    new THREE.PointsMaterial({
+      color: '#ffffff',
+      size: 0.3,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  stars.userData.role = 'stars';
+  scene.add(stars);
+
+  const moon = new THREE.Mesh(
+    new THREE.SphereGeometry(15, 32, 32),
+    new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending }),
+  );
+  moon.position.set(120, 80, -150);
+  moon.userData.role = 'moon';
+  scene.add(moon);
+}
+
+function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
+  const roads: RoadObject[] = [];
+  buildings.forEach((building, index) => {
+    if (building.repo.prs.length === 0 && index % 3 !== 0) return;
+    
+    // connect to 1-3 random buildings to show flow
+    const connections = 1 + (building.repo.stars % 3);
+    for(let i=0; i<connections; i++) {
+        const target = buildings[(index + i * 17) % buildings.length];
+        if (target === building) continue;
+
+        const dist = building.position.distanceTo(target.position);
+        if (dist > 150 || dist < 2) continue; // Only connect local-ish nodes
+
+        const isNature = ['forest_repository', 'jungle_canopy', 'bamboo_valley'].includes(building.district.key);
+        const isLava = building.district.key === 'volcano_forge';
+        const isIce = building.district.key === 'frozen_kingdom';
+        
+        let pathColor = building.district.color;
+        if(isNature) pathColor = '#22c55e'; // vine paths
+        if(isLava) pathColor = '#ef4444'; // lava paths
+        if(isIce) pathColor = '#bae6fd'; // ice paths
+
+        const p1 = building.position.clone();
+        const p2 = target.position.clone();
+        
+        const midY = (isNature || building.district.shape === 'floating_stations') ? 10 : 0.5;
+
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(p1.x, 0.2, p1.z),
+          new THREE.Vector3((p1.x + p2.x) / 2, midY + (dist * 0.1), (p1.z + p2.z) / 2),
+          new THREE.Vector3(p2.x, 0.2, p2.z),
+        ]);
+
+        const mesh = new THREE.Mesh(
+          new THREE.TubeGeometry(curve, 20, 0.24, 6, false),
+          new THREE.MeshBasicMaterial({ color: pathColor, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending })
+        );
+        scene.add(mesh);
+
+        const cars: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[] = [];
+        for (let c = 0; c < 3; c += 1) {
+          const car = new THREE.Mesh(
+            new THREE.SphereGeometry(0.45, 8, 8),
+            new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.95 })
+          );
+          scene.add(car);
+          cars.push(car);
+        }
+
+        const labelTexture = makeSpriteTexture(`${building.repo.prs.length || 1} PRs`, 'flow', pathColor, 200, 60);
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
+        scene.add(label);
+
+        roads.push({
+          id: `${building.repo.id}-${target.repo.id}-${i}`,
+          source: building.repo,
+          target: target.repo,
+          curve,
+          mesh,
+          cars,
+          label,
+          speed: 0.1 + (building.repo.stars % 5) * 0.02,
+          phase: Math.random(),
+        });
+    }
+  });
+  return roads;
+}
+
