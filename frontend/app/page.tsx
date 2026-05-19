@@ -121,6 +121,7 @@ type GraphRepositoryNode = {
   stars?: number;
   forks?: number;
   openIssues?: number;
+  openPRs?: number;
   contributorsCount?: number;
   topics?: string[];
   license?: string | null;
@@ -148,8 +149,8 @@ type BuildingObject = {
   body: RepoBuildingMesh;
   top: RepoBuildingMesh;
   windows: RepoWindowsMesh;
-  beacon: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
-  ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
+  beacon: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  ring: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   position: THREE.Vector3;
   height: number;
   width: number;
@@ -163,7 +164,7 @@ type RoadObject = {
   target: Repo;
   curve: THREE.CatmullRomCurve3;
   mesh: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
-  cars: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[];
+  cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
   label: THREE.Sprite;
   speed: number;
   phase: number;
@@ -505,7 +506,8 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
   const name = repoNameFromFullName(fullName);
   const topics = node.topics ?? [];
   const stars = node.stars ?? 0;
-  const openIssues = node.openIssues ?? 0;
+  const openIssues = node.openIssues ?? node.openPRs ?? 0;
+  const openPRs = node.openPRs ?? openIssues;
   const contributors = Math.max(node.contributorsCount ?? 0, Math.round(Math.sqrt(Math.max(1, stars)) * 2));
   const hasStarterSignals = Boolean(node.isBeginnerFriendly) || topics.some((topic) => ['good-first-issue', 'good-first-issues', 'help-wanted', 'documentation'].includes(topic.toLowerCase()));
   const safetyProfile = safetyProfileFromGraphNode(node);
@@ -520,7 +522,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
     stars,
     forks: node.forks ?? 0,
     openIssues,
-    openPRs: openIssues,
+    openPRs,
     commitsPerWeek: commitsPerWeekFromDate(node.pushedAt ?? node.updatedAt),
     contributors,
     goodFirstIssues: hasStarterSignals ? Math.max(3, Math.min(30, Math.round(openIssues * 0.2))) : 0,
@@ -675,10 +677,13 @@ const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 
 const INTRO_MS = 4600;
 const ENTRY_MS = 2600;
-const CAMERA_HOME = new THREE.Vector3(4, 58, 54);
-const TARGET_HOME = new THREE.Vector3(2, 1.8, -1);
-const MIN_ZOOM = 0.62;
-const MAX_ZOOM = 1.55;
+const CAMERA_HOME = new THREE.Vector3(104, 146, 228);
+const TARGET_HOME = new THREE.Vector3(0, 15, 20);
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 1.7;
+const SCENE_PIXEL_RATIO = 1.15;
+const HIGH_DETAIL_REPO_STARS = 50000;
+const WINDOW_REPO_STARS = 10000;
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -732,12 +737,12 @@ const TUTORIAL_STEPS = [
   {
     title: 'Inspect Repos',
     body: 'Hover a building to preview its safety score, stars, and open work items. Click a tower to fly closer and open the repo detail panel.',
-    action: 'Try clicking a tower with a bright roof beacon.',
+    action: 'Try clicking a taller tower or a low neighborhood block.',
   },
   {
     title: 'Follow PR Traffic',
-    body: 'Glowing roads are pull-request relationships. Moving cars are activity pulses, so busy collaboration paths feel alive instead of sitting as static lines.',
-    action: 'Look for roads with multiple cars crossing districts.',
+    body: 'Thin glowing paths mark a few high-signal pull-request relationships without filling the map with motion.',
+    action: 'Look for the sparse paths that connect the largest projects.',
   },
   {
     title: 'Find Safe Work',
@@ -839,6 +844,38 @@ function tokenizeSearch(query: string) {
     .filter(Boolean);
 }
 
+function expandSearchTokens(tokens: string[]) {
+  return tokens.flatMap((token) => [token, ...token.split(/[-_/]+/)]).filter(Boolean);
+}
+
+function districtMatchesQuery(district: District, cleanQuery: string, tokens: string[]) {
+  const districtTokens = expandSearchTokens(tokenizeSearch(`${district.label} ${district.key.replace(/_/g, ' ')} ${district.parent}`));
+  const queryTokens = expandSearchTokens(tokens);
+  const parentMatches = tokens.some((token) => token === district.parent);
+  const exactDistrictTokenMatch = queryTokens.some((token) => districtTokens.includes(token));
+  const districtText = districtTokens.join(' ');
+  const substantialPartialMatch = queryTokens
+    .filter((token) => token.length >= 3)
+    .some((token) => districtText.includes(token));
+
+  return parentMatches || exactDistrictTokenMatch || (cleanQuery.length >= 3 && districtText.includes(cleanQuery)) || substantialPartialMatch;
+}
+
+function textMatchesTokenizedQuery(haystack: string, cleanQuery: string, tokens: string[]) {
+  const normalizedHaystack = haystack.toLowerCase();
+  const haystackTokens = expandSearchTokens(tokenizeSearch(normalizedHaystack));
+  const queryTokens = expandSearchTokens(tokens);
+
+  if (cleanQuery.length >= 3 && normalizedHaystack.includes(cleanQuery)) return true;
+  if (cleanQuery.length < 3 && haystackTokens.includes(cleanQuery)) return true;
+
+  return queryTokens.some((token) => (
+    token.length >= 3
+      ? normalizedHaystack.includes(token)
+      : haystackTokens.includes(token)
+  ));
+}
+
 function getOpenWorkItems(repo: Repo) {
   return repo.openIssues ?? repo.openPRs;
 }
@@ -886,18 +923,18 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   if (haystacks.language.includes(cleanQuery) || substantialTokens.some((token) => haystacks.language === token || haystacks.language.includes(token))) {
     addPing('language', `${repo.language} codebase`, 72);
   }
-  if (haystacks.district.includes(cleanQuery) || tokens.some((token) => haystacks.district.includes(token))) {
+  if (districtMatchesQuery(district, cleanQuery, tokens)) {
     addPing('type', `${district.label} district`, 78);
   }
 
-  const matchedTopics = repo.topics.filter((topic) => tokens.some((token) => topic.toLowerCase().includes(token)) || cleanQuery.includes(topic.toLowerCase()));
+  const matchedTopics = repo.topics.filter((topic) => textMatchesTokenizedQuery(topic, cleanQuery, tokens) || cleanQuery.includes(topic.toLowerCase()));
   if (matchedTopics.length) addPing('topic', matchedTopics.slice(0, 3).join(', '), 58 + matchedTopics.length * 8);
 
-  if (tokens.some((token) => haystacks.description.includes(token)) || haystacks.description.includes(cleanQuery)) {
+  if (textMatchesTokenizedQuery(haystacks.description, cleanQuery, tokens)) {
     addPing('function', repo.description, 42);
   }
 
-  const matchedPr = repo.prs.find((pr) => tokens.some((token) => pr.title.toLowerCase().includes(token)) || pr.title.toLowerCase().includes(cleanQuery));
+  const matchedPr = repo.prs.find((pr) => textMatchesTokenizedQuery(pr.title, cleanQuery, tokens));
   if (matchedPr) addPing('PR activity', `PR #${matchedPr.number}: ${matchedPr.title}`, 38);
 
   FUNCTION_ALIASES.forEach((alias) => {
@@ -1017,8 +1054,8 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   const stagger = district.shape === 'clusters' ? Math.sin(index * 1.7) * 2.4 : 0;
 
   // Center the grid layout perfectly around district.x and district.z
-  const x = district.x + (column - (gridWidth - 1) / 2) * 9.2 + stagger + Math.sin((repo.stars % 41) * 0.18) * 0.9;
-  const z = district.z + (row - (gridWidth - 1) / 2) * 9.9 + (column % 2) * 2.1 + Math.cos((repo.forks % 37) * 0.15) * 0.9;
+  const x = district.x + (column - (gridWidth - 1) / 2) * 11.4 + stagger + Math.sin((repo.stars % 41) * 0.18) * 0.7;
+  const z = district.z + (row - (gridWidth - 1) / 2) * 12.2 + (column % 2) * 2.4 + Math.cos((repo.forks % 37) * 0.15) * 0.7;
 
   let scaleDriver = scale.stars;
   if (heightScaleDriver === 'activity') {
@@ -1028,18 +1065,18 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   }
 
   const heightBias =
-    district.shape === 'spires' || district.shape === 'megatowers' || district.shape === 'vertical_arcology' ? 1.18 :
-    district.shape === 'suburbs' || district.shape === 'tents' || district.shape === 'fishing_docks' ? 0.72 :
-    district.shape === 'blocks' || district.shape === 'lava_foundries' ? 0.9 :
-    1;
-  const height = clamp(6 + Math.pow(scaleDriver, 1.16) * 38 * heightBias + scale.activity * 5, 7, 48);
+    district.shape === 'spires' || district.shape === 'megatowers' || district.shape === 'vertical_arcology' ? 1.12 :
+    district.shape === 'suburbs' || district.shape === 'tents' || district.shape === 'fishing_docks' ? 0.62 :
+    district.shape === 'blocks' || district.shape === 'lava_foundries' ? 0.78 :
+    0.94;
+  const height = clamp(1.35 + Math.pow(scaleDriver, 4.15) * 72 * heightBias + Math.pow(scale.activity, 2.6) * 1.1, 1.6, 72);
   const widthBias =
     district.shape === 'blocks' || district.shape === 'apartments' || district.shape === 'valley_villages' ? 1.28 :
     district.shape === 'glass' || district.shape === 'crystal_spires' ? 0.92 :
     district.shape === 'spires' || district.shape === 'citadel' ? 0.84 :
     1;
-  const width = clamp(2.8 + scale.forks * 5.3 + scale.activity * 1.7, 3, 8.8) * widthBias;
-  const depth = clamp(3 + scale.community * 4.9 + scale.beginnerSurface * 1.2, 3.2, 9.4) * (district.shape === 'blocks' ? 1.18 : 1);
+  const width = clamp(1.35 + Math.pow(scale.forks, 1.8) * 4.4 + Math.pow(scale.activity, 1.5) * 0.45, 1.45, 6.4) * widthBias;
+  const depth = clamp(1.4 + Math.pow(scale.community, 1.8) * 4.1 + Math.pow(scale.beginnerSurface, 1.4) * 0.45, 1.55, 6.6) * (district.shape === 'blocks' ? 1.1 : 1);
 
   return {
     position: new THREE.Vector3(x, 0, z),
@@ -1049,8 +1086,51 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   };
 }
 
+function createSiftRenderer() {
+  const rendererOptions: THREE.WebGLRendererParameters[] = [
+    { antialias: false, alpha: false, powerPreference: 'high-performance' },
+    { antialias: false, alpha: false, powerPreference: 'default' },
+    { antialias: false, alpha: false, powerPreference: 'low-power' },
+  ];
 
+  for (const options of rendererOptions) {
+    try {
+      return new THREE.WebGLRenderer(options);
+    } catch {
+      // Try progressively gentler contexts below.
+    }
+  }
 
+  const canvas = document.createElement('canvas');
+  const contextOptions: WebGLContextAttributes = {
+    alpha: false,
+    antialias: false,
+    depth: true,
+    stencil: false,
+    preserveDrawingBuffer: false,
+    failIfMajorPerformanceCaveat: false,
+    powerPreference: 'low-power',
+  };
+  const context =
+    canvas.getContext('webgl2', contextOptions) ??
+    canvas.getContext('webgl', contextOptions) ??
+    canvas.getContext('experimental-webgl', contextOptions);
+
+  if (!context) {
+    throw new Error('No WebGL context available');
+  }
+
+  return new THREE.WebGLRenderer({
+    canvas,
+    context: context as WebGLRenderingContext | WebGL2RenderingContext,
+    antialias: false,
+    alpha: false,
+  });
+}
+
+function scenePixelRatio() {
+  return Math.min(window.devicePixelRatio || 1, SCENE_PIXEL_RATIO);
+}
 
 function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity: number) {
   const materials = Array.isArray(material) ? material : [material];
@@ -1062,15 +1142,15 @@ function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity
 
 function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   const isDay = appearance === 'day';
-  refs.scene.background = new THREE.Color(isDay ? '#bcd7ff' : '#020408');
-  refs.scene.fog = new THREE.FogExp2(isDay ? '#9dbce7' : '#071126', isDay ? 0.008 : 0.012);
-  refs.renderer.toneMappingExposure = isDay ? 1.18 : 1.05;
-  refs.ambient.color.set(isDay ? '#dbeafe' : '#7c9edb');
-  refs.ambient.intensity = isDay ? 1.3 : 0.7;
+  refs.scene.background = new THREE.Color(isDay ? '#bcd7ff' : '#030816');
+  refs.scene.fog = new THREE.FogExp2(isDay ? '#9dbce7' : '#08142a', isDay ? 0.0035 : 0.0055);
+  refs.renderer.toneMappingExposure = isDay ? 1.18 : 1.12;
+  refs.ambient.color.set(isDay ? '#dbeafe' : '#9bb7f0');
+  refs.ambient.intensity = isDay ? 1.3 : 1.05;
   refs.key.color.set(isDay ? '#fff4cf' : '#dbe8ff');
-  refs.key.intensity = isDay ? 3.2 : 2.4;
+  refs.key.intensity = isDay ? 3.2 : 2.75;
   refs.rim.color.set(isDay ? '#7bbcff' : '#4f8cff');
-  refs.rim.intensity = isDay ? 38 : 68;
+  refs.rim.intensity = isDay ? 38 : 74;
 
   refs.scene.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -1080,13 +1160,13 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
 
     if (role === 'ground') {
       const groundMaterial = material as THREE.MeshBasicMaterial;
-      groundMaterial.color.set(isDay ? '#ffffff' : '#6688aa');
+      groundMaterial.color.set(isDay ? '#c7d6cf' : '#536c88');
     }
 
-    if (role === 'grid') setMaterialOpacity(material, isDay ? 0.16 : 0.23);
-    if (role === 'stars') setMaterialOpacity(material, isDay ? 0.12 : 0.64);
+    if (role === 'grid') setMaterialOpacity(material, isDay ? 0.05 : 0.045);
+    if (role === 'stars') setMaterialOpacity(material, isDay ? 0.02 : 0.24);
     if (role === 'moon') setMaterialOpacity(material, isDay ? 0.025 : 0.08);
-    if (role === 'district-plane') setMaterialOpacity(material, isDay ? 0.075 : 0.055);
+    if (role === 'district-plane') setMaterialOpacity(material, isDay ? 0.045 : 0.035);
   });
 }
 
@@ -1120,8 +1200,8 @@ function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: Fil
       districtFor(road.target).parent === filter ||
       (filter === 'stars' && road.target.stars >= 10000) ||
       (filter === 'safe' && isGreenSafety(road.target.safetyScore));
-    road.mesh.material.opacity = sourceActive || targetActive ? 0.5 : 0.08;
-    road.label.material.opacity = sourceActive || targetActive ? 0.68 : 0.1;
+    road.mesh.material.opacity = sourceActive || targetActive ? 0.18 : 0.025;
+    road.label.material.opacity = 0;
     road.cars.forEach((car) => {
       (car.material as THREE.MeshBasicMaterial).opacity = sourceActive || targetActive ? 0.95 : 0.16;
     });
@@ -1146,6 +1226,7 @@ export default function Home() {
   const [importingRepo, setImportingRepo] = useState(false);
   const [importStatus, setImportStatus] = useState('Paste owner/repo or a GitHub URL.');
   const [wantsContributions, setWantsContributions] = useState(true);
+  const [webglError, setWebglError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -1217,7 +1298,7 @@ export default function Home() {
   const sceneRef = useRef<SceneRefs | null>(null);
   const enteredRef = useRef(false);
   const filterRef = useRef<FilterKey>('all');
-  const appearanceRef = useRef<Appearance>('night');
+  const appearanceRef = useRef<Appearance>('day');
   const selectedRef = useRef<Repo | null>(null);
   const hoverRef = useRef<Repo | null>(null);
   const similarDistrictRef = useRef<DistrictKey | null>(null);
@@ -1237,6 +1318,7 @@ export default function Home() {
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [stats, setStats] = useState({ repos: 0, prs: 0, safe: 0 });
   const [safetyProfiles, setSafetyProfiles] = useState<Record<string, SafetyProfile>>({});
+  const [rendererRetryToken, setRendererRetryToken] = useState(0);
 
   const allRepos = useMemo(() => {
     const importedIds = new Set(loadedRepos.map((repo) => repo.id));
@@ -1268,6 +1350,17 @@ export default function Home() {
       .sort((a, b) => (b.goodFirstIssues * 12 + b.safetyScore + getOpenWorkItems(b) * 0.4) - (a.goodFirstIssues * 12 + a.safetyScore + getOpenWorkItems(a) * 0.4))
       .slice(0, 3);
   }, [effectiveRepos]);
+  const fallbackCity = useMemo(() => {
+    const items = reposByDistrict.flatMap(({ repos }) => repos.map((repo, index) => {
+      const layout = createRepoLayout(repo, index, repos, heightScaleDriver);
+      return { repo, district: districtFor(repo), layout };
+    }));
+    const extent = Math.max(
+      210,
+      ...items.map((item) => Math.max(Math.abs(item.layout.position.x), Math.abs(item.layout.position.z)) + 24),
+    );
+    return { items, extent };
+  }, [reposByDistrict, heightScaleDriver]);
 
   useEffect(() => {
     enteredRef.current = entered;
@@ -1336,6 +1429,13 @@ export default function Home() {
   }, [allRepos]);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('renderer')) return;
+    url.searchParams.delete('renderer');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  useEffect(() => {
     if (!selectedRepo) return;
     const updated = effectiveRepos.find((repo) => repo.id === selectedRepo.id);
     if (updated && updated.safetyScore !== selectedRepo.safetyScore) {
@@ -1354,19 +1454,22 @@ export default function Home() {
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 3500);
     camera.position.set(-220, 180, 260);
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: false,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    setWebglError('');
+
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = createSiftRenderer();
+    } catch (error) {
+      console.warn('[SIFT scene] WebGL renderer could not start; rendering the lightweight city:', error);
+      setWebglError('Full 3D is still retrying for this browser session.');
+      return undefined;
+    }
+    renderer.setPixelRatio(scenePixelRatio());
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.enabled = false;
     mount.appendChild(renderer.domElement);
 
     const ambient = new THREE.AmbientLight('#9fcfc0', 0.7);
@@ -1374,9 +1477,6 @@ export default function Home() {
 
     const key = new THREE.DirectionalLight('#dbe8ff', 2.4);
     key.position.set(-22, 48, 20);
-    key.castShadow = true;
-    key.shadow.mapSize.width = 2048;
-    key.shadow.mapSize.height = 2048;
     scene.add(key);
 
     const rim = new THREE.PointLight('#4fb7c5', 68, 120, 1.6);
@@ -1394,6 +1494,7 @@ export default function Home() {
         scene.add(building.group);
       });
     });
+    const hitTargets = buildings.flatMap((building) => [building.body, building.top]);
 
     const roads = createRoads(scene, buildings);
     applyFilter(buildings, roads, filterRef.current);
@@ -1428,7 +1529,7 @@ export default function Home() {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(scenePixelRatio());
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -1443,9 +1544,19 @@ export default function Home() {
     let freeNavY = 0; // Camera height adjustments (top-down vs face-on)
     let freeNavZ = 0;
     let isDragging = false;
+    let didDrag = false;
+    let lastDragAt = 0;
     let prevMouseX = 0;
     let prevMouseY = 0;
     const keysPressed: Record<string, boolean> = {};
+    const panRight = new THREE.Vector3();
+    const panForward = new THREE.Vector3();
+
+    const clampFreeNavigation = () => {
+      freeNavX = clamp(freeNavX, -260, 260);
+      freeNavY = clamp(freeNavY, -165, 350);
+      freeNavZ = clamp(freeNavZ, -260, 260);
+    };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed[e.key.toLowerCase()] = true;
@@ -1462,13 +1573,32 @@ export default function Home() {
 
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button === 0) { // Left click drag
+        event.preventDefault();
         isDragging = true;
+        didDrag = false;
         prevMouseX = event.clientX;
         prevMouseY = event.clientY;
+        renderer.domElement.style.cursor = 'grabbing';
+        try {
+          renderer.domElement.setPointerCapture?.(event.pointerId);
+        } catch {
+          // Synthetic pointer events used by browser tests may not be capturable.
+        }
       }
     };
-    const handlePointerUp = () => {
+    const handlePointerUp = (event: PointerEvent) => {
+      if (isDragging && didDrag) {
+        lastDragAt = performance.now();
+      }
       isDragging = false;
+      renderer.domElement.style.cursor = hoverRef.current ? 'pointer' : 'grab';
+      try {
+        if (renderer.domElement.hasPointerCapture?.(event.pointerId)) {
+          renderer.domElement.releasePointerCapture?.(event.pointerId);
+        }
+      } catch {
+        // Ignore release failures for synthetic or already-cancelled pointer streams.
+      }
     };
 
     const handlePointerMoveDrag = (event: PointerEvent) => {
@@ -1484,24 +1614,33 @@ export default function Home() {
 
         // Clear selection on drag pan
         if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+          didDrag = true;
           setSelectedRepo(null);
         }
 
         // Pan the camera based on delta movement (scaled by zoom)
-        const panScale = 0.42 * refs.zoom;
+        const panScale = 0.32 * refs.zoom;
         if (event.shiftKey) {
           // Adjust vertical angle/height when holding Shift
           freeNavY -= deltaY * panScale * 1.5;
-          freeNavY = clamp(freeNavY, -165, 350);
         } else {
-          // Normal panning
-          freeNavX -= deltaX * panScale;
-          freeNavZ -= deltaY * panScale;
+          // Normal panning follows the current camera angle, so drag remains natural after camera changes.
+          panRight.setFromMatrixColumn(camera.matrixWorld, 0);
+          panRight.y = 0;
+          panRight.normalize();
+          camera.getWorldDirection(panForward);
+          panForward.y = 0;
+          panForward.normalize();
+
+          freeNavX += (-deltaX * panScale * panRight.x) + (-deltaY * panScale * panForward.x);
+          freeNavZ += (-deltaX * panScale * panRight.z) + (-deltaY * panScale * panForward.z);
         }
+        clampFreeNavigation();
       }
     };
 
     const handlePointerLeave = () => {
+      if (isDragging) return;
       refs.pointer.set(9, 9);
       setHoveredRepo(null);
       renderer.domElement.style.cursor = 'default';
@@ -1509,25 +1648,28 @@ export default function Home() {
     };
 
     const handleClick = () => {
+      if (didDrag || performance.now() - lastDragAt < 140) return;
       if (!hoverRef.current) return;
       setSelectedRepo(hoverRef.current);
     };
 
+    let hoverFrame = 0;
     const animate = () => {
       const now = performance.now();
       const elapsed = (now - refs.startedAt) / 1000;
       const introT = easeInOutCubic((now - refs.startedAt) / INTRO_MS);
       const entryT = refs.enteredAt ? easeOutCubic((now - refs.enteredAt) / ENTRY_MS) : 0;
 
-      refs.raycaster.setFromCamera(refs.pointer, camera);
-      const intersections = refs.raycaster.intersectObjects(
-        buildings.flatMap((building) => [building.body, building.top, building.windows]),
-        false,
-      );
-      const hovered = intersections.length ? findBuilding(intersections[0].object.userData.repoId as string | undefined) : null;
-      if (hovered?.repo.id !== hoverRef.current?.id) {
-        setHoveredRepo(hovered?.repo ?? null);
-        renderer.domElement.style.cursor = hovered ? 'pointer' : 'default';
+      hoverFrame += 1;
+      const pointerOnStage = refs.pointer.x >= -1 && refs.pointer.x <= 1 && refs.pointer.y >= -1 && refs.pointer.y <= 1;
+      if (pointerOnStage && !isDragging && hoverFrame % 3 === 0) {
+        refs.raycaster.setFromCamera(refs.pointer, camera);
+        const intersections = refs.raycaster.intersectObjects(hitTargets, false);
+        const hovered = intersections.length ? findBuilding(intersections[0].object.userData.repoId as string | undefined) : null;
+        if (hovered?.repo.id !== hoverRef.current?.id) {
+          setHoveredRepo(hovered?.repo ?? null);
+          renderer.domElement.style.cursor = hovered ? 'pointer' : 'grab';
+        }
       }
 
       const selected = selectedRef.current;
@@ -1581,7 +1723,7 @@ export default function Home() {
           freeNavY -= moveSpeed * 1.2;
           isUserMoving = true;
         }
-        freeNavY = clamp(freeNavY, -165, 350);
+        clampFreeNavigation();
 
         if (isUserMoving) {
           targetDistrictCenterRef.current = null;
@@ -1603,11 +1745,11 @@ export default function Home() {
       const mouseParallax = new THREE.Vector3(0, 0, 0);
 
       const introPosition = new THREE.Vector3(
-        THREE.MathUtils.lerp(-92, 44, introT),
-        THREE.MathUtils.lerp(30, 24, introT),
-        THREE.MathUtils.lerp(76, 48, introT),
+        THREE.MathUtils.lerp(-170, 104, introT),
+        THREE.MathUtils.lerp(104, 136, introT),
+        THREE.MathUtils.lerp(240, 218, introT),
       );
-      const introTarget = new THREE.Vector3(THREE.MathUtils.lerp(-30, 10, introT), 6.5, THREE.MathUtils.lerp(2, -2, introT));
+      const introTarget = new THREE.Vector3(THREE.MathUtils.lerp(-18, 0, introT), 15, THREE.MathUtils.lerp(6, 20, introT));
 
       let desiredPosition = introPosition;
       let desiredTarget = introTarget;
@@ -1645,13 +1787,9 @@ export default function Home() {
         const isSelected = selectedRef.current?.id === building.repo.id;
         const isSimilar = similarActive && (similarDistrictRef.current === building.repo.district || similarDistrictRef.current === building.district.parent);
         const pulse = 0.5 + Math.sin(elapsed * 2.5 + building.phase * 8) * 0.5;
-        building.body.material.emissiveIntensity = isSelected ? 0.36 : isHovered ? 0.28 : isSimilar ? 0.22 + pulse * 0.16 : 0.035;
-        building.top.material.emissiveIntensity = isSelected || isHovered ? 0.75 : 0.35 + pulse * 0.08;
-        building.windows.material.opacity = isHovered || isSelected ? 0.98 : filterRef.current === 'all' ? 0.76 : building.windows.material.opacity;
-        building.beacon.scale.setScalar(1 + pulse * 0.9);
-        building.beacon.material.opacity = 0.32 + pulse * 0.62;
-        building.ring.material.opacity = isSimilar || isSelected ? 0.22 + pulse * 0.42 : 0;
-        building.ring.scale.setScalar(1 + pulse * 0.12);
+        building.body.material.emissiveIntensity = isSelected ? 0.12 : isHovered ? 0.08 : isSimilar ? 0.06 + pulse * 0.025 : 0.018;
+        building.top.material.emissiveIntensity = isSelected || isHovered ? 0.32 : isSimilar ? 0.18 : 0.08;
+        building.windows.material.opacity = isHovered || isSelected ? 0.58 : filterRef.current === 'all' ? 0.28 : building.windows.material.opacity;
       }
 
       for (const road of roads) {
@@ -1682,6 +1820,7 @@ export default function Home() {
 
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     renderer.domElement.addEventListener('pointerup', handlePointerUp);
+    renderer.domElement.addEventListener('pointercancel', handlePointerUp);
     renderer.domElement.addEventListener('pointermove', handlePointerMoveDrag);
     renderer.domElement.addEventListener('pointerleave', handlePointerLeave);
     renderer.domElement.addEventListener('click', handleClick);
@@ -1694,6 +1833,7 @@ export default function Home() {
       window.removeEventListener('keyup', handleKeyUp);
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+      renderer.domElement.removeEventListener('pointercancel', handlePointerUp);
       renderer.domElement.removeEventListener('pointermove', handlePointerMoveDrag);
       renderer.domElement.removeEventListener('pointerleave', handlePointerLeave);
       renderer.domElement.removeEventListener('click', handleClick);
@@ -1711,7 +1851,7 @@ export default function Home() {
       renderer.domElement.remove();
       sceneRef.current = null;
     };
-  }, [reposByDistrict, heightScaleDriver]);
+  }, [reposByDistrict, heightScaleDriver, rendererRetryToken]);
 
   useEffect(() => {
     if (!entered) return undefined;
@@ -1735,6 +1875,14 @@ export default function Home() {
 
   const handleEnter = () => {
     setEntered(true);
+  };
+
+  const retry3dRenderer = () => {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete('renderer');
+    window.history.replaceState(null, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+    setWebglError('');
+    setRendererRetryToken((current) => current + 1);
   };
 
   const setZoom = (nextZoom: number) => {
@@ -1846,7 +1994,43 @@ export default function Home() {
 
   return (
     <main className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'}`} aria-label="SIFT 3D open-source city">
-      <div ref={mountRef} className="three-stage" aria-label="Interactive 3D city of open-source repositories" />
+      <div ref={mountRef} className="three-stage" aria-label="Interactive 3D city of open-source repositories">
+        {webglError ? (
+          <div className={`fallback-city ${entered ? 'is-entered' : ''}`} role="img" aria-label="Lightweight city of open-source repositories">
+            <div className="fallback-map" aria-hidden={!entered}>
+              {fallbackCity.items.map(({ repo, district, layout }) => {
+                const left = ((layout.position.x + fallbackCity.extent) / (fallbackCity.extent * 2)) * 100;
+                const top = ((layout.position.z + fallbackCity.extent) / (fallbackCity.extent * 2)) * 100;
+                const height = clamp(layout.height * 1.35, 8, 92);
+                const width = clamp(layout.width * 1.7, 4, 16);
+                return (
+                  <button
+                    key={repo.id}
+                    className="fallback-building"
+                    type="button"
+                    title={`${repo.owner}/${repo.name}: ${formatMetric(repo.stars)} stars`}
+                    aria-label={`${repo.owner}/${repo.name}, ${formatMetric(repo.stars)} stars`}
+                    onClick={() => focusRepo(repo)}
+                    style={{
+                      '--repo-color': district.color,
+                      '--repo-accent': district.accent,
+                      '--fallback-height': `${height}px`,
+                      '--fallback-width': `${width}px`,
+                      left: `${left}%`,
+                      top: `${top}%`,
+                    } as CSSProperties}
+                  />
+                );
+              })}
+            </div>
+            <div className="fallback-notice" role="status">
+              <strong>Map mode</strong>
+              <span>Showing the lightweight city view for this browser session.</span>
+              <button type="button" onClick={retry3dRenderer}>Try full 3D</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
         <div className="intro-copy">
@@ -2305,9 +2489,11 @@ export default function Home() {
         }
 
         .sift-page.is-day {
-          --sift-glass-surface: rgba(12,24,45,0.13);
-          --sift-glass-border: rgba(255,255,255,0.28);
-          --sift-text-primary: rgba(255,255,255,0.95);
+          --sift-glass-surface: rgba(15,23,42,0.16);
+          --sift-glass-border: rgba(15,23,42,0.18);
+          --sift-text-primary: rgba(15,23,42,0.92);
+          --sift-text-secondary: rgba(30,41,59,0.66);
+          --sift-text-tertiary: rgba(30,41,59,0.42);
           background:
             radial-gradient(circle at 76% 16%, rgba(255,238,198,0.32), transparent 28%),
             radial-gradient(circle at 22% 72%, rgba(79,183,197,0.2), transparent 30%),
@@ -2327,8 +2513,8 @@ export default function Home() {
 
         .sift-page.is-day::before {
           background:
-            linear-gradient(90deg, rgba(8,20,42,0.16), transparent 22%, transparent 76%, rgba(8,20,42,0.18)),
-            radial-gradient(circle at 50% 72%, transparent 24%, rgba(8,20,42,0.14) 80%);
+            linear-gradient(90deg, rgba(8,20,42,0.08), transparent 24%, transparent 78%, rgba(8,20,42,0.1)),
+            radial-gradient(circle at 50% 72%, transparent 28%, rgba(8,20,42,0.08) 84%);
         }
 
         .three-stage {
@@ -2343,6 +2529,190 @@ export default function Home() {
           display: block;
           width: 100%;
           height: 100%;
+          cursor: grab;
+          touch-action: none;
+        }
+
+        .fallback-city {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          background:
+            linear-gradient(180deg, rgba(188,215,255,0.9), rgba(129,159,151,0.72)),
+            #9fb8b0;
+          pointer-events: none;
+        }
+
+        .fallback-city::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          opacity: 0.36;
+          background-image:
+            linear-gradient(rgba(15,23,42,0.22) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(15,23,42,0.22) 1px, transparent 1px);
+          background-size: 24px 24px;
+          transform: perspective(720px) rotateX(58deg) translateY(84px) scale(1.34);
+          transform-origin: 50% 62%;
+        }
+
+        .fallback-city::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            linear-gradient(180deg, rgba(255,255,255,0.42), transparent 34%),
+            radial-gradient(circle at 50% 48%, transparent 24%, rgba(15,23,42,0.16) 86%);
+        }
+
+        .fallback-map {
+          position: absolute;
+          inset: 4% 6% 8%;
+          transform: perspective(860px) rotateX(57deg) rotateZ(-2deg);
+          transform-origin: 50% 56%;
+        }
+
+        .fallback-building {
+          position: absolute;
+          width: var(--fallback-width);
+          height: var(--fallback-height);
+          border: 1px solid color-mix(in srgb, var(--repo-accent), white 22%);
+          border-radius: 3px 3px 1px 1px;
+          background:
+            linear-gradient(180deg, color-mix(in srgb, var(--repo-accent), white 18%), var(--repo-color)),
+            var(--repo-color);
+          box-shadow:
+            8px 10px 0 color-mix(in srgb, var(--repo-color), black 36%),
+            0 12px 24px rgba(15,23,42,0.18);
+          opacity: 0.88;
+          transform: translate(-50%, -100%) skewY(-4deg);
+          transform-origin: 50% 100%;
+          pointer-events: none;
+        }
+
+        .fallback-building::before {
+          content: "";
+          position: absolute;
+          left: -1px;
+          right: -1px;
+          top: -7px;
+          height: 7px;
+          border: 1px solid color-mix(in srgb, var(--repo-accent), white 28%);
+          border-bottom: 0;
+          border-radius: 3px 3px 0 0;
+          background: color-mix(in srgb, var(--repo-accent), white 24%);
+          transform: skewX(-36deg);
+          transform-origin: 0 100%;
+        }
+
+        .fallback-city.is-entered .fallback-building {
+          pointer-events: auto;
+          cursor: pointer;
+        }
+
+        .fallback-city.is-entered .fallback-building:hover {
+          z-index: 2;
+          opacity: 1;
+          filter: saturate(1.22) brightness(1.08);
+        }
+
+        .fallback-notice {
+          position: absolute;
+          left: 50%;
+          bottom: 18px;
+          z-index: 2;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          width: min(520px, calc(100vw - 32px));
+          transform: translateX(-50%);
+          border: 1px solid rgba(15,23,42,0.12);
+          border-radius: 8px;
+          padding: 8px 10px;
+          background: rgba(255,255,255,0.48);
+          box-shadow: 0 16px 44px rgba(15,23,42,0.16);
+          color: rgba(15,23,42,0.76);
+          backdrop-filter: blur(18px);
+          pointer-events: auto;
+        }
+
+        .fallback-notice strong,
+        .fallback-notice span,
+        .fallback-notice button {
+          font-family: "Space Mono", monospace;
+          letter-spacing: 0;
+        }
+
+        .fallback-notice strong {
+          font-size: 10px;
+          text-transform: uppercase;
+        }
+
+        .fallback-notice span {
+          font-size: 10px;
+          line-height: 1.4;
+          min-width: 0;
+          color: rgba(15,23,42,0.66);
+        }
+
+        .fallback-notice button {
+          flex: 0 0 auto;
+          min-height: 28px;
+          border: 1px solid rgba(15,23,42,0.12);
+          border-radius: 7px;
+          padding: 0 10px;
+          color: rgba(15,23,42,0.78);
+          background: rgba(255,255,255,0.44);
+          font-size: 10px;
+          cursor: pointer;
+        }
+
+        .fallback-notice button:hover {
+          color: rgba(15,23,42,0.96);
+          background: rgba(255,255,255,0.68);
+        }
+
+        .fallback-city.is-entered .fallback-notice {
+          bottom: 18px;
+          top: auto;
+          width: min(430px, calc(100vw - 32px));
+          opacity: 0.76;
+        }
+
+        .webgl-fallback {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          z-index: 1;
+          width: min(420px, calc(100vw - 32px));
+          transform: translate(-50%, -50%);
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: 8px;
+          padding: 16px;
+          background: rgba(5, 12, 14, 0.78);
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+          color: rgba(255, 255, 255, 0.92);
+          text-align: center;
+          backdrop-filter: blur(18px);
+        }
+
+        .webgl-fallback strong,
+        .webgl-fallback span {
+          display: block;
+        }
+
+        .webgl-fallback strong {
+          font-size: 0.9rem;
+          line-height: 1.35;
+        }
+
+        .webgl-fallback span {
+          margin-top: 6px;
+          color: var(--sift-text-muted);
+          font-size: 0.78rem;
+          line-height: 1.45;
         }
 
         .intro-layer {
@@ -2419,6 +2789,21 @@ export default function Home() {
         .enter-city:hover {
           color: #fff;
           text-shadow: 0 0 32px rgba(79,140,255,0.9);
+        }
+
+        .sift-page.is-day .intro-copy h1 {
+          color: rgba(15,23,42,0.86);
+          text-shadow: 0 2px 0 rgba(255,255,255,0.38), 0 22px 80px rgba(255,255,255,0.58);
+        }
+
+        .sift-page.is-day .intro-copy p,
+        .sift-page.is-day .enter-city {
+          color: rgba(15,23,42,0.68);
+          text-shadow: 0 10px 28px rgba(255,255,255,0.52);
+        }
+
+        .sift-page.is-day .enter-city:hover {
+          color: rgba(15,23,42,0.96);
         }
 
         .city-ui {
@@ -2543,9 +2928,9 @@ export default function Home() {
         .sift-page.is-day .network-dock,
         .sift-page.is-day .tutorial-card {
           background:
-            linear-gradient(135deg, rgba(8,20,42,0.52), rgba(8,20,42,0.22)),
-            rgba(255,255,255,0.1);
-          border-color: rgba(255,255,255,0.22);
+            linear-gradient(135deg, rgba(15,23,42,0.7), rgba(15,23,42,0.42)),
+            rgba(255,255,255,0.14);
+          border-color: rgba(255,255,255,0.34);
         }
 
         .search-cluster {
@@ -3014,6 +3399,11 @@ export default function Home() {
           text-shadow: 0 0 24px rgba(79,140,255,0.24);
         }
 
+        .sift-page.is-day .stat-bar strong {
+          color: rgba(15,23,42,0.9);
+          text-shadow: 0 1px 0 rgba(255,255,255,0.42), 0 14px 36px rgba(255,255,255,0.32);
+        }
+
         .stat-bar span,
         .cinema-readout span {
           font-family: "Space Mono", monospace;
@@ -3021,6 +3411,13 @@ export default function Home() {
           letter-spacing: 0;
           text-transform: uppercase;
           color: rgba(255,255,255,0.42);
+        }
+
+        .sift-page.is-day .stat-bar span,
+        .sift-page.is-day .cinema-readout span,
+        .sift-page.is-day .cinema-readout strong {
+          color: rgba(15,23,42,0.58);
+          text-shadow: 0 1px 0 rgba(255,255,255,0.34);
         }
 
         .cinema-readout {
@@ -3913,288 +4310,152 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   group.position.copy(layout.position);
 
   const shape = buildingShapeFor(repo, district);
+  const baseColor = new THREE.Color(district.color);
+  const bodyColor = baseColor.clone().lerp(new THREE.Color('#050708'), 0.1);
+  const accentColor = new THREE.Color(district.accent);
 
-  let baseGeo: THREE.BufferGeometry;
-  let topGeo: THREE.BufferGeometry;
-  let topHeightVal = 0.5;
-  const subMeshes: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>[] = [];
+  const style = {
+    bodyWidth: 0.78,
+    bodyDepth: 0.78,
+    bodyHeight: 0.82,
+    capWidth: 0.82,
+    capDepth: 0.82,
+    capHeight: 0.055,
+    windows: true,
+    transparent: false,
+    detail: 'stripe',
+  };
 
-  // Choose geometry based on shape
-  if (['spires', 'skyline_core'].includes(shape)) {
-    // Stepped Spire skyscraper
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.6, layout.height * 0.6, 16);
-
-    const tierGeo = new THREE.CylinderGeometry(layout.width * 0.3, layout.width * 0.45, layout.height * 0.3, 16);
-    const tier = new THREE.Mesh(tierGeo);
-    tier.position.y = layout.height * 0.35; // relative offset
-    subMeshes.push(tier);
-
-    topGeo = new THREE.ConeGeometry(layout.width * 0.18, layout.height * 0.3, 16);
-    topHeightVal = layout.height * 0.3;
-  } else if (['megatowers', 'vertical_arcology'].includes(shape)) {
-    // Hexagonal Megatower core with floating structural struts
-    baseGeo = new THREE.BoxGeometry(layout.width * 0.5, layout.height, layout.depth * 0.5);
-
-    const strutMat1 = new THREE.BoxGeometry(layout.width * 0.15, layout.height * 0.95, layout.depth * 1.15);
-    const strut1 = new THREE.Mesh(strutMat1);
-    subMeshes.push(strut1);
-
-    const strutMat2 = new THREE.BoxGeometry(layout.width * 1.15, layout.height * 0.95, layout.depth * 0.15);
-    const strut2 = new THREE.Mesh(strutMat2);
-    subMeshes.push(strut2);
-
-    topGeo = new THREE.TorusGeometry(layout.width * 0.72, 0.12, 8, 24);
-    topGeo.rotateX(Math.PI / 2);
-    topHeightVal = 0.25;
-  } else if (['apartments', 'brick_boroughs'].includes(shape)) {
-    // Dynamic contemporary Jenga apartments
-    baseGeo = new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.28, layout.depth * 0.85);
-
-    const block1 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.28, layout.depth * 0.85));
-    block1.position.y = layout.height * 0.32;
-    block1.rotateY(Math.PI / 4); // rotated 45 deg
-    subMeshes.push(block1);
-
-    const block2 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.28, layout.depth * 0.85));
-    block2.position.y = layout.height * 0.64;
-    block2.rotateY(Math.PI / 2); // rotated 90 deg
-    subMeshes.push(block2);
-
-    topGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.45, 0.1, 16);
-    topHeightVal = 0.1;
-  } else if (['suburban_homes', 'rooftop_villages', 'suburbs', 'valley_villages', 'tents', 'nomad_camps'].includes(shape)) {
-    // Beautiful triangular prism wedges representing tech tents!
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.48, layout.width * 0.48, layout.height * 0.45, 3);
-    baseGeo.rotateX(Math.PI / 2);
-
-    topGeo = new THREE.ConeGeometry(layout.width * 0.48, layout.height * 0.45, 4);
-    topHeightVal = layout.height * 0.45;
-  } else if (['glass', 'neon_alley'].includes(shape)) {
-    // Tech-SaaS Tri-Disc Core
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.15, layout.width * 0.15, layout.height, 12);
-
-    const disc1 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.95, layout.width * 0.95, layout.height * 0.08, 16));
-    disc1.position.y = -layout.height * 0.3;
-    subMeshes.push(disc1);
-
-    const disc2 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.85, layout.width * 0.85, layout.height * 0.08, 16));
-    disc2.position.y = 0;
-    subMeshes.push(disc2);
-
-    const disc3 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.75, layout.width * 0.75, layout.height * 0.08, 16));
-    disc3.position.y = layout.height * 0.3;
-    subMeshes.push(disc3);
-
-    topGeo = new THREE.SphereGeometry(layout.width * 0.42, 24, 24);
-    topHeightVal = layout.width * 0.84;
-  } else if (['blocks', 'financial_district'].includes(shape)) {
-    // Nested floating microservice data blocks
-    baseGeo = new THREE.BoxGeometry(layout.width * 0.85, layout.height * 0.25, layout.depth * 0.85);
-
-    const block1 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.65, layout.height * 0.25, layout.depth * 0.65));
-    block1.position.y = layout.height * 0.35;
-    subMeshes.push(block1);
-
-    const block2 = new THREE.Mesh(new THREE.BoxGeometry(layout.width * 0.45, layout.height * 0.25, layout.depth * 0.45));
-    block2.position.y = layout.height * 0.7;
-    subMeshes.push(block2);
-
-    topGeo = new THREE.OctahedronGeometry(layout.width * 0.25);
-    topHeightVal = layout.width * 0.5;
-  } else if (['giant_trees', 'forest_repository', 'redwood_archive', 'redwood_towers', 'mushroom_colonies'].includes(shape)) {
-    // Branching organic natural tree canopy with geodesic leaf clusters
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.18, layout.width * 0.32, layout.height, 12);
-
-    const leaf1 = new THREE.Mesh(new THREE.IcosahedronGeometry(layout.width * 0.72, 1));
-    leaf1.position.set(-layout.width * 0.3, layout.height * 0.25, -layout.width * 0.2);
-    subMeshes.push(leaf1);
-
-    const leaf2 = new THREE.Mesh(new THREE.IcosahedronGeometry(layout.width * 0.64, 1));
-    leaf2.position.set(layout.width * 0.3, layout.height * 0.32, layout.width * 0.2);
-    subMeshes.push(leaf2);
-
-    const leaf3 = new THREE.Mesh(new THREE.IcosahedronGeometry(layout.width * 0.58, 1));
-    leaf3.position.set(-layout.width * 0.2, layout.height * 0.15, layout.width * 0.3);
-    subMeshes.push(leaf3);
-
-    topGeo = new THREE.IcosahedronGeometry(layout.width * 0.85, 2);
-    topHeightVal = layout.width * 1.7;
-  } else if (['bamboo_pagodas', 'bamboo_valley'].includes(shape)) {
-    // Realistic Asian pagoda with stacked flared eave roofs
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.25, layout.width * 0.25, layout.height, 8);
-
-    const roof1 = new THREE.Mesh(new THREE.ConeGeometry(layout.width * 1.15, layout.height * 0.15, 8));
-    roof1.position.y = -layout.height * 0.2;
-    subMeshes.push(roof1);
-
-    const roof2 = new THREE.Mesh(new THREE.ConeGeometry(layout.width * 0.95, layout.height * 0.15, 8));
-    roof2.position.y = layout.height * 0.12;
-    subMeshes.push(roof2);
-
-    const roof3 = new THREE.Mesh(new THREE.ConeGeometry(layout.width * 0.75, layout.height * 0.15, 8));
-    roof3.position.y = layout.height * 0.4;
-    subMeshes.push(roof3);
-
-    topGeo = new THREE.CylinderGeometry(0, layout.width * 0.18, layout.height * 0.2, 8);
-    topHeightVal = layout.height * 0.2;
-  } else if (['crystal_spires', 'crystal_fields'].includes(shape)) {
-    // Overlapping crystalline double-pyramid cluster
-    const crystalBase = new THREE.OctahedronGeometry(layout.width * 0.5, 0);
-    crystalBase.scale(1, 2, 1);
-    baseGeo = crystalBase;
-
-    const crystalGeo1 = new THREE.OctahedronGeometry(layout.width * 0.38, 0);
-    crystalGeo1.scale(1, 1.8, 1);
-    const cry1 = new THREE.Mesh(crystalGeo1);
-    cry1.position.set(-layout.width * 0.25, 0, -layout.width * 0.1);
-    cry1.rotateZ(0.3);
-    subMeshes.push(cry1);
-
-    const crystalGeo2 = new THREE.OctahedronGeometry(layout.width * 0.32, 0);
-    crystalGeo2.scale(1, 1.8, 1);
-    const cry2 = new THREE.Mesh(crystalGeo2);
-    cry2.position.set(layout.width * 0.25, 0, layout.width * 0.1);
-    cry2.rotateZ(-0.3);
-    subMeshes.push(cry2);
-
-    topGeo = new THREE.RingGeometry(layout.width * 1.1, layout.width * 1.3, 16);
-    topGeo.rotateX(Math.PI / 2);
-    topHeightVal = 0.1;
+  if (['spires', 'megatowers', 'vertical_arcology', 'skyline_core'].includes(shape)) {
+    Object.assign(style, { bodyWidth: 0.52, bodyDepth: 0.56, bodyHeight: 0.97, capWidth: 0.38, capDepth: 0.42, capHeight: 0.07, detail: 'spire' });
   } else if (['citadel', 'fortresses', 'castles', 'canyon_forts'].includes(shape)) {
-    // Stepped setback tower.
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.52, layout.width * 0.72, layout.height * 0.42, 6);
-
-    const setback1 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.38, layout.width * 0.52, layout.height * 0.32, 6));
-    setback1.position.y = layout.height * 0.28;
-    subMeshes.push(setback1);
-
-    const setback2 = new THREE.Mesh(new THREE.CylinderGeometry(layout.width * 0.22, layout.width * 0.38, layout.height * 0.22, 6));
-    setback2.position.y = layout.height * 0.5;
-    subMeshes.push(setback2);
-
-    topGeo = new THREE.ConeGeometry(layout.width * 0.12, layout.height * 0.25, 6);
-    topHeightVal = layout.height * 0.25;
+    Object.assign(style, { bodyWidth: 0.96, bodyDepth: 0.96, bodyHeight: 0.72, capWidth: 0.68, capDepth: 0.68, capHeight: 0.16, detail: 'setback' });
+  } else if (['glass', 'neon_alley', 'apartments', 'brick_boroughs'].includes(shape)) {
+    Object.assign(style, { bodyWidth: 0.62, bodyDepth: 0.86, bodyHeight: 0.9, capWidth: 0.82, capDepth: 0.98, capHeight: 0.05, detail: 'fin' });
+  } else if (['holographic_forms', 'holographic', 'floating_stations', 'ether_realm', 'crystal_spires', 'crystal_fields'].includes(shape)) {
+    Object.assign(style, { bodyWidth: 0.72, bodyDepth: 0.72, bodyHeight: 0.78, capWidth: 1.02, capDepth: 0.36, capHeight: 0.055, transparent: true, detail: 'crossbar' });
+  } else if (['suburban_homes', 'rooftop_villages', 'suburbs', 'valley_villages', 'tents', 'nomad_camps', 'shipyards', 'fishing_docks'].includes(shape)) {
+    Object.assign(style, { bodyWidth: 1.18, bodyDepth: 0.82, bodyHeight: 0.32, capWidth: 1.04, capDepth: 0.68, capHeight: 0.08, windows: false, detail: 'podium' });
+  } else if (['blocks', 'financial_district'].includes(shape)) {
+    Object.assign(style, { bodyWidth: 1.24, bodyDepth: 1.18, bodyHeight: 0.42, capWidth: 0.78, capDepth: 0.78, capHeight: 0.12, detail: 'setback' });
   } else if (['reactors', 'refineries', 'factories', 'lava_foundries'].includes(shape)) {
-    // Industrial forge with a glowing crater core.
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.28, layout.width * 0.95, layout.height, 16);
-
-    const lavaCollar = new THREE.Mesh(new THREE.TorusGeometry(layout.width * 0.28, 0.15, 8, 16));
-    lavaCollar.position.y = layout.height * 0.46;
-    lavaCollar.rotateX(Math.PI / 2);
-    subMeshes.push(lavaCollar);
-
-    topGeo = new THREE.TorusGeometry(layout.width * 0.28, 0.08, 6, 12);
-    topGeo.rotateX(Math.PI / 2);
-    topHeightVal = 0.1;
-  } else if (['caves', 'stone_villages'].includes(shape)) {
-    // Textured crystalline geode.
-    baseGeo = new THREE.IcosahedronGeometry(layout.width, 2);
-    baseGeo.scale(1, layout.height / layout.width, 1);
-    topGeo = new THREE.BoxGeometry(0.01, 0.01, 0.01);
-    topHeightVal = 0.01;
+    Object.assign(style, { bodyWidth: 1.18, bodyDepth: 0.98, bodyHeight: 0.64, capWidth: 0.54, capDepth: 1.14, capHeight: 0.12, detail: 'chimney' });
   } else if (['observatories'].includes(shape)) {
-    // Capsule observatory base with nested sphere dome.
-    baseGeo = new THREE.CapsuleGeometry(layout.width * 0.38, layout.height * 0.42, 8, 16);
-    topGeo = new THREE.SphereGeometry(layout.width * 0.55, 24, 24);
-    topHeightVal = layout.width * 1.1;
-  } else if (['floating_stations', 'holographic_forms', 'holographic', 'ether_realm', 'skyline_core'].includes(shape)) {
-    // Floating knot form for agent and AI repositories.
-    baseGeo = new THREE.TorusKnotGeometry(layout.width * 0.48, layout.width * 0.16, 64, 10, 3, 5);
-    topGeo = new THREE.RingGeometry(layout.width * 1.1, layout.width * 1.35, 24);
-    topGeo.rotateX(Math.PI / 2);
-    group.position.y += 6 + (repo.stars % 10) * 0.5;
-    topHeightVal = 0.15;
-  } else if (['shipyards', 'fishing_docks'].includes(shape)) {
-    // Curved bridge dock arches!
-    baseGeo = new THREE.TorusGeometry(layout.width * 0.95, 0.22, 12, 24, Math.PI);
-    topGeo = new THREE.CylinderGeometry(0.12, 0.12, layout.height * 0.8, 8);
-    topHeightVal = layout.height * 0.8;
+    Object.assign(style, { bodyWidth: 1.08, bodyDepth: 0.62, bodyHeight: 0.58, capWidth: 1.22, capDepth: 0.24, capHeight: 0.07, detail: 'fin' });
   } else if (['ruins', 'decayed', 'overgrown'].includes(shape)) {
-    // Organic split column structure!
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.65, layout.height * 0.72, 5);
-    topGeo = new THREE.TorusKnotGeometry(layout.width * 0.32, 0.1, 24, 6, 2, 3);
-    topHeightVal = layout.width * 0.64;
-  } else {
-    // Organic rounded fluted pillar fallback
-    baseGeo = new THREE.CylinderGeometry(layout.width * 0.45, layout.width * 0.52, layout.height, 12);
-    topGeo = new THREE.SphereGeometry(layout.width * 0.55, 12, 12);
-    topHeightVal = layout.width * 1.1;
+    Object.assign(style, { bodyWidth: 1.14, bodyDepth: 0.9, bodyHeight: 0.5, capWidth: 0.78, capDepth: 0.72, capHeight: 0.1, windows: false, detail: 'offset' });
+  } else if (['giant_trees', 'forest_repository', 'redwood_archive', 'redwood_towers', 'mushroom_colonies', 'bamboo_pagodas', 'bamboo_valley', 'caves', 'stone_villages'].includes(shape)) {
+    Object.assign(style, { bodyWidth: 0.82, bodyDepth: 0.82, bodyHeight: 0.66, capWidth: 1.08, capDepth: 0.9, capHeight: 0.16, windows: false, detail: 'canopy' });
   }
 
-  const isHolo = ['holographic_forms', 'holographic', 'floating_stations', 'crystal_spires', 'crystal_fields', 'ether_realm'].includes(shape);
+  const bodyHeight = Math.max(1.25, layout.height * style.bodyHeight);
+  const capHeight = Math.max(0.16, layout.height * style.capHeight);
+  const bodyWidth = Math.max(1.15, layout.width * style.bodyWidth);
+  const bodyDepth = Math.max(1.15, layout.depth * style.bodyDepth);
+  const capWidth = Math.max(0.95, layout.width * style.capWidth);
+  const capDepth = Math.max(0.95, layout.depth * style.capDepth);
+  const visualHeight = bodyHeight + capHeight;
+  const highDetail = repo.stars >= HIGH_DETAIL_REPO_STARS || index % 14 === 0;
+  const showWindows = style.windows && repo.stars >= WINDOW_REPO_STARS;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(district.color),
-    roughness: isHolo ? 0.1 : 0.15,
-    metalness: isHolo ? 0.9 : 0.85,
-    emissive: new THREE.Color(district.color),
-    emissiveIntensity: isHolo ? 0.8 : 0.38,
-    wireframe: isHolo,
-    transparent: isHolo,
-    opacity: isHolo ? 0.5 : 1,
+    color: bodyColor,
+    roughness: style.transparent ? 0.24 : 0.48,
+    metalness: style.transparent ? 0.6 : 0.22,
+    emissive: baseColor,
+    emissiveIntensity: style.transparent ? 0.1 : 0.026,
+    transparent: style.transparent,
+    opacity: style.transparent ? 0.72 : 1,
   });
 
-  const body: RepoBuildingMesh = new THREE.Mesh(baseGeo, bodyMaterial);
-  body.position.y = layout.height / 2;
-  body.castShadow = !isHolo;
-  body.receiveShadow = !isHolo;
+  const body: RepoBuildingMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth),
+    bodyMaterial,
+  );
+  body.position.y = bodyHeight / 2;
   body.userData.repoId = repo.id;
-
-  subMeshes.forEach((sub) => {
-    sub.material = bodyMaterial;
-    sub.castShadow = !isHolo;
-    sub.receiveShadow = !isHolo;
-    sub.userData.repoId = repo.id;
-    body.add(sub);
-  });
-
   group.add(body);
 
   const topMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(district.accent),
-    roughness: 0.3,
-    metalness: 0.5,
-    emissive: new THREE.Color(district.color),
-    emissiveIntensity: 0.3,
-    wireframe: isHolo,
+    color: accentColor,
+    roughness: 0.36,
+    metalness: 0.32,
+    emissive: accentColor,
+    emissiveIntensity: 0.08,
   });
-  const top: RepoBuildingMesh = new THREE.Mesh(topGeo, topMaterial);
-  top.position.y = layout.height + topHeightVal / 2;
+  const top: RepoBuildingMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(capWidth, capHeight, capDepth),
+    topMaterial,
+  );
+  top.position.y = bodyHeight + capHeight / 2;
   top.userData.repoId = repo.id;
   group.add(top);
 
-  // Edges only for boxy shapes
-  if (['spires', 'megatowers', 'apartments', 'glass'].includes(shape)) {
-    const edgeGeometry = new THREE.EdgesGeometry(baseGeo);
-    const edgeMaterial = new THREE.LineBasicMaterial({ color: district.color, transparent: true, opacity: 0.15 });
+  const accentMaterial = new THREE.MeshBasicMaterial({
+    color: accentColor,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false,
+  });
+  const addDetail = (mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>) => {
+    mesh.userData.repoId = repo.id;
+    group.add(mesh);
+  };
+
+  if (highDetail && (style.detail === 'stripe' || style.detail === 'fin' || style.detail === 'spire')) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.08, bodyWidth * 0.08), bodyHeight * 0.86, 0.055), accentMaterial);
+    stripe.position.set(-bodyWidth * 0.32, bodyHeight * 0.52, bodyDepth / 2 + 0.035);
+    addDetail(stripe);
+  }
+  if (highDetail && (style.detail === 'setback' || style.detail === 'offset')) {
+    const tier = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth * 0.62, bodyHeight * 0.18, bodyDepth * 0.62), bodyMaterial);
+    tier.position.set(style.detail === 'offset' ? -bodyWidth * 0.12 : 0, bodyHeight * 0.77, 0);
+    addDetail(tier);
+  }
+  if (highDetail && style.detail === 'crossbar') {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth * 1.18, Math.max(0.12, bodyHeight * 0.035), bodyDepth * 0.22), accentMaterial);
+    bar.position.set(0, bodyHeight * 0.58, bodyDepth / 2 + 0.04);
+    addDetail(bar);
+  }
+  if (highDetail && (style.detail === 'podium' || style.detail === 'canopy')) {
+    const podium = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth * 1.08, Math.max(0.18, bodyHeight * 0.08), bodyDepth * 1.08), accentMaterial);
+    podium.position.set(0, Math.max(0.16, bodyHeight * 0.08), 0);
+    addDetail(podium);
+  }
+  if (highDetail && style.detail === 'chimney') {
+    const stack = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth * 0.16, bodyHeight * 0.42, bodyDepth * 0.16), topMaterial);
+    stack.position.set(bodyWidth * 0.32, bodyHeight * 0.72, -bodyDepth * 0.28);
+    addDetail(stack);
+  }
+
+  if (highDetail) {
+    const edgeGeometry = new THREE.EdgesGeometry(body.geometry);
+    const edgeMaterial = new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.1 });
     const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
     edges.position.copy(body.position);
     group.add(edges);
   }
 
   let windows: RepoWindowsMesh;
-
-  // Windows for residential/industrial/office
-  if (['spires', 'megatowers', 'apartments', 'glass', 'factories'].includes(shape)) {
-    const windowGeometry = new THREE.PlaneGeometry(0.3, 0.2);
+  if (showWindows) {
+    const windowGeometry = new THREE.PlaneGeometry(0.22, 0.16);
     const windowMaterial = new THREE.MeshBasicMaterial({
-      color: district.color,
+      color: accentColor,
       transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.28,
       depthWrite: false,
     });
-    const cols = Math.max(2, Math.floor(layout.width / 0.8));
-    const rows = Math.max(3, Math.floor(layout.height / 1.1));
+    const cols = Math.min(3, Math.max(1, Math.floor(bodyWidth / 1.7)));
+    const rows = Math.min(6, Math.max(1, Math.floor(bodyHeight / 5.2)));
     const litWindows: THREE.Matrix4[] = [];
     const dummy = new THREE.Object3D();
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < cols; col += 1) {
         const litSeed = Math.sin((row + 1) * 12.9 + (col + 1) * 78.2 + repo.stars * 0.001);
-        if (litSeed - Math.floor(litSeed) < 0.4) continue;
-        const wx = -layout.width / 2 + 0.5 + col * ((layout.width - 1.0) / Math.max(1, cols - 1));
-        const wy = 0.8 + row * ((layout.height - 1.6) / rows);
-        dummy.position.set(wx, wy, layout.depth / 2 + 0.02);
+        if (litSeed - Math.floor(litSeed) < 0.52) continue;
+        const wx = -bodyWidth / 2 + 0.42 + col * ((bodyWidth - 0.84) / Math.max(1, cols - 1));
+        const wy = 0.9 + row * ((bodyHeight - 1.6) / Math.max(1, rows - 1));
+        dummy.position.set(wx, wy, bodyDepth / 2 + 0.035);
         dummy.updateMatrix();
         litWindows.push(dummy.matrix.clone());
       }
@@ -4212,32 +4473,17 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   windows.userData.repoId = repo.id;
   group.add(windows);
 
-  const antennaHeight = 1.5 + (getOpenWorkItems(repo) % 10) * 0.2;
-  const antenna = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.04, 0.04, antennaHeight, 8),
-    new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.5 }),
-  );
-  antenna.position.set(0, top.position.y + antennaHeight / 2, 0);
-  if (!['caves', 'giant_trees', 'mushroom_colonies'].includes(shape)) {
-    group.add(antenna);
-  }
-
   const beacon = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 12, 12),
-    new THREE.MeshBasicMaterial({ color: district.accent, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending }),
+    new THREE.BoxGeometry(0.01, 0.01, 0.01),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }),
   );
-  beacon.position.set(0, antenna.position.y + antennaHeight / 2 + 0.2, 0);
-  if (!['caves', 'giant_trees', 'mushroom_colonies'].includes(shape)) {
-    group.add(beacon);
-  }
-
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(Math.max(layout.width, layout.depth) * 0.8, 0.05, 8, 32),
-    new THREE.MeshBasicMaterial({ color: district.color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending }),
+    new THREE.BoxGeometry(0.01, 0.01, 0.01),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }),
   );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 0.1;
-  group.add(ring);
+  beacon.visible = false;
+  ring.visible = false;
+  group.add(beacon, ring);
 
   return {
     repo,
@@ -4249,9 +4495,9 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     beacon,
     ring,
     position: layout.position.clone(),
-    height: layout.height,
-    width: layout.width,
-    depth: layout.depth,
+    height: visualHeight,
+    width: bodyWidth,
+    depth: bodyDepth,
     phase: (repo.stars % 1000) / 1000,
   };
 }
@@ -4281,33 +4527,6 @@ function createGround(scene: THREE.Scene) {
     ctx.stroke();
   }
 
-  // Cyber circuit patterns
-  ctx.strokeStyle = '#20352e';
-  ctx.lineWidth = 1;
-  ctx.fillStyle = '#356859';
-  for (let i = 0; i < 15; i += 1) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const size = 30 + Math.random() * 50;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    if (Math.random() > 0.5) {
-      ctx.lineTo(x + size, y);
-      ctx.lineTo(x + size + 15, y + 15);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x + size + 15, y + 15, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.lineTo(x, y + size);
-      ctx.lineTo(x + 15, y + size + 15);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x + 15, y + size + 15, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
@@ -4325,11 +4544,11 @@ function createGround(scene: THREE.Scene) {
   ground.userData.role = 'ground';
   scene.add(ground);
 
-  const grid = new THREE.GridHelper(1000, 200, '#4fb7c5', '#204d45');
+  const grid = new THREE.GridHelper(1000, 120, '#4fb7c5', '#204d45');
   grid.userData.role = 'grid';
   const gridMaterial = grid.material as THREE.Material;
   gridMaterial.transparent = true;
-  gridMaterial.opacity = 0.1;
+  gridMaterial.opacity = 0.045;
   grid.position.y = 0.01;
   scene.add(grid);
 
@@ -4348,7 +4567,7 @@ function createGround(scene: THREE.Scene) {
       new THREE.MeshBasicMaterial({
         color: planeColor,
         transparent: true,
-        opacity: isNature ? 0.2 : 0.08,
+        opacity: isNature ? 0.09 : 0.045,
         depthWrite: false,
       }),
     );
@@ -4358,9 +4577,9 @@ function createGround(scene: THREE.Scene) {
     scene.add(plane);
 
     const labelTexture = makeSpriteTexture(district.label.toUpperCase(), 'semantic district', district.color, 520, 130);
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.8, depthWrite: false }));
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.38, depthWrite: false }));
     label.position.set(district.x, 1.4, district.z + 22);
-    label.scale.set(12, 3, 1);
+    label.scale.set(9.5, 2.25, 1);
     scene.add(label);
   });
 }
@@ -4368,7 +4587,7 @@ function createGround(scene: THREE.Scene) {
 function createSky(scene: THREE.Scene) {
   const starGeometry = new THREE.BufferGeometry();
   const positions: number[] = [];
-  for (let i = 0; i < 2000; i += 1) {
+  for (let i = 0; i < 420; i += 1) {
     const radius = 400 + Math.random() * 600;
     const theta = Math.random() * Math.PI * 2;
     const y = 40 + Math.random() * 250;
@@ -4379,38 +4598,29 @@ function createSky(scene: THREE.Scene) {
     starGeometry,
     new THREE.PointsMaterial({
       color: '#ffffff',
-      size: 0.3,
+      size: 0.22,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.24,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
   );
   stars.userData.role = 'stars';
   scene.add(stars);
-
-  const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(15, 32, 32),
-    new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending }),
-  );
-  moon.position.set(120, 80, -150);
-  moon.userData.role = 'moon';
-  scene.add(moon);
 }
 
 function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const roads: RoadObject[] = [];
   buildings.forEach((building, index) => {
-    if (building.repo.prs.length === 0 && index % 3 !== 0) return;
+    if (building.repo.prs.length === 0 && index % 9 !== 0) return;
 
-    // connect to 1-3 random buildings to show flow
-    const connections = 1 + (building.repo.stars % 3);
+    const connections = building.repo.stars >= 50000 ? 1 : 0;
     for(let i=0; i<connections; i++) {
-        const target = buildings[(index + i * 17) % buildings.length];
+        const target = buildings[(index + 17 + i * 23) % buildings.length];
         if (target === building) continue;
 
         const dist = building.position.distanceTo(target.position);
-        if (dist > 150 || dist < 2) continue; // Only connect local-ish nodes
+        if (dist > 95 || dist < 2) continue;
 
         const isNature = ['forest_repository', 'jungle_canopy', 'bamboo_valley'].includes(building.district.key);
         const isLava = building.district.key === 'volcano_forge';
@@ -4424,7 +4634,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
         const p1 = building.position.clone();
         const p2 = target.position.clone();
 
-        const midY = (isNature || building.district.shape === 'floating_stations') ? 10 : 0.5;
+        const midY = 0.35;
 
         const curve = new THREE.CatmullRomCurve3([
           new THREE.Vector3(p1.x, 0.2, p1.z),
@@ -4433,23 +4643,16 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
         ]);
 
         const mesh = new THREE.Mesh(
-          new THREE.TubeGeometry(curve, 20, 0.24, 6, false),
-          new THREE.MeshBasicMaterial({ color: pathColor, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending })
+          new THREE.TubeGeometry(curve, 16, 0.075, 4, false),
+          new THREE.MeshBasicMaterial({ color: pathColor, transparent: true, opacity: 0.18 })
         );
         scene.add(mesh);
 
-        const cars: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[] = [];
-        for (let c = 0; c < 3; c += 1) {
-          const car = new THREE.Mesh(
-            new THREE.SphereGeometry(0.45, 8, 8),
-            new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0.95 })
-          );
-          scene.add(car);
-          cars.push(car);
-        }
+        const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
 
         const labelTexture = makeSpriteTexture(`${building.repo.prs.length || 1} PRs`, 'flow', pathColor, 200, 60);
         const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
+        label.visible = false;
         scene.add(label);
 
         roads.push({

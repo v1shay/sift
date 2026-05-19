@@ -100,6 +100,7 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "stars": project.stars or 0,
         "forks": project.forks or 0,
         "openIssues": project.open_issues or 0,
+        "openPRs": project.open_issues or 0,
         "contributorsCount": len(project.contributors or []),
         "owner": owner_login(project),
         "topics": topics,
@@ -126,7 +127,12 @@ def resolve_backend_public_url(request: Request) -> str:
     if forwarded_host:
         host = forwarded_host.split(",")[0].strip()
         if host:
-            scheme = request.headers.get("x-forwarded-proto", "https").split(",")[0].strip() or "https"
+            forwarded_proto = request.headers.get("x-forwarded-proto")
+            scheme = (
+                forwarded_proto.split(",")[0].strip()
+                if forwarded_proto
+                else request.url.scheme
+            ) or "https"
             return f"{scheme}://{host}".rstrip("/")
 
     return str(request.base_url).rstrip("/")
