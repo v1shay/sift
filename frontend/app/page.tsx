@@ -151,6 +151,7 @@ type BuildingObject = {
   windows: RepoWindowsMesh;
   beacon: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   ring: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  selectedDetails?: THREE.Group;
   position: THREE.Vector3;
   height: number;
   width: number;
@@ -168,6 +169,8 @@ type RoadObject = {
   label: THREE.Sprite;
   speed: number;
   phase: number;
+  flowStrength: number;
+  baseOpacity: number;
 };
 
 type SceneRefs = {
@@ -684,6 +687,8 @@ const MAX_ZOOM = 1.7;
 const SCENE_PIXEL_RATIO = 1.15;
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
+const MAX_PR_FLOW_ROADS = 132;
+const MAX_PR_FLOW_PACKETS = 420;
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -845,7 +850,7 @@ function tokenizeSearch(query: string) {
 }
 
 function expandSearchTokens(tokens: string[]) {
-  return tokens.flatMap((token) => [token, ...token.split(/[-_/]+/)]).filter(Boolean);
+  return Array.from(new Set(tokens.flatMap((token) => [token, ...token.split(/[-_/]+/)]).filter(Boolean)));
 }
 
 function districtMatchesQuery(district: District, cleanQuery: string, tokens: string[]) {
@@ -866,22 +871,34 @@ function textMatchesTokenizedQuery(haystack: string, cleanQuery: string, tokens:
   const haystackTokens = expandSearchTokens(tokenizeSearch(normalizedHaystack));
   const queryTokens = expandSearchTokens(tokens);
 
-  if (cleanQuery.length >= 3 && normalizedHaystack.includes(cleanQuery)) return true;
-  if (cleanQuery.length < 3 && haystackTokens.includes(cleanQuery)) return true;
+  if (tokens.length > 1 && cleanQuery.length >= 3 && normalizedHaystack.includes(cleanQuery)) return true;
+  if (haystackTokens.includes(cleanQuery)) return true;
 
-  return queryTokens.some((token) => (
-    token.length >= 3
-      ? normalizedHaystack.includes(token)
-      : haystackTokens.includes(token)
-  ));
+  return queryTokens.some((token) => haystackTokens.includes(token));
 }
 
 function getOpenWorkItems(repo: Repo) {
   return repo.openIssues ?? repo.openPRs;
 }
 
-function includesAny(haystack: string, terms: string[]) {
-  return terms.some((term) => haystack.includes(term.toLowerCase()));
+function queryTermMatches(cleanQuery: string, tokens: string[], term: string) {
+  const normalizedTerm = term.toLowerCase().trim();
+  if (!normalizedTerm) return false;
+
+  const queryTokens = expandSearchTokens(tokens);
+  const termTokens = expandSearchTokens(tokenizeSearch(normalizedTerm));
+  if (termTokens.length === 0) return false;
+
+  if (termTokens.length === 1) {
+    const [termToken] = termTokens;
+    return termToken.length <= 2 ? queryTokens.includes(termToken) : cleanQuery.includes(termToken);
+  }
+
+  return cleanQuery.includes(normalizedTerm) || termTokens.every((token) => queryTokens.includes(token));
+}
+
+function queryIncludesAny(cleanQuery: string, tokens: string[], terms: string[]) {
+  return terms.some((term) => queryTermMatches(cleanQuery, tokens, term));
 }
 
 function getSafetyReasons(repo: Repo): SafetyReason[] {
@@ -927,7 +944,7 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
     addPing('type', `${district.label} district`, 78);
   }
 
-  const matchedTopics = repo.topics.filter((topic) => textMatchesTokenizedQuery(topic, cleanQuery, tokens) || cleanQuery.includes(topic.toLowerCase()));
+  const matchedTopics = repo.topics.filter((topic) => textMatchesTokenizedQuery(topic, cleanQuery, tokens));
   if (matchedTopics.length) addPing('topic', matchedTopics.slice(0, 3).join(', '), 58 + matchedTopics.length * 8);
 
   if (textMatchesTokenizedQuery(haystacks.description, cleanQuery, tokens)) {
@@ -938,7 +955,7 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   if (matchedPr) addPing('PR activity', `PR #${matchedPr.number}: ${matchedPr.title}`, 38);
 
   FUNCTION_ALIASES.forEach((alias) => {
-    if (!includesAny(cleanQuery, alias.terms)) return;
+    if (!queryIncludesAny(cleanQuery, tokens, alias.terms)) return;
     let weight = 0;
     const details: string[] = [];
     if (alias.districts?.some((districtKey) => repo.district === districtKey || district.parent === districtKey)) {
@@ -962,16 +979,16 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
     if (weight > 0) addPing('intent', `${alias.label}: ${details.join(' · ')}`, weight);
   });
 
-  if (includesAny(cleanQuery, ['safe', 'trusted', 'secure', 'beginner', 'contribute', 'good first'])) {
+  if (queryIncludesAny(cleanQuery, tokens, ['safe', 'trusted', 'secure', 'beginner', 'contribute', 'good first'])) {
     const topReason = repo.safetyProfile?.reasons[0]?.label ?? `${repo.goodFirstIssues} good-first issues`;
     addPing('safety', `${repo.safetyScore}% contribution-ready · ${topReason}`, Math.round(repo.safetyScore * 0.72 + repo.goodFirstIssues * 0.35));
   }
 
-  if (includesAny(cleanQuery, ['popular', 'stars', 'big', 'famous'])) {
+  if (queryIncludesAny(cleanQuery, tokens, ['popular', 'stars', 'big', 'famous'])) {
     addPing('popularity', `${formatMetric(repo.stars)} stars`, Math.min(86, Math.log10(repo.stars) * 16));
   }
 
-  if (includesAny(cleanQuery, ['active', 'activity', 'prs', 'commits', 'traffic', 'busy'])) {
+  if (queryIncludesAny(cleanQuery, tokens, ['active', 'activity', 'prs', 'commits', 'traffic', 'busy'])) {
     const openWorkItems = getOpenWorkItems(repo);
     addPing('activity', `${repo.commitsPerWeek} commits/week and ${openWorkItems} open items`, Math.min(90, repo.commitsPerWeek / 4 + openWorkItems / 12));
   }
@@ -1167,6 +1184,13 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
     if (role === 'stars') setMaterialOpacity(material, isDay ? 0.02 : 0.24);
     if (role === 'moon') setMaterialOpacity(material, isDay ? 0.025 : 0.08);
     if (role === 'district-plane') setMaterialOpacity(material, isDay ? 0.045 : 0.035);
+    if (role === 'landscape') {
+      const firstMaterial = Array.isArray(material) ? material[0] : material;
+      const opacity = isDay
+        ? mesh.userData.dayOpacity ?? firstMaterial.userData.dayOpacity
+        : mesh.userData.nightOpacity ?? firstMaterial.userData.nightOpacity;
+      if (typeof opacity === 'number') setMaterialOpacity(material, opacity);
+    }
   });
 }
 
@@ -1200,10 +1224,14 @@ function applyFilter(objects: BuildingObject[], roads: RoadObject[], filter: Fil
       districtFor(road.target).parent === filter ||
       (filter === 'stars' && road.target.stars >= 10000) ||
       (filter === 'safe' && isGreenSafety(road.target.safetyScore));
-    road.mesh.material.opacity = sourceActive || targetActive ? 0.18 : 0.025;
+    const roadOpacity = sourceActive || targetActive ? road.baseOpacity : 0.025;
+    road.mesh.material.userData.filteredOpacity = roadOpacity;
+    road.mesh.material.opacity = roadOpacity;
     road.label.material.opacity = 0;
     road.cars.forEach((car) => {
-      (car.material as THREE.MeshBasicMaterial).opacity = sourceActive || targetActive ? 0.95 : 0.16;
+      const material = car.material as THREE.MeshBasicMaterial;
+      material.userData.filteredOpacity = sourceActive || targetActive ? 0.92 : 0.14;
+      material.opacity = material.userData.filteredOpacity;
     });
   }
 }
@@ -1558,9 +1586,34 @@ export default function Home() {
       freeNavZ = clamp(freeNavZ, -260, 260);
     };
 
+    const returnToCityOverview = () => {
+      setSelectedRepo(null);
+      setHoveredRepo(null);
+      targetDistrictCenterRef.current = null;
+      similarDistrictRef.current = null;
+      similarUntilRef.current = 0;
+      freeNavX = 0;
+      freeNavY = 0;
+      freeNavZ = 0;
+      refs.targetZoom = 1;
+      setZoomValue(1);
+      refs.pointer.set(9, 9);
+      renderer.domElement.style.cursor = 'grab';
+      if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      keysPressed[e.key.toLowerCase()] = true;
-      if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
+      const key = e.key.toLowerCase();
+      keysPressed[key] = true;
+
+      if (key === 'escape') {
+        e.preventDefault();
+        keysPressed[key] = false;
+        returnToCityOverview();
+        return;
+      }
+
+      if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
       }
@@ -1761,8 +1814,10 @@ export default function Home() {
       }
 
       if (selectedBuilding && enteredRef.current) {
-        desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(13, 17, 18));
-        desiredTarget = selectedBuilding.position.clone().add(new THREE.Vector3(0, selectedBuilding.height * 0.52, 0));
+        const focusDistance = clamp(selectedBuilding.height * 0.76, 32, 88);
+        const focusHeight = clamp(selectedBuilding.height * 0.58, 18, 58);
+        desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(focusDistance * 0.64, focusHeight, focusDistance));
+        desiredTarget = selectedBuilding.position.clone().add(new THREE.Vector3(0, selectedBuilding.height * 0.43, 0));
       }
 
       if (refs.enteredAt && entryT < 1 && !selectedBuilding) {
@@ -1790,16 +1845,46 @@ export default function Home() {
         building.body.material.emissiveIntensity = isSelected ? 0.12 : isHovered ? 0.08 : isSimilar ? 0.06 + pulse * 0.025 : 0.018;
         building.top.material.emissiveIntensity = isSelected || isHovered ? 0.32 : isSimilar ? 0.18 : 0.08;
         building.windows.material.opacity = isHovered || isSelected ? 0.58 : filterRef.current === 'all' ? 0.28 : building.windows.material.opacity;
+        if (isSelected) {
+          const details = ensureSelectedBuildingDetails(building);
+          details.visible = true;
+          details.children.forEach((child) => {
+            const material = (child as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+            const materials = Array.isArray(material) ? material : material ? [material] : [];
+            materials.forEach((item) => {
+              const baseOpacity = typeof item.userData.baseOpacity === 'number' ? item.userData.baseOpacity : item.opacity;
+              item.opacity = baseOpacity * (0.92 + pulse * 0.18);
+            });
+          });
+        } else if (building.selectedDetails) {
+          building.selectedDetails.visible = false;
+        }
       }
 
       for (const road of roads) {
         road.label.quaternion.copy(camera.quaternion);
+        const selectedRoad = selected ? road.source.id === selected.id || road.target.id === selected.id : false;
+        const roadPulse = 0.5 + Math.sin(elapsed * 2.2 + road.phase * 6) * 0.5;
+        const filteredRoadOpacity = typeof road.mesh.material.userData.filteredOpacity === 'number' ? road.mesh.material.userData.filteredOpacity : road.baseOpacity;
+        road.mesh.material.opacity = selectedRoad
+          ? Math.min(0.54, filteredRoadOpacity + 0.18 + roadPulse * 0.06)
+          : filteredRoadOpacity;
+        if (road.label.visible) {
+          const labelPoint = road.curve.getPointAt(0.5);
+          road.label.position.set(labelPoint.x, 2.2 + road.flowStrength * 0.6, labelPoint.z);
+          road.label.material.opacity = selectedRoad ? 0.5 : 0;
+        }
         road.cars.forEach((car, carIndex) => {
           const t = (road.phase + elapsed * road.speed + carIndex / road.cars.length) % 1;
           const point = road.curve.getPointAt(t);
           car.position.copy(point);
-          car.position.y += 0.22 + Math.sin(elapsed * 8 + carIndex) * 0.04;
-          car.scale.setScalar(0.86 + Math.sin(elapsed * 6 + carIndex) * 0.18);
+          car.position.y += 0.18 + road.flowStrength * 0.08 + Math.sin(elapsed * 8 + carIndex) * 0.035;
+          const tangent = road.curve.getTangentAt(t);
+          car.rotation.y = Math.atan2(tangent.x, tangent.z);
+          const material = car.material as THREE.MeshBasicMaterial;
+          const filteredPacketOpacity = typeof material.userData.filteredOpacity === 'number' ? material.userData.filteredOpacity : material.opacity;
+          material.opacity = selectedRoad ? Math.min(1, filteredPacketOpacity + 0.08) : filteredPacketOpacity;
+          car.scale.setScalar(0.82 + Math.sin(elapsed * 6 + carIndex) * 0.14);
         });
       }
 
@@ -1993,7 +2078,7 @@ export default function Home() {
   };
 
   return (
-    <main className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'}`} aria-label="SIFT 3D open-source city">
+    <main className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''}`} aria-label="SIFT 3D open-source city">
       <div ref={mountRef} className="three-stage" aria-label="Interactive 3D city of open-source repositories">
         {webglError ? (
           <div className={`fallback-city ${entered ? 'is-entered' : ''}`} role="img" aria-label="Lightweight city of open-source repositories">
@@ -2237,7 +2322,7 @@ export default function Home() {
 
         <div className="cinema-readout">
           <span>3D contribution atlas</span>
-          <strong>height: {heightScaleDriver} · footprint: community · sectors: contribution intent</strong>
+          <strong>height: {heightScaleDriver} · roads: PR flow · terrain: hills + greenery</strong>
         </div>
       </section>
 
@@ -2829,6 +2914,7 @@ export default function Home() {
           gap: 10px;
           width: 244px;
           pointer-events: auto;
+          transition: opacity 220ms ease, transform 220ms ease, visibility 220ms ease;
         }
 
         .tool-group,
@@ -2942,7 +3028,7 @@ export default function Home() {
           display: grid;
           gap: 13px;
           pointer-events: auto;
-          transition: left 260ms ease, width 260ms ease;
+          transition: left 260ms ease, width 260ms ease, opacity 220ms ease, transform 220ms ease, visibility 220ms ease;
         }
 
         .search-cluster.has-panel {
@@ -3467,6 +3553,29 @@ export default function Home() {
 
         .network-dock.has-panel {
           right: 420px;
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(10px) scale(0.98);
+        }
+
+        .sift-page.is-repo-focus .network-dock,
+        .sift-page.is-repo-focus .search-cluster,
+        .sift-page.is-repo-focus .stat-bar,
+        .sift-page.is-repo-focus .cinema-readout {
+          opacity: 0;
+          pointer-events: none;
+          visibility: hidden;
+        }
+
+        .sift-page.is-repo-focus .search-cluster {
+          transform: translateX(-50%) translateY(24px) scale(0.98);
+        }
+
+        .sift-page.is-repo-focus .control-dock {
+          opacity: 0;
+          pointer-events: none;
+          visibility: hidden;
+          transform: translate3d(-16px, -14px, 0) scale(0.88);
         }
 
         .network-head,
@@ -4502,6 +4611,417 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   };
 }
 
+function repoDetailSeed(repo: Repo) {
+  return `${repo.owner}/${repo.name}`.split('').reduce((total, char, index) => total + char.charCodeAt(0) * (index + 3), 17);
+}
+
+function ensureSelectedBuildingDetails(building: BuildingObject) {
+  if (building.selectedDetails) return building.selectedDetails;
+
+  const { repo, district } = building;
+  const seed = repoDetailSeed(repo);
+  const bodyHeight = Math.max(1.25, building.body.position.y * 2);
+  const capHeight = Math.max(0.16, building.height - bodyHeight);
+  const bodyWidth = building.width;
+  const bodyDepth = building.depth;
+  const accentColor = new THREE.Color(district.accent);
+  const softLight = accentColor.clone().lerp(new THREE.Color('#f8fafc'), 0.48);
+  const railColor = accentColor.clone().lerp(new THREE.Color('#020617'), 0.14);
+  const group = new THREE.Group();
+  group.visible = false;
+  group.userData.repoId = repo.id;
+
+  const paneMaterial = new THREE.MeshBasicMaterial({
+    color: softLight,
+    transparent: true,
+    opacity: 0.94,
+    depthWrite: false,
+  });
+  paneMaterial.userData.baseOpacity = 0.94;
+  const dimPaneMaterial = new THREE.MeshBasicMaterial({
+    color: accentColor.clone().lerp(new THREE.Color('#dbeafe'), 0.18),
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+  });
+  dimPaneMaterial.userData.baseOpacity = 0.42;
+  const facadePlateMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color('#020617').lerp(accentColor, 0.18),
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+  });
+  facadePlateMaterial.userData.baseOpacity = 0.16;
+  const paneGeometry = new THREE.PlaneGeometry(1, 1);
+  const brightMatrices: THREE.Matrix4[] = [];
+  const dimMatrices: THREE.Matrix4[] = [];
+  const dummy = new THREE.Object3D();
+  const rows = Math.min(22, Math.max(4, Math.floor(bodyHeight / 1.35)));
+  const frontCols = Math.min(10, Math.max(2, Math.floor(bodyWidth / 0.42)));
+  const sideCols = Math.min(9, Math.max(2, Math.floor(bodyDepth / 0.46)));
+  const paneWidth = clamp(bodyWidth / Math.max(7, frontCols * 1.85), 0.16, 0.38);
+  const paneHeight = clamp(bodyHeight / Math.max(22, rows * 2.45), 0.12, 0.34);
+  const yPad = clamp(bodyHeight * 0.13, 0.32, 1.1);
+  const usableHeight = Math.max(0.4, bodyHeight - yPad * 1.55);
+
+  const addPane = (x: number, y: number, z: number, rotationY: number, bright: boolean) => {
+    dummy.position.set(x, y, z);
+    dummy.rotation.set(0, rotationY, 0);
+    dummy.scale.set(paneWidth, paneHeight, 1);
+    dummy.updateMatrix();
+    (bright ? brightMatrices : dimMatrices).push(dummy.matrix.clone());
+  };
+
+  const addFacade = (face: 'front' | 'back' | 'left' | 'right') => {
+    const isSide = face === 'left' || face === 'right';
+    const cols = isSide ? sideCols : frontCols;
+    const span = isSide ? bodyDepth : bodyWidth;
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const skip = (seed + row * 11 + col * 17 + face.length * 19) % 17 === 0;
+        if (skip) continue;
+        const lane = cols === 1 ? 0 : -span / 2 + 0.38 + col * ((span - 0.76) / Math.max(1, cols - 1));
+        const y = yPad + row * (usableHeight / Math.max(1, rows - 1));
+        const bright = (seed + row * 7 + col * 5 + face.length * 3) % 5 !== 0;
+        if (face === 'front') addPane(lane, y, bodyDepth / 2 + 0.062, 0, bright);
+        if (face === 'back') addPane(-lane, y, -bodyDepth / 2 - 0.062, Math.PI, bright);
+        if (face === 'right') addPane(bodyWidth / 2 + 0.062, y, lane, Math.PI / 2, bright);
+        if (face === 'left') addPane(-bodyWidth / 2 - 0.062, y, -lane, -Math.PI / 2, bright);
+      }
+    }
+  };
+
+  addFacade('front');
+  addFacade('back');
+  addFacade('left');
+  addFacade('right');
+
+  [
+    { position: [0, bodyHeight * 0.5, bodyDepth / 2 + 0.048], scale: [bodyWidth * 0.96, bodyHeight * 0.92, 0.035] },
+    { position: [bodyWidth / 2 + 0.048, bodyHeight * 0.5, 0], scale: [0.035, bodyHeight * 0.86, bodyDepth * 0.72] },
+  ].forEach(({ position, scale }) => {
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(scale[0], scale[1], scale[2]), facadePlateMaterial);
+    plate.position.set(position[0], position[1], position[2]);
+    plate.userData.repoId = repo.id;
+    group.add(plate);
+  });
+
+  const brightPanes = new THREE.InstancedMesh(paneGeometry, paneMaterial, brightMatrices.length || 1);
+  brightPanes.renderOrder = 3;
+  brightPanes.userData.repoId = repo.id;
+  brightMatrices.forEach((matrix, index) => brightPanes.setMatrixAt(index, matrix));
+  brightPanes.instanceMatrix.needsUpdate = true;
+  group.add(brightPanes);
+
+  const dimPanes = new THREE.InstancedMesh(paneGeometry.clone(), dimPaneMaterial, dimMatrices.length || 1);
+  dimPanes.renderOrder = 2;
+  dimPanes.userData.repoId = repo.id;
+  dimMatrices.forEach((matrix, index) => dimPanes.setMatrixAt(index, matrix));
+  dimPanes.instanceMatrix.needsUpdate = true;
+  group.add(dimPanes);
+
+  const railMaterial = new THREE.MeshBasicMaterial({
+    color: railColor,
+    transparent: true,
+    opacity: 0.78,
+    depthWrite: false,
+  });
+  railMaterial.userData.baseOpacity = 0.78;
+  const bandMaterial = new THREE.MeshBasicMaterial({
+    color: softLight,
+    transparent: true,
+    opacity: 0.56,
+    depthWrite: false,
+  });
+  bandMaterial.userData.baseOpacity = 0.56;
+  const cornerRailGeometry = new THREE.BoxGeometry(0.055, bodyHeight * 0.94, 0.055);
+  [
+    [-bodyWidth / 2 - 0.035, bodyDepth / 2 + 0.035],
+    [bodyWidth / 2 + 0.035, bodyDepth / 2 + 0.035],
+    [-bodyWidth / 2 - 0.035, -bodyDepth / 2 - 0.035],
+    [bodyWidth / 2 + 0.035, -bodyDepth / 2 - 0.035],
+  ].forEach(([x, z]) => {
+    const rail = new THREE.Mesh(cornerRailGeometry.clone(), railMaterial);
+    rail.position.set(x, bodyHeight * 0.49, z);
+    rail.userData.repoId = repo.id;
+    group.add(rail);
+  });
+
+  const bandCount = Math.min(4, Math.max(2, Math.round(getOpenWorkItems(repo) / 120) + 2));
+  for (let bandIndex = 0; bandIndex < bandCount; bandIndex += 1) {
+    const y = yPad + (bandIndex + 1) * (usableHeight / (bandCount + 1));
+    const frontBand = new THREE.Mesh(
+      new THREE.BoxGeometry(bodyWidth * (0.68 + ((seed + bandIndex) % 4) * 0.07), 0.045, 0.07),
+      bandMaterial,
+    );
+    frontBand.position.set(0, y, bodyDepth / 2 + 0.085);
+    frontBand.userData.repoId = repo.id;
+    group.add(frontBand);
+
+    const sideBand = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.045, bodyDepth * (0.5 + ((seed + bandIndex * 2) % 5) * 0.06)),
+      bandMaterial,
+    );
+    sideBand.position.set(bodyWidth / 2 + 0.085, y + paneHeight * 0.55, 0);
+    sideBand.userData.repoId = repo.id;
+    group.add(sideBand);
+  }
+
+  const crownY = bodyHeight + capHeight + 0.08;
+  const crownMaterial = new THREE.MeshBasicMaterial({
+    color: accentColor,
+    transparent: true,
+    opacity: 0.62,
+    depthWrite: false,
+  });
+  crownMaterial.userData.baseOpacity = 0.62;
+  const crown = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyWidth * 0.68, 0.12, Math.max(0.12, bodyDepth * 0.16)),
+    crownMaterial,
+  );
+  crown.position.set(0, crownY, bodyDepth * 0.24);
+  crown.userData.repoId = repo.id;
+  group.add(crown);
+
+  const markerCount = Math.min(5, Math.max(2, repo.topics.length || Math.round(repo.safetyScore / 30)));
+  for (let markerIndex = 0; markerIndex < markerCount; markerIndex += 1) {
+    const marker = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, clamp(bodyHeight * 0.08, 0.16, 0.7), 0.08),
+      markerIndex % 2 === 0 ? crownMaterial : bandMaterial,
+    );
+    marker.position.set(
+      -bodyWidth / 2 - 0.1,
+      yPad + markerIndex * (usableHeight / Math.max(1, markerCount)),
+      -bodyDepth * 0.28 + markerIndex * 0.13,
+    );
+    marker.userData.repoId = repo.id;
+    group.add(marker);
+  }
+
+  building.selectedDetails = group;
+  building.group.add(group);
+  return group;
+}
+
+function seededUnit(seed: number) {
+  const value = Math.sin(seed * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function landscapePaletteFor(district: District) {
+  if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins', 'redwood_archive'].includes(district.key)) {
+    return { ground: '#14532d', path: '#86efac', planter: '#22c55e', node: '#bbf7d0' };
+  }
+  if (district.key === 'volcano_forge') {
+    return { ground: '#431407', path: '#fb923c', planter: '#7f1d1d', node: '#fed7aa' };
+  }
+  if (district.key === 'frozen_kingdom') {
+    return { ground: '#dbeafe', path: '#38bdf8', planter: '#e0f2fe', node: '#f8fafc' };
+  }
+  if (district.parent === 'web') {
+    return { ground: '#0f2a4a', path: '#93c5fd', planter: '#1d4ed8', node: '#bfdbfe' };
+  }
+  if (district.parent === 'ai') {
+    return { ground: '#2e1065', path: '#d8b4fe', planter: '#7e22ce', node: '#f5d0fe' };
+  }
+  if (district.parent === 'systems') {
+    return { ground: '#3f1118', path: '#fda4af', planter: '#991b1b', node: '#fecdd3' };
+  }
+  return { ground: '#12332d', path: district.accent, planter: '#115e59', node: '#ccfbf1' };
+}
+
+function createLandscapeMaterial(color: string, dayOpacity: number, nightOpacity = dayOpacity * 0.9) {
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: dayOpacity,
+    depthWrite: false,
+  });
+  material.userData.dayOpacity = dayOpacity;
+  material.userData.nightOpacity = nightOpacity;
+  return material;
+}
+
+function createTerrainMaterial(color: string, dayOpacity: number, nightOpacity = dayOpacity * 0.82) {
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.92,
+    metalness: 0,
+    transparent: true,
+    opacity: dayOpacity,
+    depthWrite: false,
+    flatShading: true,
+  });
+  material.userData.dayOpacity = dayOpacity;
+  material.userData.nightOpacity = nightOpacity;
+  return material;
+}
+
+function markLandscape(mesh: THREE.Mesh, dayOpacity: number, nightOpacity = dayOpacity * 0.9) {
+  mesh.userData.role = 'landscape';
+  mesh.userData.dayOpacity = dayOpacity;
+  mesh.userData.nightOpacity = nightOpacity;
+  return mesh;
+}
+
+function addLandscapePlane(scene: THREE.Scene, x: number, z: number, width: number, depth: number, rotation: number, color: string, dayOpacity: number) {
+  const nightOpacity = dayOpacity * 0.86;
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, depth),
+    createLandscapeMaterial(color, dayOpacity, nightOpacity),
+  );
+  plane.rotation.set(-Math.PI / 2, 0, rotation);
+  plane.position.set(x, 0.035, z);
+  markLandscape(plane, dayOpacity, nightOpacity);
+  scene.add(plane);
+  return plane;
+}
+
+function addLandscapeBox(scene: THREE.Scene, x: number, z: number, width: number, depth: number, height: number, color: string, dayOpacity: number, rotation: number) {
+  const nightOpacity = dayOpacity * 0.9;
+  const box = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    createLandscapeMaterial(color, dayOpacity, nightOpacity),
+  );
+  box.position.set(x, height / 2, z);
+  box.rotation.y = rotation;
+  markLandscape(box, dayOpacity, nightOpacity);
+  scene.add(box);
+  return box;
+}
+
+function addLandscapeNode(scene: THREE.Scene, x: number, z: number, radius: number, color: string, dayOpacity: number) {
+  const nightOpacity = dayOpacity * 0.95;
+  const node = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, 0.085, 8),
+    createLandscapeMaterial(color, dayOpacity, nightOpacity),
+  );
+  node.position.set(x, 0.055, z);
+  markLandscape(node, dayOpacity, nightOpacity);
+  scene.add(node);
+  return node;
+}
+
+function addTerrainMound(scene: THREE.Scene, x: number, z: number, width: number, depth: number, height: number, color: string, dayOpacity: number, seed: number) {
+  const geometry = new THREE.PlaneGeometry(width, depth, 12, 12);
+  const positions = geometry.attributes.position as THREE.BufferAttribute;
+  const shoulder = 0.28 + seededUnit(seed + 0.9) * 0.22;
+  for (let index = 0; index < positions.count; index += 1) {
+    const px = positions.getX(index) / (width / 2);
+    const py = positions.getY(index) / (depth / 2);
+    const dist = Math.sqrt(px * px + py * py);
+    const ripple = Math.sin((px * 2.7 + py * 1.6 + seed) * Math.PI) * 0.08;
+    const moundHeight = Math.max(0, 1 - Math.pow(dist, 1.8 + shoulder)) * height;
+    positions.setZ(index, Math.max(0, moundHeight + ripple * height));
+  }
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+
+  const nightOpacity = dayOpacity * 0.82;
+  const mound = new THREE.Mesh(geometry, createTerrainMaterial(color, dayOpacity, nightOpacity));
+  mound.rotation.set(-Math.PI / 2, 0, seededUnit(seed + 2.1) * Math.PI);
+  mound.position.set(x, 0.015, z);
+  markLandscape(mound, dayOpacity, nightOpacity);
+  scene.add(mound);
+  return mound;
+}
+
+function createRollingTerrain(scene: THREE.Scene) {
+  const geometry = new THREE.PlaneGeometry(980, 980, 72, 72);
+  const positions = geometry.attributes.position as THREE.BufferAttribute;
+  const hillAnchors = [
+    { x: -210, z: -190, r: 180, h: 1.8 },
+    { x: 225, z: -170, r: 170, h: 1.45 },
+    { x: -255, z: 185, r: 190, h: 1.65 },
+    { x: 245, z: 220, r: 210, h: 1.35 },
+    { x: 0, z: -250, r: 150, h: 1.15 },
+    { x: 20, z: 260, r: 170, h: 1.25 },
+  ];
+
+  for (let index = 0; index < positions.count; index += 1) {
+    const x = positions.getX(index);
+    const z = positions.getY(index);
+    let y = 0;
+    hillAnchors.forEach((hill, hillIndex) => {
+      const dx = x - hill.x;
+      const dz = z - hill.z;
+      const falloff = Math.max(0, 1 - Math.sqrt(dx * dx + dz * dz) / hill.r);
+      y += Math.pow(falloff, 2.2) * hill.h;
+      y += Math.sin((x * 0.012 + z * 0.009 + hillIndex) * Math.PI) * falloff * 0.12;
+    });
+    const cityBowl = Math.max(0, 1 - Math.sqrt(x * x + z * z) / 210);
+    positions.setZ(index, Math.max(0, y - cityBowl * 0.68));
+  }
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+
+  const dayOpacity = 0.34;
+  const nightOpacity = 0.22;
+  const terrain = new THREE.Mesh(geometry, createTerrainMaterial('#2f8a4f', dayOpacity, nightOpacity));
+  terrain.rotation.x = -Math.PI / 2;
+  terrain.position.y = -0.07;
+  terrain.renderOrder = -2;
+  markLandscape(terrain, dayOpacity, nightOpacity);
+  scene.add(terrain);
+  return terrain;
+}
+
+function createDistrictLandscaping(scene: THREE.Scene, district: District, districtIndex: number) {
+  const palette = landscapePaletteFor(district);
+  const centerX = district.x;
+  const centerZ = district.z + 2;
+
+  addTerrainMound(
+    scene,
+    centerX + (seededUnit(districtIndex + 14.2) - 0.5) * 24,
+    centerZ + (seededUnit(districtIndex + 18.8) - 0.5) * 24,
+    82 + seededUnit(districtIndex + 2.5) * 32,
+    60 + seededUnit(districtIndex + 3.4) * 30,
+    0.95 + seededUnit(districtIndex + 4.6) * 1.75,
+    palette.planter,
+    0.24,
+    districtIndex * 19.3,
+  );
+
+  addLandscapePlane(scene, centerX, centerZ, 82, 72, seededUnit(districtIndex + 0.2) * 0.24 - 0.12, palette.ground, 0.06);
+
+  for (let lane = 0; lane < 3; lane += 1) {
+    const laneSeed = districtIndex * 31 + lane * 7;
+    const rotation = (seededUnit(laneSeed) - 0.5) * 0.48 + (lane === 0 ? 0 : Math.PI / 2);
+    const offset = (seededUnit(laneSeed + 2) - 0.5) * 16;
+    const laneX = centerX + Math.cos(rotation + Math.PI / 2) * offset;
+    const laneZ = centerZ + Math.sin(rotation + Math.PI / 2) * offset;
+    addLandscapePlane(scene, laneX, laneZ, 62 + seededUnit(laneSeed + 3) * 22, 2.6 + seededUnit(laneSeed + 4) * 2.0, rotation, palette.path, 0.1);
+  }
+
+  for (let planterIndex = 0; planterIndex < 8; planterIndex += 1) {
+    const seed = districtIndex * 71 + planterIndex * 13;
+    const angle = seededUnit(seed) * Math.PI * 2;
+    const ringRadiusX = 18 + seededUnit(seed + 1) * 26;
+    const ringRadiusZ = 15 + seededUnit(seed + 2) * 24;
+    const x = centerX + Math.cos(angle) * ringRadiusX;
+    const z = centerZ + Math.sin(angle) * ringRadiusZ;
+    const width = 5.6 + seededUnit(seed + 3) * 10.5;
+    const depth = 1.7 + seededUnit(seed + 4) * 3.6;
+    const height = 0.08 + seededUnit(seed + 5) * 0.16;
+    addLandscapeBox(scene, x, z, width, depth, height, palette.planter, 0.3, angle + Math.PI / 2);
+  }
+
+  for (let nodeIndex = 0; nodeIndex < 5; nodeIndex += 1) {
+    const seed = districtIndex * 43 + nodeIndex * 11;
+    const angle = nodeIndex * (Math.PI * 2 / 5) + seededUnit(seed) * 0.5;
+    const radius = 13 + seededUnit(seed + 1) * 24;
+    addLandscapeNode(
+      scene,
+      centerX + Math.cos(angle) * radius,
+      centerZ + Math.sin(angle) * radius,
+      0.95 + seededUnit(seed + 2) * 1.2,
+      palette.node,
+      0.28,
+    );
+  }
+}
+
 function createGround(scene: THREE.Scene) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -4509,11 +5029,11 @@ function createGround(scene: THREE.Scene) {
   const ctx = canvas.getContext('2d')!;
 
   // Muted civic grid background
-  ctx.fillStyle = '#050807';
+  ctx.fillStyle = '#06120d';
   ctx.fillRect(0, 0, 512, 512);
 
   // Tech grid lines
-  ctx.strokeStyle = '#14231f';
+  ctx.strokeStyle = '#173829';
   ctx.lineWidth = 1.5;
   for (let i = 0; i < 512; i += 32) {
     ctx.beginPath();
@@ -4526,6 +5046,22 @@ function createGround(scene: THREE.Scene) {
     ctx.lineTo(512, i);
     ctx.stroke();
   }
+
+  ctx.globalAlpha = 0.22;
+  for (let i = 0; i < 90; i += 1) {
+    const x = seededUnit(i + 0.31) * 512;
+    const y = seededUnit(i + 4.73) * 512;
+    const width = 8 + seededUnit(i + 7.19) * 36;
+    const height = 2 + seededUnit(i + 9.41) * 8;
+    ctx.fillStyle = i % 3 === 0 ? '#163d35' : i % 3 === 1 ? '#102b35' : '#24321f';
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((seededUnit(i + 12.4) - 0.5) * 0.9);
+    roundRect(ctx, -width / 2, -height / 2, width, height, 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
@@ -4544,6 +5080,8 @@ function createGround(scene: THREE.Scene) {
   ground.userData.role = 'ground';
   scene.add(ground);
 
+  createRollingTerrain(scene);
+
   const grid = new THREE.GridHelper(1000, 120, '#4fb7c5', '#204d45');
   grid.userData.role = 'grid';
   const gridMaterial = grid.material as THREE.Material;
@@ -4552,7 +5090,7 @@ function createGround(scene: THREE.Scene) {
   grid.position.y = 0.01;
   scene.add(grid);
 
-  DISTRICTS.forEach((district) => {
+  DISTRICTS.forEach((district, districtIndex) => {
     const isNature = ['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins'].includes(district.key);
     const isLava = district.key === 'volcano_forge';
     const isIce = district.key === 'frozen_kingdom';
@@ -4575,6 +5113,8 @@ function createGround(scene: THREE.Scene) {
     plane.position.set(district.x, 0.02, district.z + 2);
     plane.userData.role = 'district-plane';
     scene.add(plane);
+
+    createDistrictLandscaping(scene, district, districtIndex);
 
     const labelTexture = makeSpriteTexture(district.label.toUpperCase(), 'semantic district', district.color, 520, 130);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.38, depthWrite: false }));
@@ -4609,64 +5149,169 @@ function createSky(scene: THREE.Scene) {
   scene.add(stars);
 }
 
+function flowColorFor(building: BuildingObject) {
+  if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins'].includes(building.district.key)) return '#86efac';
+  if (building.district.key === 'volcano_forge') return '#fb923c';
+  if (building.district.key === 'frozen_kingdom') return '#e0f2fe';
+  if (building.district.parent === 'ai') return '#d8b4fe';
+  if (building.district.parent === 'web') return '#93c5fd';
+  if (building.district.parent === 'systems') return '#fda4af';
+  return building.district.accent;
+}
+
+function prFlowScore(building: BuildingObject) {
+  return getOpenWorkItems(building.repo) * 1.1 + building.repo.prs.length * 70 + building.repo.goodFirstIssues * 8 + Math.log10(building.repo.stars + 1) * 7;
+}
+
 function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const roads: RoadObject[] = [];
-  buildings.forEach((building, index) => {
-    if (building.repo.prs.length === 0 && index % 9 !== 0) return;
+  const roadPairs = new Set<string>();
+  let packetBudget = MAX_PR_FLOW_PACKETS;
 
-    const connections = building.repo.stars >= 50000 ? 1 : 0;
-    for(let i=0; i<connections; i++) {
-        const target = buildings[(index + 17 + i * 23) % buildings.length];
-        if (target === building) continue;
-
-        const dist = building.position.distanceTo(target.position);
-        if (dist > 95 || dist < 2) continue;
-
-        const isNature = ['forest_repository', 'jungle_canopy', 'bamboo_valley'].includes(building.district.key);
-        const isLava = building.district.key === 'volcano_forge';
-        const isIce = building.district.key === 'frozen_kingdom';
-
-        let pathColor = building.district.color;
-        if(isNature) pathColor = '#22c55e'; // vine paths
-        if(isLava) pathColor = '#ef4444'; // lava paths
-        if(isIce) pathColor = '#bae6fd'; // ice paths
-
-        const p1 = building.position.clone();
-        const p2 = target.position.clone();
-
-        const midY = 0.35;
-
-        const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(p1.x, 0.2, p1.z),
-          new THREE.Vector3((p1.x + p2.x) / 2, midY + (dist * 0.1), (p1.z + p2.z) / 2),
-          new THREE.Vector3(p2.x, 0.2, p2.z),
-        ]);
-
-        const mesh = new THREE.Mesh(
-          new THREE.TubeGeometry(curve, 16, 0.075, 4, false),
-          new THREE.MeshBasicMaterial({ color: pathColor, transparent: true, opacity: 0.18 })
-        );
-        scene.add(mesh);
-
-        const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
-
-        const labelTexture = makeSpriteTexture(`${building.repo.prs.length || 1} PRs`, 'flow', pathColor, 200, 60);
-        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
-        label.visible = false;
-        scene.add(label);
-
-        roads.push({
-          id: `${building.repo.id}-${target.repo.id}-${i}`,
-          source: building.repo,
-          target: target.repo,
-          curve,
-          mesh,
-          cars,
-          label,
-          speed: 0.1 + (building.repo.stars % 5) * 0.02,
-          phase: Math.random(),
-        });
-    }
+  const buildingsByDistrict = new Map<DistrictKey, BuildingObject[]>();
+  buildings.forEach((building) => {
+    const items = buildingsByDistrict.get(building.repo.district) ?? [];
+    items.push(building);
+    buildingsByDistrict.set(building.repo.district, items);
   });
+
+  const addRoad = (source: BuildingObject, target: BuildingObject, laneIndex: number, isDistrictTrunk = false) => {
+    if (roads.length >= MAX_PR_FLOW_ROADS || packetBudget <= 0 || source === target) return;
+    const pairKey = [source.repo.id, target.repo.id].sort().join('::');
+    if (roadPairs.has(pairKey)) return;
+
+    const distance = source.position.distanceTo(target.position);
+    if (distance < 5 || distance > (isDistrictTrunk ? 180 : 118)) return;
+
+    roadPairs.add(pairKey);
+
+    const openWork = Math.max(1, getOpenWorkItems(source.repo));
+    const flowStrength = clamp(Math.log10(openWork + source.repo.prs.length * 40 + 8) / 3.25, 0.22, 1);
+    const pathColor = flowColorFor(source);
+    const baseOpacity = clamp(0.1 + flowStrength * 0.16, 0.12, 0.28);
+    const radius = clamp(0.035 + flowStrength * 0.07, 0.045, 0.115);
+
+    const p1 = source.position.clone();
+    const p2 = target.position.clone();
+    const dx = p2.x - p1.x;
+    const dz = p2.z - p1.z;
+    const invLength = 1 / Math.max(1, Math.sqrt(dx * dx + dz * dz));
+    const normal = new THREE.Vector3(-dz * invLength, 0, dx * invLength);
+    const seed = source.repo.stars * 0.013 + target.repo.forks * 0.017 + laneIndex * 11.7;
+    const bow = (seededUnit(seed) - 0.5) * clamp(distance * 0.24, 6, 24) + (laneIndex - 0.5) * 2.8;
+    const midX = (p1.x + p2.x) / 2 + normal.x * bow;
+    const midZ = (p1.z + p2.z) / 2 + normal.z * bow;
+    const start = new THREE.Vector3(p1.x, 0.18, p1.z);
+    const end = new THREE.Vector3(p2.x, 0.18, p2.z);
+    const curve = new THREE.CatmullRomCurve3([
+      start,
+      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, 0.2 + flowStrength * 0.08, p1.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(midX, 0.22 + flowStrength * 0.1, midZ),
+      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, 0.2 + flowStrength * 0.08, p2.z * 0.72 + midZ * 0.28),
+      end,
+    ]);
+
+    const roadMaterial = new THREE.MeshBasicMaterial({
+      color: pathColor,
+      transparent: true,
+      opacity: baseOpacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    roadMaterial.userData.filteredOpacity = baseOpacity;
+
+    const mesh = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, 28, radius, 4, false),
+      roadMaterial,
+    );
+    mesh.userData.role = 'pr-flow-road';
+    scene.add(mesh);
+
+    const packetCount = Math.max(1, Math.min(packetBudget, Math.round(1 + flowStrength * 3.2 + Math.min(2, source.repo.prs.length))));
+    packetBudget -= packetCount;
+    const packetGeometry = new THREE.BoxGeometry(
+      clamp(radius * 7.2, 0.34, 0.82),
+      clamp(radius * 2.1, 0.11, 0.24),
+      clamp(radius * 3.7, 0.18, 0.42),
+    );
+    const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
+    for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
+      const packetMaterial = new THREE.MeshBasicMaterial({
+        color: packetIndex % 2 === 0 ? pathColor : source.district.color,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      });
+      packetMaterial.userData.filteredOpacity = 0.92;
+      const packet = new THREE.Mesh(packetGeometry, packetMaterial);
+      packet.userData.role = 'pr-flow-packet';
+      scene.add(packet);
+      cars.push(packet);
+    }
+
+    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed PRs` : `${formatMetric(openWork)} open`;
+    const labelTexture = makeSpriteTexture(flowLabel, 'PR flow', pathColor, 260, 72);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
+    const labelPoint = curve.getPointAt(0.5);
+    label.position.set(labelPoint.x, 2.1 + flowStrength * 0.5, labelPoint.z);
+    label.scale.set(5.2, 1.45, 1);
+    label.visible = source.repo.prs.length > 0 || flowStrength > 0.72;
+    scene.add(label);
+
+    roads.push({
+      id: `${source.repo.id}-${target.repo.id}-${laneIndex}`,
+      source: source.repo,
+      target: target.repo,
+      curve,
+      mesh,
+      cars,
+      label,
+      speed: 0.055 + flowStrength * 0.065 + (source.repo.stars % 7) * 0.003,
+      phase: seededUnit(seed + 3.8),
+      flowStrength,
+      baseOpacity,
+    });
+  };
+
+  DISTRICTS.forEach((district) => {
+    const districtBuildings = buildingsByDistrict.get(district.key) ?? [];
+    if (districtBuildings.length < 2) return;
+
+    const activeBuildings = [...districtBuildings]
+      .filter((building) => getOpenWorkItems(building.repo) > 0 || building.repo.prs.length > 0)
+      .sort((a, b) => prFlowScore(b) - prFlowScore(a));
+    const sourceCount = Math.min(5, Math.max(2, Math.ceil(activeBuildings.length / 9)));
+
+    activeBuildings.slice(0, sourceCount).forEach((source, sourceIndex) => {
+      const connectionCount = getOpenWorkItems(source.repo) > 280 || source.repo.prs.length > 0 ? 2 : 1;
+      for (let connectionIndex = 0; connectionIndex < connectionCount; connectionIndex += 1) {
+        const offset = Math.max(1, Math.floor(activeBuildings.length / (connectionIndex + 2)));
+        let target = activeBuildings[(sourceIndex + offset + connectionIndex * 3) % activeBuildings.length];
+        if (target === source) {
+          target = activeBuildings.find((building) => building !== source) ?? districtBuildings.find((building) => building !== source) ?? source;
+        }
+        addRoad(source, target, connectionIndex);
+      }
+    });
+  });
+
+  const hubsByParent = new Map<string, BuildingObject[]>();
+  DISTRICTS.forEach((district) => {
+    const hub = [...(buildingsByDistrict.get(district.key) ?? [])]
+      .filter((building) => getOpenWorkItems(building.repo) > 0)
+      .sort((a, b) => prFlowScore(b) - prFlowScore(a))[0];
+    if (!hub) return;
+    const parentHubs = hubsByParent.get(district.parent) ?? [];
+    parentHubs.push(hub);
+    hubsByParent.set(district.parent, parentHubs);
+  });
+
+  hubsByParent.forEach((hubs) => {
+    hubs.forEach((hub, hubIndex) => {
+      const target = hubs[(hubIndex + 1) % hubs.length];
+      if (target && target !== hub) addRoad(hub, target, hubIndex + 10, true);
+    });
+  });
+
   return roads;
 }
