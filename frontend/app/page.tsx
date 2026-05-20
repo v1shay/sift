@@ -108,6 +108,12 @@ type GitHubRepoPayload = {
   license?: { spdx_id?: string | null } | null;
 };
 
+type GitHubPullPayload = {
+  number?: number;
+  title?: string;
+  draft?: boolean;
+};
+
 type GraphRepositoryNode = {
   id?: string;
   name?: string;
@@ -411,12 +417,32 @@ function parseGithubRepoLocator(value: string) {
   return { owner, repo: repo.replace(/[#?].*$/, '') };
 }
 
-function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boolean): Repo {
+function buildPullRequestsFromGithub(pulls: GitHubPullPayload[]): PullRequest[] {
+  return pulls.slice(0, 6).map((pull, index) => ({
+    number: pull.number ?? index + 1,
+    title: pull.title || 'Open pull request',
+    priority: pull.draft ? 'quiet' : index < 2 ? 'hot' : 'normal',
+  }));
+}
+
+async function fetchGithubOpenPullRequests(owner: string, repo: string) {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=12`);
+    if (!response.ok) return [];
+    return await response.json() as GitHubPullPayload[];
+  } catch {
+    return [];
+  }
+}
+
+function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boolean, openPulls: GitHubPullPayload[] = []): Repo {
   const owner = payload.owner?.login || (payload.full_name?.split('/')[0] ?? 'github');
   const name = payload.name;
   const topics = payload.topics ?? [];
   const stars = payload.stargazers_count ?? 0;
   const openIssues = payload.open_issues_count ?? 0;
+  const pullRequests = buildPullRequestsFromGithub(openPulls);
+  const openPRs = Math.max(openIssues, pullRequests.length);
   const pushedAt = payload.pushed_at ? new Date(payload.pushed_at).getTime() : 0;
   const daysSincePush = pushedAt ? Math.max(1, Math.round((Date.now() - pushedAt) / 86400000)) : 90;
   const commitsPerWeek = clamp(Math.round(35 / Math.sqrt(daysSincePush)), 1, 28);
@@ -432,7 +458,7 @@ function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boo
     stars,
     forks: payload.forks_count ?? 0,
     openIssues,
-    openPRs: openIssues,
+    openPRs,
     commitsPerWeek,
     contributors: clamp(Math.round(Math.sqrt(Math.max(1, stars)) * 4), 8, 1200),
     goodFirstIssues: hasStarterSignals ? Math.max(3, Math.min(24, Math.round(openIssues * 0.18))) : 0,
@@ -442,10 +468,10 @@ function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boo
     signedReleases: false,
     responseHours: daysSincePush <= 7 ? 18 : daysSincePush <= 30 ? 36 : 72,
     topics,
-    prs: [],
+    prs: pullRequests,
     contributionGuide: wantsContributions,
     issueTemplates: hasStarterSignals,
-    smallScopedIssues: hasStarterSignals || openIssues > 0,
+    smallScopedIssues: hasStarterSignals || openIssues > 0 || openPRs > 0,
     license: payload.license?.spdx_id || undefined,
     hasTests: undefined,
     manageableLocalDev: stars < 60000,
@@ -878,7 +904,7 @@ function textMatchesTokenizedQuery(haystack: string, cleanQuery: string, tokens:
 }
 
 function getOpenWorkItems(repo: Repo) {
-  return repo.openIssues ?? repo.openPRs;
+  return Math.max(repo.openIssues ?? 0, repo.openPRs ?? 0);
 }
 
 function queryTermMatches(cleanQuery: string, tokens: string[], term: string) {
@@ -2045,7 +2071,8 @@ export default function Home() {
       const response = await fetch(`https://api.github.com/repos/${locator.owner}/${locator.repo}`);
       if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
       const payload = await response.json() as GitHubRepoPayload;
-      const imported = buildRepoFromGithub(payload, wantsContributions);
+      const openPulls = await fetchGithubOpenPullRequests(locator.owner, locator.repo);
+      const imported = buildRepoFromGithub(payload, wantsContributions, openPulls);
       setLoadedRepos((current) => [imported, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
       setImportStatus(`${imported.owner}/${imported.name} loaded into ${districtFor(imported).label}.`);
