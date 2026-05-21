@@ -57,8 +57,29 @@ type PullRequest = {
   priority: Priority;
 };
 
+type BackendPullRequest = {
+  number?: number;
+  title?: string;
+  state?: string;
+};
+
+type BackendPrFlowSummary = {
+  repoId: number;
+  fullName?: string | null;
+  available: boolean;
+  openCount: number;
+  mergedCount: number;
+  closedCount: number;
+  recentPullRequests?: BackendPullRequest[];
+};
+
+type BackendPrFlowResponse = {
+  summaries?: Record<string, BackendPrFlowSummary>;
+};
+
 type Repo = {
   id: string;
+  backendId?: number;
   name: string;
   owner: string;
   district: DistrictKey;
@@ -200,35 +221,31 @@ type SceneRefs = {
 };
 
 const DISTRICTS: District[] = [
-  // Systems
-  { key: 'skyline_core', label: 'Systems Engine', color: '#ff4b4b', accent: '#ff9f80', x: 0, z: 0, shape: 'spires', parent: 'systems' },
-  { key: 'clockwork_empire', label: 'Low-Level Runtimes', color: '#ff6b8b', accent: '#fca5a5', x: -112, z: 0, shape: 'factories', parent: 'systems' },
-  { key: 'mountain_citadel', label: 'Compiler Tools', color: '#f43f5e', accent: '#fda4af', x: 112, z: 0, shape: 'citadel', parent: 'systems' },
-  { key: 'ruined_empire', label: 'Kernel & Drivers', color: '#f59e0b', accent: '#fef08a', x: 0, z: -112, shape: 'ruins', parent: 'systems' },
-  // Web
-  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#3b82f6', accent: '#93c5fd', x: 0, z: 112, shape: 'megatowers', parent: 'web' },
-  { key: 'brick_boroughs', label: 'React & UI Libraries', color: '#60a5fa', accent: '#bfdbfe', x: -112, z: -112, shape: 'apartments', parent: 'web' },
-  { key: 'neon_alley', label: 'Web Apps & SaaS', color: '#06b6d4', accent: '#a5f3fc', x: 112, z: 112, shape: 'glass', parent: 'web' },
-  { key: 'tech_suburbs', label: 'CSS & Tailwind Styling', color: '#0ea5e9', accent: '#7dd3fc', x: -112, z: 112, shape: 'suburbs', parent: 'web' },
-  { key: 'coastal_fishing', label: 'Static Site Builders', color: '#2563eb', accent: '#93c5fd', x: 112, z: -112, shape: 'fishing_docks', parent: 'web' },
-  // AI/ML
-  { key: 'ether_realm', label: 'Agent Design', color: '#a78bfa', accent: '#e9d5ff', x: -225, z: -225, shape: 'holographic', parent: 'ai' },
-  { key: 'crystal_fields', label: 'Deep Learning & LLMs', color: '#c084fc', accent: '#f5d0fe', x: -112, z: -225, shape: 'crystal_spires', parent: 'ai' },
-  { key: 'floating_island', label: 'Computer Vision & Speech', color: '#8b5cf6', accent: '#ddd6fe', x: 0, z: -225, shape: 'floating_stations', parent: 'ai' },
-  // DevTools
-  { key: 'bamboo_valley', label: 'Trending Repos', color: '#10b981', accent: '#a7f3d0', x: 112, z: -225, shape: 'bamboo_pagodas', parent: 'devtools' },
-  { key: 'valley_villages', label: 'DevOps & CI/CD', color: '#34d399', accent: '#d1fae5', x: 225, z: -225, shape: 'valley_villages', parent: 'devtools' },
-  { key: 'nomad_camps', label: 'Testing Frameworks', color: '#ec4899', accent: '#fbcfe8', x: -225, z: -112, shape: 'tents', parent: 'devtools' },
-  // Infra & Others
-  { key: 'financial_district', label: 'Data Engineering', color: '#fbbf24', accent: '#fef3c7', x: 225, z: -112, shape: 'blocks', parent: 'infra' },
-  { key: 'volcano_forge', label: 'Container Runtimes', color: '#f97316', accent: '#fed7aa', x: -225, z: 0, shape: 'lava_foundries', parent: 'infra' },
-  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Cybersecurity & Auditing', x: 225, z: 0, shape: 'decayed', parent: 'infra' },
-  { key: 'overgrown_ruins', label: 'IoT & Embedded', color: '#22c55e', accent: '#bbf7d0', x: -225, z: 112, shape: 'overgrown', parent: 'infra' },
-  { key: 'forest_repository', label: 'Database Clusters', color: '#14b8a6', accent: '#99f6e4', x: 225, z: 112, shape: 'giant_trees', parent: 'infra' },
-  { key: 'redwood_archive', label: 'Caching & Queues', color: '#f97316', accent: '#ffedd5', x: -225, z: 225, shape: 'redwood_towers', parent: 'infra' },
-  { key: 'jungle_canopy', label: 'Cloud Infra Platforms', color: '#f43f5e', accent: '#ffe4e6', x: -112, z: 225, shape: 'mushroom_colonies', parent: 'infra' },
-  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#06b6d4', accent: '#cffafe', x: 0, z: 225, shape: 'caves', parent: 'infra' },
-  { key: 'canyon_networks', label: 'Networking & Proxies', color: '#38bdf8', accent: '#e0f2fe', x: 112, z: 225, shape: 'canyon_forts', parent: 'infra' },
+  // Functional districts laid out as a fixed-perspective contribution atlas.
+  { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -150, z: -188, shape: 'spires', parent: 'systems' },
+  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 50, z: -165, shape: 'megatowers', parent: 'web' },
+  { key: 'volcano_forge', label: 'Cloud Infrastructure', color: '#f97316', accent: '#ffd2a0', x: 248, z: -135, shape: 'lava_foundries', parent: 'infra' },
+  { key: 'redwood_archive', label: 'Security + Auth', color: '#4f9b67', accent: '#d6f9c9', x: -286, z: -18, shape: 'redwood_towers', parent: 'infra' },
+  { key: 'financial_district', label: 'Data Platforms', color: '#e6bd63', accent: '#fff1c2', x: -88, z: 6, shape: 'blocks', parent: 'infra' },
+  { key: 'forest_repository', label: 'Databases + Cache', color: '#3fbf84', accent: '#c9ffd9', x: 70, z: 24, shape: 'giant_trees', parent: 'infra' },
+  { key: 'crystal_fields', label: 'AI + ML', color: '#a076ff', accent: '#f4dbff', x: 188, z: 52, shape: 'crystal_spires', parent: 'ai' },
+  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#8bd3ff', accent: '#f2fbff', x: 288, z: 152, shape: 'caves', parent: 'infra' },
+  { key: 'nomad_camps', label: 'Testing + QA', color: '#d6aa70', accent: '#fff0c8', x: -292, z: 152, shape: 'tents', parent: 'devtools' },
+  { key: 'floating_island', label: 'DevOps + Delivery', color: '#62c8a4', accent: '#e1fff1', x: -92, z: 186, shape: 'floating_stations', parent: 'ai' },
+  { key: 'ruined_empire', label: 'Kernels + OS', color: '#9d5cff', accent: '#efd7ff', x: 68, z: 212, shape: 'ruins', parent: 'systems' },
+  { key: 'canyon_networks', label: 'APIs + Networking', color: '#42d8ff', accent: '#d7fbff', x: 214, z: 222, shape: 'holographic', parent: 'infra' },
+  { key: 'clockwork_empire', label: 'Rust + Runtimes', color: '#ff6b8b', accent: '#ffd0da', x: -245, z: -122, shape: 'factories', parent: 'systems' },
+  { key: 'mountain_citadel', label: 'Compilers + Languages', color: '#f43f5e', accent: '#ffd1dc', x: -20, z: -82, shape: 'citadel', parent: 'systems' },
+  { key: 'brick_boroughs', label: 'UI Libraries', color: '#60a5fa', accent: '#d7e9ff', x: -160, z: 82, shape: 'apartments', parent: 'web' },
+  { key: 'neon_alley', label: 'Web Apps + SaaS', color: '#06b6d4', accent: '#c7fbff', x: 152, z: -52, shape: 'glass', parent: 'web' },
+  { key: 'tech_suburbs', label: 'CSS + Design Systems', color: '#0ea5e9', accent: '#bfeeff', x: -216, z: 78, shape: 'suburbs', parent: 'web' },
+  { key: 'coastal_fishing', label: 'Static Sites', color: '#2563eb', accent: '#d7e7ff', x: -210, z: 236, shape: 'fishing_docks', parent: 'web' },
+  { key: 'ether_realm', label: 'Agents + LLMs', color: '#a78bfa', accent: '#efe7ff', x: 28, z: -248, shape: 'holographic', parent: 'ai' },
+  { key: 'bamboo_valley', label: 'Developer Tools', color: '#10b981', accent: '#d4fff0', x: 270, z: 26, shape: 'bamboo_pagodas', parent: 'devtools' },
+  { key: 'valley_villages', label: 'Starter Projects', color: '#34d399', accent: '#e1fff3', x: -18, z: 114, shape: 'valley_villages', parent: 'devtools' },
+  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Code Security', x: 136, z: 152, shape: 'decayed', parent: 'infra' },
+  { key: 'overgrown_ruins', label: 'Embedded + IoT', color: '#22c55e', accent: '#dbffdf', x: -322, z: 62, shape: 'overgrown', parent: 'infra' },
+  { key: 'jungle_canopy', label: 'Cloud Platforms', color: '#44b36a', accent: '#edffe6', x: -38, z: 270, shape: 'mushroom_colonies', parent: 'infra' },
 ];
 
 const SAFETY_GREEN_THRESHOLD = 75;
@@ -499,6 +516,11 @@ function isGraphRepositoryNode(node: GraphRepositoryNode) {
   return node.group === 'repository' || node.nodeType === 'repository';
 }
 
+function backendRepoIdFromGraphNode(node: GraphRepositoryNode) {
+  const match = /^repo_(\d+)$/.exec(node.id ?? '');
+  return match ? Number(match[1]) : undefined;
+}
+
 function fullNameForGraphNode(node: GraphRepositoryNode) {
   const explicitFullName = node.fullName || node.full_name;
   if (explicitFullName?.includes('/')) return explicitFullName;
@@ -541,6 +563,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
   const fullName = fullNameForGraphNode(node);
   const owner = ownerFromFullName(fullName, node.owner);
   const name = repoNameFromFullName(fullName);
+  const backendId = backendRepoIdFromGraphNode(node);
   const topics = node.topics ?? [];
   const stars = node.stars ?? 0;
   const openIssues = node.openIssues ?? node.openPRs ?? 0;
@@ -551,6 +574,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
 
   const repo: Repo = {
     id: fullName.toLowerCase(),
+    backendId,
     name,
     owner,
     district: inferDistrictFromMetadata(stars, node.language, topics, name, node.description ?? ''),
@@ -587,6 +611,27 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
   };
 
   return safetyProfile ? applySafetyProfile(repo, safetyProfile) : enrichRepoSafety(repo);
+}
+
+function pullRequestsFromBackendSummary(summary: BackendPrFlowSummary): PullRequest[] {
+  return (summary.recentPullRequests ?? []).slice(0, 6).map((pull, index) => {
+    const state = pull.state?.toLowerCase();
+    return {
+      number: pull.number ?? index + 1,
+      title: pull.title || 'Recent pull request',
+      priority: state === 'open' ? 'hot' : state === 'merged' ? 'normal' : 'quiet',
+    };
+  });
+}
+
+function applyBackendPrFlow(repo: Repo, summary?: BackendPrFlowSummary): Repo {
+  if (!summary?.available) return repo;
+  const prs = pullRequestsFromBackendSummary(summary);
+  return {
+    ...repo,
+    openPRs: Math.max(repo.openPRs, summary.openCount),
+    prs: prs.length ? prs : repo.prs,
+  };
 }
 
 const REPOS: Repo[] = [
@@ -722,13 +767,28 @@ const GRAPH_REPO_LIMIT = 1200;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 
-const INTRO_MS = 4600;
-const ENTRY_MS = 2600;
-const CAMERA_HOME = new THREE.Vector3(104, 146, 228);
-const TARGET_HOME = new THREE.Vector3(0, 15, 20);
-const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 1.7;
+const INTRO_MS = 1200;
+const ENTRY_MS = 1000;
+const CAMERA_HOME = new THREE.Vector3(0, 215, 390);
+const TARGET_HOME = new THREE.Vector3(0, 8, 38);
+const MIN_ZOOM = 0.58;
+const MAX_ZOOM = 1.42;
 const SCENE_PIXEL_RATIO = 1.15;
+const VISUAL_REPOS_PER_DISTRICT = 34;
+const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
+  'skyline_core',
+  'vertical_arcology',
+  'volcano_forge',
+  'redwood_archive',
+  'financial_district',
+  'forest_repository',
+  'crystal_fields',
+  'frozen_kingdom',
+  'nomad_camps',
+  'floating_island',
+  'ruined_empire',
+  'canyon_networks',
+]);
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
 const MAX_PR_FLOW_ROADS = 132;
@@ -1109,14 +1169,12 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: n
 function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heightScaleDriver: HeightScaleDriver = 'stars') {
   const district = districtFor(repo);
   const scale = repoScale(repo);
-  const gridWidth = Math.max(3, Math.ceil(Math.sqrt(districtRepos.length)));
-  const column = index % gridWidth;
-  const row = Math.floor(index / gridWidth);
-  const stagger = district.shape === 'clusters' ? Math.sin(index * 1.7) * 2.4 : 0;
-
-  // Center the grid layout perfectly around district.x and district.z
-  const x = district.x + (column - (gridWidth - 1) / 2) * 11.4 + stagger + Math.sin((repo.stars % 41) * 0.18) * 0.7;
-  const z = district.z + (row - (gridWidth - 1) / 2) * 12.2 + (column % 2) * 2.4 + Math.cos((repo.forks % 37) * 0.15) * 0.7;
+  const seed = repo.id.split('').reduce((total, char) => total + char.charCodeAt(0), 0) + index * 17.7;
+  const angle = index * 2.399963 + seededUnit(seed) * 0.55;
+  const radius = 4.5 + Math.sqrt(index + 1) * 4.15 + seededUnit(seed + 2) * 3.4;
+  const isTallDistrict = ['spires', 'megatowers', 'vertical_arcology', 'glass'].includes(district.shape);
+  const x = district.x + Math.cos(angle) * radius * (isTallDistrict ? 0.82 : 1.08);
+  const z = district.z + Math.sin(angle) * radius * 0.78 + Math.cos(index * 1.13) * 1.2;
 
   let scaleDriver = scale.stars;
   if (heightScaleDriver === 'activity') {
@@ -1130,14 +1188,15 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
     district.shape === 'suburbs' || district.shape === 'tents' || district.shape === 'fishing_docks' ? 0.62 :
     district.shape === 'blocks' || district.shape === 'lava_foundries' ? 0.78 :
     0.94;
-  const height = clamp(1.35 + Math.pow(scaleDriver, 4.15) * 72 * heightBias + Math.pow(scale.activity, 2.6) * 1.1, 1.6, 72);
+  const districtHeroBoost = FEATURED_DISTRICT_KEYS.has(district.key) ? 1.22 : 0.86;
+  const height = clamp(1.35 + Math.pow(scaleDriver, 4.15) * 78 * heightBias * districtHeroBoost + Math.pow(scale.activity, 2.4) * 1.15, 1.65, 82);
   const widthBias =
     district.shape === 'blocks' || district.shape === 'apartments' || district.shape === 'valley_villages' ? 1.28 :
     district.shape === 'glass' || district.shape === 'crystal_spires' ? 0.92 :
     district.shape === 'spires' || district.shape === 'citadel' ? 0.84 :
     1;
-  const width = clamp(1.35 + Math.pow(scale.forks, 1.8) * 4.4 + Math.pow(scale.activity, 1.5) * 0.45, 1.45, 6.4) * widthBias;
-  const depth = clamp(1.4 + Math.pow(scale.community, 1.8) * 4.1 + Math.pow(scale.beginnerSurface, 1.4) * 0.45, 1.55, 6.6) * (district.shape === 'blocks' ? 1.1 : 1);
+  const width = clamp(1.25 + Math.pow(scale.forks, 1.65) * 3.75 + Math.pow(scale.activity, 1.45) * 0.4, 1.35, 5.9) * widthBias;
+  const depth = clamp(1.3 + Math.pow(scale.community, 1.65) * 3.65 + Math.pow(scale.beginnerSurface, 1.35) * 0.42, 1.45, 6.1) * (district.shape === 'blocks' ? 1.1 : 1);
 
   return {
     position: new THREE.Vector3(x, 0, z),
@@ -1149,9 +1208,9 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
 
 function createSiftRenderer() {
   const rendererOptions: THREE.WebGLRendererParameters[] = [
-    { antialias: false, alpha: false, powerPreference: 'high-performance' },
-    { antialias: false, alpha: false, powerPreference: 'default' },
-    { antialias: false, alpha: false, powerPreference: 'low-power' },
+    { antialias: false, alpha: true, powerPreference: 'high-performance' },
+    { antialias: false, alpha: true, powerPreference: 'default' },
+    { antialias: false, alpha: true, powerPreference: 'low-power' },
   ];
 
   for (const options of rendererOptions) {
@@ -1164,7 +1223,7 @@ function createSiftRenderer() {
 
   const canvas = document.createElement('canvas');
   const contextOptions: WebGLContextAttributes = {
-    alpha: false,
+    alpha: true,
     antialias: false,
     depth: true,
     stencil: false,
@@ -1185,7 +1244,7 @@ function createSiftRenderer() {
     canvas,
     context: context as WebGLRenderingContext | WebGL2RenderingContext,
     antialias: false,
-    alpha: false,
+    alpha: true,
     logarithmicDepthBuffer: true,
   });
 }
@@ -1204,9 +1263,10 @@ function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity
 
 function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   const isDay = appearance === 'day';
-  refs.scene.background = new THREE.Color(isDay ? '#bcd7ff' : '#030816');
-  refs.scene.fog = new THREE.FogExp2(isDay ? '#9dbce7' : '#08142a', isDay ? 0.0012 : 0.0018);
-  refs.renderer.toneMappingExposure = isDay ? 1.18 : 1.12;
+  refs.scene.background = null;
+  refs.renderer.setClearColor(0x000000, 0);
+  refs.scene.fog = new THREE.FogExp2(isDay ? '#93aec6' : '#08142a', isDay ? 0.00004 : 0.00022);
+  refs.renderer.toneMappingExposure = isDay ? 1.28 : 1.16;
   refs.ambient.color.set(isDay ? '#dbeafe' : '#9bb7f0');
   refs.ambient.intensity = isDay ? 1.3 : 1.05;
   refs.key.color.set(isDay ? '#fff4cf' : '#dbe8ff');
@@ -1222,13 +1282,15 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
 
     if (role === 'ground') {
       const groundMaterial = material as THREE.MeshBasicMaterial;
-      groundMaterial.color.set(isDay ? '#c7d6cf' : '#536c88');
+      groundMaterial.color.set(isDay ? '#d8eee0' : '#536c88');
+      groundMaterial.transparent = true;
+      groundMaterial.opacity = 0;
     }
 
-    if (role === 'grid') setMaterialOpacity(material, isDay ? 0.05 : 0.045);
+    if (role === 'grid') setMaterialOpacity(material, 0);
     if (role === 'stars') setMaterialOpacity(material, isDay ? 0.02 : 0.24);
     if (role === 'moon') setMaterialOpacity(material, isDay ? 0.025 : 0.08);
-    if (role === 'district-plane') setMaterialOpacity(material, isDay ? 0.045 : 0.035);
+    if (role === 'district-plane') setMaterialOpacity(material, 0);
     if (role === 'landscape') {
       const firstMaterial = Array.isArray(material) ? material[0] : material;
       const opacity = isDay
@@ -1289,6 +1351,38 @@ function getRepoScreenPosition(building: BuildingObject, camera: THREE.Perspecti
     x: (vector.x * 0.5 + 0.5) * rect.width,
     y: (-vector.y * 0.5 + 0.5) * rect.height,
   };
+}
+
+function atlasPositionForDistrict(district: District) {
+  return {
+    left: clamp(50 + district.x / 7.1, 6, 68),
+    top: clamp(48 + district.z / 7.4, 12, 86),
+  };
+}
+
+function atlasViewForDistrict(district: District) {
+  return {
+    x: clamp(-district.x * 0.92, -420, 420),
+    y: clamp(-district.z * 0.56, -320, 320),
+    scale: 1.18,
+  };
+}
+
+function atlasBiomeForDistrict(district: District) {
+  if (['spires', 'megatowers', 'citadel', 'glass', 'apartments'].includes(district.shape)) return 'city';
+  if (['lava_foundries', 'factories', 'decayed'].includes(district.shape)) return 'forge';
+  if (['giant_trees', 'redwood_towers', 'overgrown', 'mushroom_colonies', 'bamboo_pagodas'].includes(district.shape)) return 'green';
+  if (['crystal_spires', 'caves', 'holographic'].includes(district.shape) || district.parent === 'ai') return 'signal';
+  if (['fishing_docks', 'floating_stations', 'canyon_forts'].includes(district.shape)) return 'water';
+  return 'field';
+}
+
+function atlasRegionScale(repoCount: number) {
+  return clamp(0.72 + Math.log10(repoCount + 1) * 0.28, 0.78, 1.42);
+}
+
+function atlasStructureCount(repoCount: number) {
+  return clamp(Math.ceil(Math.log2(repoCount + 2)) + 1, 4, 9);
 }
 
 export default function Home() {
@@ -1366,10 +1460,51 @@ export default function Home() {
     }
   }, [loadedRepos]);
 
+  useEffect(() => {
+    const backendRepos = [...repos]
+      .filter((repo): repo is Repo & { backendId: number } => typeof repo.backendId === 'number')
+      .sort((a, b) => (getOpenWorkItems(b) + b.stars * 0.0004) - (getOpenWorkItems(a) + a.stars * 0.0004))
+      .slice(0, 24);
+
+    if (!backendRepos.length) {
+      setBackendPrFlow({});
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch('/api/py/pr-flow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoIds: backendRepos.map((repo) => repo.backendId), days: 30 }),
+        });
+        if (!response.ok) throw new Error(`PR flow failed with ${response.status}`);
+        const payload = await response.json() as BackendPrFlowResponse;
+        if (cancelled) return;
+
+        const repoByBackendId = new Map(backendRepos.map((repo) => [repo.backendId, repo]));
+        const nextFlow: Record<string, BackendPrFlowSummary> = {};
+        Object.values(payload.summaries ?? {}).forEach((summary) => {
+          const repo = repoByBackendId.get(summary.repoId);
+          if (repo) nextFlow[repo.id] = summary;
+        });
+        setBackendPrFlow(nextFlow);
+      } catch (error) {
+        console.warn('[SIFT PR flow] Backend PR roads are using graph open-work fallbacks:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repos]);
+
   const mountRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneRefs | null>(null);
-  const enteredRef = useRef(false);
+  const enteredRef = useRef(true);
   const filterRef = useRef<FilterKey>('all');
   const appearanceRef = useRef<Appearance>('day');
   const selectedRef = useRef<Repo | null>(null);
@@ -1377,11 +1512,12 @@ export default function Home() {
   const similarDistrictRef = useRef<DistrictKey | null>(null);
   const similarUntilRef = useRef(0);
 
-  const [entered, setEntered] = useState(false);
+  const [entered, setEntered] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [appearance, setAppearance] = useState<Appearance>('day');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
   const [zoomValue, setZoomValue] = useState(1);
+  const [atlasView, setAtlasView] = useState({ x: 0, y: 0, scale: 1 });
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const targetDistrictCenterRef = useRef<{ x: number; z: number } | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
@@ -1391,6 +1527,7 @@ export default function Home() {
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [stats, setStats] = useState({ repos: 0, prs: 0, safe: 0 });
   const [safetyProfiles, setSafetyProfiles] = useState<Record<string, SafetyProfile>>({});
+  const [backendPrFlow, setBackendPrFlow] = useState<Record<string, BackendPrFlowSummary>>({});
   const [rendererRetryToken, setRendererRetryToken] = useState(0);
 
   const allRepos = useMemo(() => {
@@ -1399,8 +1536,11 @@ export default function Home() {
   }, [loadedRepos, repos]);
 
   const effectiveRepos = useMemo(() => {
-    return allRepos.map((repo) => applySafetyProfile(repo, safetyProfiles[repo.id] ?? repo.safetyProfile));
-  }, [allRepos, safetyProfiles]);
+    return allRepos.map((repo) => {
+      const scoredRepo = applySafetyProfile(repo, safetyProfiles[repo.id] ?? repo.safetyProfile);
+      return applyBackendPrFlow(scoredRepo, backendPrFlow[repo.id]);
+    });
+  }, [allRepos, backendPrFlow, safetyProfiles]);
 
   const reposByDistrict = useMemo(() => {
     return DISTRICTS.map((district) => ({
@@ -1408,6 +1548,30 @@ export default function Home() {
       repos: effectiveRepos.filter((repo) => repo.district === district.key),
     }));
   }, [effectiveRepos]);
+  const featuredDistricts = useMemo(() => {
+    return reposByDistrict
+      .filter(({ district, repos }) => FEATURED_DISTRICT_KEYS.has(district.key) && repos.length > 0)
+      .map(({ district, repos }) => ({
+        district,
+        repoCount: repos.length,
+        topRepo: [...repos].sort((a, b) => b.stars - a.stars)[0],
+        position: atlasPositionForDistrict(district),
+      }));
+  }, [reposByDistrict]);
+  const visualReposByDistrict = useMemo(() => {
+    return reposByDistrict.map(({ district, repos }) => {
+      const mustShowIds = new Set(
+        [selectedRepo, ...loadedRepos]
+          .filter((repo): repo is Repo => Boolean(repo) && repo.district === district.key)
+          .map((repo) => repo.id),
+      );
+      const ranked = [...repos].sort(
+        (a, b) => (b.stars + getOpenWorkItems(b) * 18 + b.contributors * 0.8) - (a.stars + getOpenWorkItems(a) * 18 + a.contributors * 0.8),
+      );
+      const visible = ranked.filter((repo, index) => index < VISUAL_REPOS_PER_DISTRICT || mustShowIds.has(repo.id));
+      return { district, repos: visible };
+    });
+  }, [loadedRepos, reposByDistrict, selectedRepo]);
   const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
   const loadedTodayRepos = useMemo(() => {
@@ -1425,7 +1589,7 @@ export default function Home() {
       .slice(0, 3);
   }, [effectiveRepos]);
   const fallbackCity = useMemo(() => {
-    const items = reposByDistrict.flatMap(({ repos }) => repos.map((repo, index) => {
+    const items = visualReposByDistrict.flatMap(({ repos }) => repos.map((repo, index) => {
       const layout = createRepoLayout(repo, index, repos, heightScaleDriver);
       return { repo, district: districtFor(repo), layout };
     }));
@@ -1434,7 +1598,7 @@ export default function Home() {
       ...items.map((item) => Math.max(Math.abs(item.layout.position.x), Math.abs(item.layout.position.z)) + 24),
     );
     return { items, extent };
-  }, [reposByDistrict, heightScaleDriver]);
+  }, [visualReposByDistrict, heightScaleDriver]);
 
   useEffect(() => {
     enteredRef.current = entered;
@@ -1561,7 +1725,7 @@ export default function Home() {
     createSky(scene);
 
     const buildings: BuildingObject[] = [];
-    reposByDistrict.forEach(({ repos }) => {
+    visualReposByDistrict.forEach(({ repos }) => {
       repos.forEach((repo, index) => {
         const building = createBuilding(repo, index, repos, heightScaleDriver);
         buildings.push(building);
@@ -1611,6 +1775,10 @@ export default function Home() {
       const nextZoom = clamp(refs.targetZoom + Math.sign(event.deltaY) * 0.08, MIN_ZOOM, MAX_ZOOM);
       refs.targetZoom = nextZoom;
       setZoomValue(Number(nextZoom.toFixed(2)));
+      setAtlasView((current) => ({
+        ...current,
+        scale: clamp(2 - nextZoom, 0.72, 1.58),
+      }));
     };
 
     // Free navigation offsets
@@ -1633,8 +1801,10 @@ export default function Home() {
     };
 
     const returnToCityOverview = () => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       setSelectedRepo(null);
       setHoveredRepo(null);
+      setFilter('all');
       targetDistrictCenterRef.current = null;
       similarDistrictRef.current = null;
       similarUntilRef.current = 0;
@@ -1643,6 +1813,7 @@ export default function Home() {
       freeNavZ = 0;
       refs.targetZoom = 1;
       setZoomValue(1);
+      setAtlasView({ x: 0, y: 0, scale: 1 });
       refs.pointer.set(9, 9);
       renderer.domElement.style.cursor = 'grab';
       if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
@@ -1659,7 +1830,7 @@ export default function Home() {
         return;
       }
 
-      if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
       }
@@ -1717,23 +1888,23 @@ export default function Home() {
           setSelectedRepo(null);
         }
 
-        // Pan the camera based on delta movement (scaled by zoom)
-        const panScale = 0.32 * refs.zoom;
-        if (event.shiftKey) {
-          // Adjust vertical angle/height when holding Shift
-          freeNavY -= deltaY * panScale * 1.5;
-        } else {
-          // Normal panning follows the current camera angle, so drag remains natural after camera changes.
-          panRight.setFromMatrixColumn(camera.matrixWorld, 0);
-          panRight.y = 0;
-          panRight.normalize();
-          camera.getWorldDirection(panForward);
-          panForward.y = 0;
-          panForward.normalize();
+        setAtlasView((current) => ({
+          ...current,
+          x: clamp(current.x + deltaX * 0.86, -420, 420),
+          y: clamp(current.y + deltaY * 0.86, -320, 320),
+        }));
 
-          freeNavX += (-deltaX * panScale * panRight.x) + (-deltaY * panScale * panForward.x);
-          freeNavZ += (-deltaX * panScale * panRight.z) + (-deltaY * panScale * panForward.z);
-        }
+        // Pan the fixed-perspective board based on delta movement.
+        const panScale = 0.32 * refs.zoom;
+        panRight.setFromMatrixColumn(camera.matrixWorld, 0);
+        panRight.y = 0;
+        panRight.normalize();
+        camera.getWorldDirection(panForward);
+        panForward.y = 0;
+        panForward.normalize();
+
+        freeNavX += (-deltaX * panScale * panRight.x) + (-deltaY * panScale * panForward.x);
+        freeNavZ += (-deltaX * panScale * panRight.z) + (-deltaY * panScale * panForward.z);
         clampFreeNavigation();
       }
     };
@@ -1795,13 +1966,13 @@ export default function Home() {
           isUserMoving = true;
         }
 
-        // Arrow keys: Up/Down tilts vertical angle (freeNavY), Left/Right pans horizontally
+        // Arrow keys pan the same fixed-perspective board as WASD.
         if (keysPressed['arrowup']) {
-          freeNavY += moveSpeed * 1.5;
+          freeNavZ -= moveSpeed;
           isUserMoving = true;
         }
         if (keysPressed['arrowdown']) {
-          freeNavY -= moveSpeed * 1.5;
+          freeNavZ += moveSpeed;
           isUserMoving = true;
         }
         if (keysPressed['arrowleft']) {
@@ -1813,15 +1984,6 @@ export default function Home() {
           isUserMoving = true;
         }
 
-        // Vertical look angle control (Q flies UP for top-down, E flies DOWN for face-on)
-        if (keysPressed['q']) {
-          freeNavY += moveSpeed * 1.2;
-          isUserMoving = true;
-        }
-        if (keysPressed['e']) {
-          freeNavY -= moveSpeed * 1.2;
-          isUserMoving = true;
-        }
         clampFreeNavigation();
 
         if (isUserMoving) {
@@ -1832,8 +1994,8 @@ export default function Home() {
         if (targetCenter) {
           freeNavX += (targetCenter.x - freeNavX) * 0.08;
           freeNavZ += (targetCenter.z - freeNavZ) * 0.08;
-          freeNavY += (-80 - freeNavY) * 0.08;
-          refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.46, 0.08);
+          freeNavY += (0 - freeNavY) * 0.08;
+          refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.74, 0.08);
 
           if (Math.abs(targetCenter.x - freeNavX) < 1 && Math.abs(targetCenter.z - freeNavZ) < 1) {
             targetDistrictCenterRef.current = null;
@@ -1982,7 +2144,7 @@ export default function Home() {
       renderer.domElement.remove();
       sceneRef.current = null;
     };
-  }, [reposByDistrict, heightScaleDriver, rendererRetryToken]);
+  }, [heightScaleDriver, rendererRetryToken, reposByDistrict, visualReposByDistrict]);
 
   useEffect(() => {
     if (!entered) return undefined;
@@ -2019,14 +2181,24 @@ export default function Home() {
   const setZoom = (nextZoom: number) => {
     const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
     setZoomValue(Number(clamped.toFixed(2)));
+    setAtlasView((current) => ({
+      ...current,
+      scale: clamp(2 - clamped, 0.72, 1.58),
+    }));
     if (sceneRef.current) sceneRef.current.targetZoom = clamped;
   };
 
   const handleZoomIn = () => setZoom((sceneRef.current?.targetZoom ?? zoomValue) - 0.14);
   const handleZoomOut = () => setZoom((sceneRef.current?.targetZoom ?? zoomValue) + 0.14);
   const handleZoomReset = () => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setZoom(1);
+    setAtlasView({ x: 0, y: 0, scale: 1 });
     setSelectedRepo(null);
+    setFilter('all');
+    targetDistrictCenterRef.current = null;
+    similarDistrictRef.current = null;
+    similarUntilRef.current = 0;
   };
 
   const openTutorial = () => {
@@ -2071,6 +2243,17 @@ export default function Home() {
     setFilter(repo.district);
     similarDistrictRef.current = repo.district;
     similarUntilRef.current = performance.now() + 3600;
+    setAtlasView(atlasViewForDistrict(districtFor(repo)));
+  };
+
+  const focusDistrict = (district: District) => {
+    setEntered(true);
+    setSelectedRepo(null);
+    setFilter(district.key);
+    similarDistrictRef.current = district.key;
+    similarUntilRef.current = performance.now() + 4200;
+    targetDistrictCenterRef.current = { x: district.x, z: district.z };
+    setAtlasView(atlasViewForDistrict(district));
   };
 
   const selectSearchResult = (result: SearchResult) => {
@@ -2099,7 +2282,23 @@ export default function Home() {
       focusRepo(imported);
     } catch (error) {
       console.error('[SIFT imports] GitHub import failed:', error);
-      setImportStatus('Could not load that public GitHub repo.');
+      const fallbackId = `${locator.owner}/${locator.repo}`.toLowerCase();
+      const graphRepo = effectiveRepos.find((repo) => `${repo.owner}/${repo.name}`.toLowerCase() === fallbackId || repo.id === fallbackId);
+
+      if (graphRepo) {
+        const importedFromGraph: Repo = {
+          ...graphRepo,
+          loadedAt: new Date().toISOString(),
+          wantsContributions,
+          importSource: 'github',
+        };
+        setLoadedRepos((current) => [importedFromGraph, ...current.filter((repo) => repo.id !== importedFromGraph.id)].slice(0, 20));
+        setRepoImport('');
+        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} loaded from the SIFT graph.`);
+        focusRepo(importedFromGraph);
+      } else {
+        setImportStatus('Could not load that public GitHub repo.');
+      }
     } finally {
       setImportingRepo(false);
     }
@@ -2125,7 +2324,15 @@ export default function Home() {
   };
 
   return (
-    <main className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''}`} aria-label="SIFT 3D open-source city">
+    <main
+      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''}`}
+      aria-label="SIFT 3D open-source city"
+      style={{
+        '--atlas-pan-x': `${atlasView.x}px`,
+        '--atlas-pan-y': `${atlasView.y}px`,
+        '--atlas-scale': atlasView.scale,
+      } as CSSProperties}
+    >
       
       {loadingRepos && (
         <div className="sift-loading-screen">
@@ -2174,6 +2381,59 @@ export default function Home() {
           </div>
         ) : null}
       </div>
+
+      <section className="atlas-artwork-layer" aria-hidden="true">
+        <div className="atlas-map-base" />
+        <div className="atlas-river atlas-river-main" />
+        <div className="atlas-river atlas-river-west" />
+        <div className="atlas-route atlas-route-a" />
+        <div className="atlas-route atlas-route-b" />
+        <div className="atlas-route atlas-route-c" />
+        {featuredDistricts.map(({ district, repoCount, position }, index) => (
+          <div
+            key={`terrain-${district.key}`}
+            className={`atlas-region atlas-region-${atlasBiomeForDistrict(district)}`}
+            style={{
+              '--district-color': district.color,
+              '--district-accent': district.accent,
+              '--region-scale': atlasRegionScale(repoCount),
+              '--region-index': index,
+              left: `${position.left}%`,
+              top: `${position.top}%`,
+            } as CSSProperties}
+          >
+            <span className="region-shadow" />
+            <span className="region-plate" />
+            <span className="region-contour region-contour-a" />
+            <span className="region-contour region-contour-b" />
+            <span className="region-structures">
+              {Array.from({ length: atlasStructureCount(repoCount) }).map((_, pieceIndex) => (
+                <i key={`structure-${district.key}-${pieceIndex}`} style={{ '--piece-index': pieceIndex } as CSSProperties} />
+              ))}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      <section className="atlas-hotspots" aria-label="Atlas districts">
+        {featuredDistricts.map(({ district, repoCount, topRepo, position }) => (
+          <button
+            key={`atlas-${district.key}`}
+            className={`atlas-hotspot ${filter === district.key ? 'is-active' : ''}`}
+            type="button"
+            onClick={() => focusDistrict(district)}
+            style={{
+              '--district-color': district.color,
+              '--district-accent': district.accent,
+              left: `${position.left}%`,
+              top: `${position.top}%`,
+            } as CSSProperties}
+          >
+            <strong>{district.label}</strong>
+            <span>{repoCount} repos{topRepo ? ` · ${topRepo.name}` : ''}</span>
+          </button>
+        ))}
+      </section>
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
         <div className="intro-copy">
@@ -2379,8 +2639,8 @@ export default function Home() {
         </div>
 
         <div className="cinema-readout">
-          <span>3D contribution atlas</span>
-          <strong>height: {heightScaleDriver} · roads: PR flow · terrain: hills + greenery</strong>
+          <span>contribution atlas</span>
+          <strong>fixed perspective · drag board · live repo districts</strong>
         </div>
       </section>
 
@@ -2390,10 +2650,20 @@ export default function Home() {
             <Github size={14} strokeWidth={1.8} />
             Contribution Network
           </span>
-
         </div>
 
-
+        <form className="repo-load-form" onSubmit={handleRepoImport}>
+          <input
+            value={repoImport}
+            onChange={(event) => setRepoImport(event.target.value)}
+            placeholder="owner/repo"
+            aria-label="Load GitHub repository"
+          />
+          <button type="submit" disabled={importingRepo}>
+            <GitPullRequest size={13} strokeWidth={1.8} />
+            {importingRepo ? 'Loading' : 'Load'}
+          </button>
+        </form>
 
         <label className="network-toggle">
           <input
@@ -4450,6 +4720,602 @@ export default function Home() {
             font-size: 25px;
           }
         }
+
+        /* Code-native atlas pass */
+        .sift-page {
+          --sift-bg-deep: #07101b;
+          --sift-glass-surface: rgba(7, 15, 25, 0.62);
+          --sift-glass-border: rgba(206, 226, 255, 0.14);
+          font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          background:
+            linear-gradient(180deg, rgba(6,12,22,0.02), rgba(6,12,22,0.32)),
+            linear-gradient(180deg, #13233a 0%, #263d49 34%, #17261d 100%);
+        }
+
+        .sift-page.is-day {
+          --sift-glass-surface: rgba(7, 15, 25, 0.56);
+          --sift-glass-border: rgba(224, 238, 255, 0.18);
+          --sift-text-primary: rgba(255,255,255,0.94);
+          --sift-text-secondary: rgba(222,232,245,0.68);
+          background:
+            linear-gradient(180deg, rgba(10,18,31,0.02), rgba(10,18,31,0.26)),
+            linear-gradient(180deg, #b9d7f2 0%, #779296 34%, #132118 100%);
+        }
+
+        .three-stage {
+          z-index: 2;
+          background: transparent;
+          opacity: 0.32;
+          mix-blend-mode: screen;
+          filter: saturate(0.78) contrast(0.82);
+        }
+
+        .sift-page.is-day .three-stage {
+          opacity: 0.24;
+          mix-blend-mode: normal;
+        }
+
+        .sift-page::before,
+        .sift-page.is-day::before {
+          z-index: 3;
+          opacity: 1;
+          background:
+            radial-gradient(circle at 50% 42%, transparent 24%, rgba(2,6,12,0.2) 74%),
+            linear-gradient(180deg, rgba(3,8,15,0.04) 0%, transparent 52%, rgba(3,8,15,0.26) 100%),
+            linear-gradient(90deg, rgba(2,6,12,0.3), transparent 18%, transparent 72%, rgba(2,6,12,0.38));
+        }
+
+        .sift-page::after {
+          display: none;
+        }
+
+        .atlas-artwork-layer {
+          position: fixed;
+          inset: 0;
+          z-index: 1;
+          pointer-events: none;
+          opacity: 1;
+          background:
+            radial-gradient(circle at 18% 76%, rgba(214,170,112,0.26), transparent 18%),
+            radial-gradient(circle at 66% 26%, rgba(80,142,90,0.24), transparent 21%),
+            radial-gradient(circle at 72% 70%, rgba(66,216,255,0.14), transparent 19%),
+            linear-gradient(180deg, rgba(124,161,143,0.74), rgba(27,52,38,0.96));
+          transform: translate3d(var(--atlas-pan-x, 0px), var(--atlas-pan-y, 0px), 0) scale(var(--atlas-scale, 1));
+          transform-origin: 50% 50%;
+          will-change: transform;
+        }
+
+        .atlas-map-base {
+          position: absolute;
+          left: 50%;
+          top: 53%;
+          width: min(1480px, 146vw);
+          height: min(820px, 82vw);
+          border-radius: 48% 52% 44% 56% / 58% 42% 54% 46%;
+          background:
+            radial-gradient(ellipse at 31% 26%, rgba(80,104,83,0.92), transparent 27%),
+            radial-gradient(ellipse at 72% 32%, rgba(96,88,62,0.86), transparent 25%),
+            radial-gradient(ellipse at 38% 70%, rgba(37,88,71,0.92), transparent 24%),
+            radial-gradient(ellipse at 73% 73%, rgba(41,71,84,0.88), transparent 27%),
+            linear-gradient(140deg, #5b765c 0%, #2e5945 38%, #283c35 66%, #17281f 100%);
+          box-shadow:
+            0 70px 120px rgba(1,5,9,0.38),
+            inset 0 2px 0 rgba(255,255,255,0.16),
+            inset 0 -38px 70px rgba(2,8,11,0.34);
+          transform: translate(-50%, -50%) rotate(-5deg) skewY(-3deg);
+        }
+
+        .atlas-map-base::before,
+        .atlas-map-base::after {
+          content: "";
+          position: absolute;
+          inset: 8% 9%;
+          border-radius: inherit;
+          pointer-events: none;
+        }
+
+        .atlas-map-base::before {
+          background:
+            repeating-linear-gradient(18deg, rgba(255,255,255,0.055) 0 1px, transparent 1px 38px),
+            repeating-linear-gradient(105deg, rgba(5,16,15,0.12) 0 1px, transparent 1px 52px);
+          opacity: 0.48;
+          mask-image: radial-gradient(ellipse at center, black 34%, transparent 75%);
+        }
+
+        .atlas-map-base::after {
+          inset: 13% 11%;
+          border: 1px solid rgba(255,255,255,0.06);
+          box-shadow:
+            0 0 0 18px rgba(255,255,255,0.018),
+            inset 0 0 60px rgba(2,8,12,0.24);
+          opacity: 0.8;
+        }
+
+        .atlas-river,
+        .atlas-route {
+          position: absolute;
+          pointer-events: none;
+          border-radius: 999px;
+          transform-origin: 50% 50%;
+        }
+
+        .atlas-river {
+          height: 18px;
+          background:
+            linear-gradient(90deg, rgba(117,210,223,0.06), rgba(128,218,231,0.5), rgba(117,210,223,0.08));
+          box-shadow: 0 0 18px rgba(96,205,220,0.18), inset 0 1px 0 rgba(255,255,255,0.2);
+          filter: blur(0.2px);
+          opacity: 0.7;
+        }
+
+        .atlas-river-main {
+          left: 17%;
+          top: 63%;
+          width: 64%;
+          transform: rotate(-10deg) skewX(-22deg);
+        }
+
+        .atlas-river-west {
+          left: 7%;
+          top: 45%;
+          width: 42%;
+          transform: rotate(22deg) skewX(18deg);
+          opacity: 0.44;
+        }
+
+        .atlas-route {
+          height: 5px;
+          background:
+            repeating-linear-gradient(90deg, rgba(241,211,150,0.62) 0 20px, rgba(241,211,150,0.1) 20px 32px);
+          box-shadow: 0 0 11px rgba(236,196,107,0.16);
+          opacity: 0.44;
+        }
+
+        .atlas-route-a {
+          left: 24%;
+          top: 36%;
+          width: 47%;
+          transform: rotate(11deg) skewX(-18deg);
+        }
+
+        .atlas-route-b {
+          left: 33%;
+          top: 58%;
+          width: 39%;
+          transform: rotate(-24deg) skewX(20deg);
+        }
+
+        .atlas-route-c {
+          left: 13%;
+          top: 72%;
+          width: 58%;
+          transform: rotate(4deg) skewX(-12deg);
+          opacity: 0.32;
+        }
+
+        .atlas-region {
+          position: absolute;
+          width: 150px;
+          aspect-ratio: 1.38;
+          transform: translate(-50%, -50%) scale(var(--region-scale, 1)) rotate(-7deg) skew(-9deg, -2deg);
+          transform-origin: 50% 50%;
+          filter: drop-shadow(18px 25px 28px rgba(1,8,10,0.32));
+        }
+
+        .region-shadow,
+        .region-plate,
+        .region-contour,
+        .region-structures {
+          position: absolute;
+          inset: 0;
+        }
+
+        .region-shadow {
+          inset: 22% 4% -10% 10%;
+          border-radius: 50%;
+          background: rgba(1,8,12,0.3);
+          filter: blur(16px);
+          transform: translate(12px, 18px);
+        }
+
+        .region-plate {
+          border-radius: 46% 54% 48% 52% / 56% 44% 58% 42%;
+          background:
+            radial-gradient(circle at 30% 24%, color-mix(in srgb, var(--district-accent), white 14%), transparent 12%),
+            radial-gradient(circle at 62% 70%, color-mix(in srgb, var(--district-color), black 18%), transparent 30%),
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #d5e9bb 24%), color-mix(in srgb, var(--district-color), #07110f 42%));
+          clip-path: polygon(11% 17%, 35% 4%, 72% 8%, 93% 28%, 88% 71%, 63% 96%, 22% 87%, 5% 54%);
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,0.2),
+            inset 0 -14px 30px rgba(2,9,9,0.25);
+        }
+
+        .region-contour {
+          inset: 11% 10%;
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 50% 45% 55% 48%;
+          opacity: 0.48;
+        }
+
+        .region-contour-b {
+          inset: 25% 23%;
+          opacity: 0.24;
+        }
+
+        .region-structures {
+          transform: skew(9deg, 2deg) rotate(7deg);
+        }
+
+        .region-structures i {
+          position: absolute;
+          left: var(--sx, 50%);
+          top: var(--sy, 52%);
+          width: var(--sw, 13px);
+          height: var(--sh, 28px);
+          border-radius: 3px 3px 2px 2px;
+          background:
+            linear-gradient(90deg, color-mix(in srgb, var(--district-color), black 26%), color-mix(in srgb, var(--district-accent), white 8%));
+          box-shadow:
+            8px 10px 0 rgba(2,8,10,0.18),
+            inset 2px 0 0 rgba(255,255,255,0.13),
+            inset -3px 0 0 rgba(2,8,11,0.16);
+          transform: translate(-50%, -100%) skewY(-8deg);
+        }
+
+        .region-structures i:nth-child(1) { --sx: 31%; --sy: 66%; --sh: 24px; }
+        .region-structures i:nth-child(2) { --sx: 42%; --sy: 48%; --sh: 42px; }
+        .region-structures i:nth-child(3) { --sx: 54%; --sy: 61%; --sh: 30px; }
+        .region-structures i:nth-child(4) { --sx: 65%; --sy: 43%; --sh: 50px; }
+        .region-structures i:nth-child(5) { --sx: 73%; --sy: 67%; --sh: 22px; }
+        .region-structures i:nth-child(6) { --sx: 24%; --sy: 47%; --sh: 34px; }
+        .region-structures i:nth-child(7) { --sx: 48%; --sy: 76%; --sh: 18px; }
+        .region-structures i:nth-child(8) { --sx: 79%; --sy: 52%; --sh: 36px; }
+        .region-structures i:nth-child(9) { --sx: 36%; --sy: 35%; --sh: 30px; }
+
+        .atlas-region-forge .region-plate {
+          background:
+            radial-gradient(circle at 58% 42%, rgba(255,120,52,0.52), transparent 20%),
+            linear-gradient(145deg, #7a4534, color-mix(in srgb, var(--district-color), #141011 54%));
+        }
+
+        .atlas-region-forge .region-structures i {
+          width: 24px;
+          height: var(--sh, 32px);
+          clip-path: polygon(50% 0, 100% 100%, 0 100%);
+          border-radius: 0;
+          background: linear-gradient(160deg, #ffd29a, var(--district-color) 42%, #371012);
+        }
+
+        .atlas-region-green .region-plate {
+          background:
+            radial-gradient(circle at 28% 28%, rgba(219,255,199,0.4), transparent 14%),
+            radial-gradient(circle at 68% 62%, rgba(17,73,42,0.8), transparent 34%),
+            linear-gradient(150deg, color-mix(in srgb, var(--district-color), #b8d88f 28%), #173622);
+        }
+
+        .atlas-region-green .region-structures i {
+          width: 24px;
+          height: 24px;
+          border-radius: 50% 50% 44% 48%;
+          background:
+            radial-gradient(circle at 32% 24%, rgba(255,255,255,0.22), transparent 24%),
+            linear-gradient(145deg, color-mix(in srgb, var(--district-accent), white 8%), color-mix(in srgb, var(--district-color), black 34%));
+        }
+
+        .atlas-region-green .region-structures i::after,
+        .atlas-region-water .region-structures i::after {
+          content: "";
+          position: absolute;
+          left: 50%;
+          bottom: -11px;
+          width: 5px;
+          height: 14px;
+          border-radius: 99px;
+          background: rgba(69,42,22,0.72);
+          transform: translateX(-50%);
+        }
+
+        .atlas-region-signal .region-plate {
+          background:
+            radial-gradient(circle at 46% 45%, color-mix(in srgb, var(--district-accent), transparent 28%), transparent 26%),
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #233852 20%), #152133);
+        }
+
+        .atlas-region-signal .region-structures i {
+          width: 17px;
+          height: 30px;
+          border-radius: 2px;
+          clip-path: polygon(50% 0, 100% 42%, 62% 100%, 14% 78%, 0 26%);
+          background: linear-gradient(160deg, rgba(255,255,255,0.82), var(--district-accent) 28%, var(--district-color) 80%);
+          opacity: 0.86;
+        }
+
+        .atlas-region-water .region-plate {
+          background:
+            radial-gradient(ellipse at 55% 48%, rgba(119,214,224,0.4), transparent 32%),
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #4d806d 22%), #16333a);
+        }
+
+        .atlas-region-water .region-structures i {
+          width: 28px;
+          height: 10px;
+          border-radius: 3px;
+          background: linear-gradient(90deg, color-mix(in srgb, var(--district-accent), white 8%), color-mix(in srgb, var(--district-color), black 28%));
+        }
+
+        .atlas-region-field .region-structures i {
+          width: 24px;
+          height: 12px;
+          border-radius: 50%;
+          background: linear-gradient(145deg, color-mix(in srgb, var(--district-accent), white 5%), color-mix(in srgb, var(--district-color), black 30%));
+        }
+
+        .atlas-hotspots {
+          position: fixed;
+          inset: 0;
+          z-index: 4;
+          pointer-events: none;
+          transform: translate3d(var(--atlas-pan-x, 0px), var(--atlas-pan-y, 0px), 0) scale(var(--atlas-scale, 1));
+          transform-origin: 50% 50%;
+          will-change: transform;
+        }
+
+        .atlas-hotspot {
+          position: absolute;
+          transform: translate(-50%, -50%);
+          min-width: 132px;
+          max-width: 180px;
+          padding: 9px 11px 10px;
+          border: 1px solid color-mix(in srgb, var(--district-accent), transparent 44%);
+          border-radius: 8px;
+          background:
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), transparent 68%), rgba(4,10,18,0.76)),
+            rgba(5, 12, 22, 0.78);
+          color: rgba(255,255,255,0.9);
+          box-shadow: 0 16px 38px rgba(1,5,12,0.34), inset 0 1px 0 rgba(255,255,255,0.12);
+          text-align: left;
+          pointer-events: auto;
+          cursor: pointer;
+          backdrop-filter: blur(14px) saturate(130%);
+          -webkit-backdrop-filter: blur(14px) saturate(130%);
+          transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
+        }
+
+        .atlas-hotspot:hover,
+        .atlas-hotspot.is-active {
+          transform: translate(-50%, -50%) scale(1.04);
+          border-color: color-mix(in srgb, var(--district-accent), white 18%);
+          background:
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), transparent 46%), rgba(4,10,18,0.82)),
+            rgba(5, 12, 22, 0.84);
+        }
+
+        .atlas-hotspot strong,
+        .atlas-hotspot span {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .atlas-hotspot strong {
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0;
+        }
+
+        .atlas-hotspot span {
+          margin-top: 4px;
+          color: rgba(232,241,255,0.68);
+          font-size: 10px;
+        }
+
+        .city-ui {
+          z-index: 5;
+        }
+
+        .intro-layer {
+          display: none;
+        }
+
+        .control-dock {
+          top: 54px;
+          left: 12px;
+          width: 212px;
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .tool-group,
+        .mode-toggle,
+        .guide-button,
+        .network-dock,
+        .repo-panel,
+        .search-results,
+        .repo-tooltip,
+        .tutorial-card {
+          border-radius: 12px;
+          border-color: var(--sift-glass-border);
+          background:
+            linear-gradient(145deg, rgba(255,255,255,0.09), rgba(255,255,255,0.025)),
+            var(--sift-glass-surface);
+          box-shadow: 0 20px 70px rgba(2,7,14,0.28), inset 0 1px 0 rgba(255,255,255,0.12);
+          backdrop-filter: blur(22px) saturate(130%);
+          -webkit-backdrop-filter: blur(22px) saturate(130%);
+        }
+
+        .tool-group {
+          grid-template-columns: 36px 1fr 36px 36px;
+          padding: 8px;
+        }
+
+        .tool-group button,
+        .mode-toggle button,
+        .guide-button,
+        .filter-chip,
+        .repo-load-form button {
+          border-radius: 8px;
+          transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+        }
+
+        .mode-toggle button.is-active {
+          border-color: rgba(154, 189, 255, 0.5);
+          background: rgba(72, 108, 196, 0.32);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.16);
+        }
+
+        .stat-bar {
+          top: 10px;
+          right: 116px;
+          gap: 42px;
+          padding: 5px 12px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-top: 0;
+          border-radius: 0 0 10px 10px;
+          background: rgba(4, 10, 18, 0.18);
+          backdrop-filter: blur(14px);
+        }
+
+        .stat-bar strong {
+          font-size: 17px;
+          color: rgba(255,255,255,0.9);
+          text-shadow: 0 1px 22px rgba(78,128,210,0.32);
+        }
+
+        .stat-bar span,
+        .cinema-readout span {
+          font-size: 7px;
+          color: rgba(232, 239, 247, 0.5);
+        }
+
+        .network-dock {
+          top: 42px;
+          right: 22px;
+          width: min(310px, calc(100vw - 44px));
+          padding: 14px;
+          gap: 12px;
+        }
+
+        .network-head span {
+          font-size: 11px;
+          color: rgba(238,246,255,0.86);
+        }
+
+        .repo-load-form {
+          grid-template-columns: minmax(0, 1fr) 78px;
+          padding: 10px;
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 10px;
+          background: rgba(255,255,255,0.035);
+        }
+
+        .repo-load-form input,
+        .repo-load-form button {
+          height: 36px;
+        }
+
+        .network-toggle {
+          margin-top: -2px;
+        }
+
+        .network-status {
+          padding: 12px;
+          border-radius: 10px;
+        }
+
+        .network-lists {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .network-lists > div:first-child {
+          grid-column: 1 / -1;
+        }
+
+        .network-lists button,
+        .network-lists p {
+          min-height: 48px;
+          border-radius: 8px;
+        }
+
+        .search-cluster {
+          bottom: 28px;
+          width: min(760px, calc(100vw - 560px));
+          opacity: 0.78;
+        }
+
+        .search-cluster:hover,
+        .search-cluster:focus-within {
+          opacity: 1;
+        }
+
+        .glass-search {
+          min-height: 54px;
+          border-radius: 12px;
+          background:
+            linear-gradient(145deg, rgba(255,255,255,0.11), rgba(255,255,255,0.03)),
+            rgba(7,15,25,0.58);
+          box-shadow: 0 20px 60px rgba(2,7,14,0.32), inset 0 1px 0 rgba(255,255,255,0.13);
+        }
+
+        .glass-search::before,
+        .glass-search::after {
+          display: none;
+        }
+
+        .glass-search input {
+          font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-size: 14px;
+        }
+
+        .glass-search button {
+          height: 38px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, rgba(132,172,203,0.92), rgba(135,120,92,0.72));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+        }
+
+        .filter-row {
+          opacity: 0.76;
+        }
+
+        .cinema-readout {
+          left: 28px;
+          bottom: 22px;
+          opacity: 0.72;
+        }
+
+        .repo-panel {
+          width: min(390px, calc(100vw - 20px));
+          background:
+            radial-gradient(circle at 18% 4%, color-mix(in srgb, var(--repo-color), transparent 78%), transparent 32%),
+            linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.03)),
+            rgba(7, 15, 25, 0.72);
+        }
+
+        .repo-panel h2 {
+          font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          font-size: 32px;
+          letter-spacing: -0.02em;
+        }
+
+        @media (max-width: 1100px) {
+          .search-cluster {
+            width: min(720px, calc(100vw - 32px));
+          }
+
+          .network-dock {
+            top: auto;
+            right: 16px;
+            bottom: 92px;
+            width: min(360px, calc(100vw - 32px));
+            max-height: 44vh;
+            overflow-y: auto;
+          }
+
+          .stat-bar {
+            right: 16px;
+          }
+        }
         /* 8-bit Loading Screen */
         .sift-loading-screen {
           position: absolute;
@@ -4555,7 +5421,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   let bodyWidth = layout.width;
   let bodyDepth = layout.depth;
 
-  // Skyline Core / Vertical Arcology
+  // Core platform and frontend tower forms
   if (['spires', 'megatowers', 'vertical_arcology', 'skyline_core'].includes(shape)) {
     bodyWidth *= 0.6; bodyDepth *= 0.6; visualHeight *= 1.4;
     body = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.4, bodyWidth*0.8, visualHeight, 8), bodyMaterial);
@@ -4568,7 +5434,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
       group.add(ring);
     }
   } 
-  // Financial District / Data Engineering
+  // Data platform low-block forms
   else if (['blocks', 'financial_district', 'data'].includes(shape)) {
     bodyWidth *= 1.2; bodyDepth *= 1.2; visualHeight *= 0.6;
     body = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth, visualHeight, bodyDepth), glassMaterial);
@@ -4581,7 +5447,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
       group.add(vent);
     }
   }
-  // Volcano Forge / Infrastructure
+  // Cloud infrastructure reactor forms
   else if (['lava_foundries', 'volcano_forge', 'reactors'].includes(shape)) {
     bodyWidth *= 1.3; bodyDepth *= 1.3; visualHeight *= 0.8;
     body = new THREE.Mesh(new THREE.ConeGeometry(bodyWidth*0.4, visualHeight, 6), bodyMaterial);
@@ -4593,7 +5459,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
       group.add(lava);
     }
   }
-  // Frozen Kingdom / Crystals
+  // AI and distributed-system crystal forms
   else if (['caves', 'frozen_kingdom', 'crystal_fields', 'crystal_spires'].includes(shape)) {
     bodyWidth *= 0.8; bodyDepth *= 0.8; visualHeight *= 1.2;
     body = new THREE.Mesh(new THREE.OctahedronGeometry(bodyWidth, 0), glassMaterial);
@@ -4607,7 +5473,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
       group.add(shard);
     }
   }
-  // Forest Repository / Redwood Archive / Natural
+  // Database, security, and natural cluster forms
   else if (['giant_trees', 'forest_repository', 'redwood_archive', 'redwood_towers'].includes(shape)) {
     bodyWidth *= 0.9; bodyDepth *= 0.9; visualHeight *= 1.1;
     body = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.3, bodyWidth*0.6, visualHeight, 7), bodyMaterial);
@@ -4620,7 +5486,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
       group.add(root);
     }
   }
-  // Holographic / Floating / Ether Realm
+  // Agent and network signal forms
   else if (['holographic', 'floating_stations', 'ether_realm', 'holographic_forms'].includes(shape)) {
     bodyWidth *= 0.9; bodyDepth *= 0.9; visualHeight *= 0.9;
     body = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth, visualHeight, bodyDepth), glassMaterial);
@@ -4944,7 +5810,7 @@ function createTerrainMaterial(color: string, dayOpacity: number, nightOpacity =
     transparent: true,
     opacity: dayOpacity,
     depthWrite: false,
-    flatShading: true,
+    flatShading: false,
   });
   material.userData.dayOpacity = dayOpacity;
   material.userData.nightOpacity = nightOpacity;
@@ -5021,15 +5887,17 @@ function addTerrainMound(scene: THREE.Scene, x: number, z: number, width: number
 }
 
 function createRollingTerrain(scene: THREE.Scene) {
-  const geometry = new THREE.PlaneGeometry(980, 980, 72, 72);
+  const geometry = new THREE.PlaneGeometry(1060, 1060, 84, 84);
   const positions = geometry.attributes.position as THREE.BufferAttribute;
   const hillAnchors = [
-    { x: -210, z: -190, r: 180, h: 1.8 },
-    { x: 225, z: -170, r: 170, h: 1.45 },
-    { x: -255, z: 185, r: 190, h: 1.65 },
-    { x: 245, z: 220, r: 210, h: 1.35 },
-    { x: 0, z: -250, r: 150, h: 1.15 },
-    { x: 20, z: 260, r: 170, h: 1.25 },
+    { x: -210, z: -190, r: 180, h: 4.4 },
+    { x: 225, z: -170, r: 170, h: 5.2 },
+    { x: -255, z: 185, r: 190, h: 3.6 },
+    { x: 245, z: 220, r: 210, h: 3.8 },
+    { x: 0, z: -250, r: 150, h: 3.4 },
+    { x: 20, z: 260, r: 170, h: 3.2 },
+    { x: 85, z: 30, r: 210, h: 4.1 },
+    { x: -320, z: 12, r: 135, h: 4.7 },
   ];
 
   for (let index = 0; index < positions.count; index += 1) {
@@ -5044,13 +5912,13 @@ function createRollingTerrain(scene: THREE.Scene) {
       y += Math.sin((x * 0.012 + z * 0.009 + hillIndex) * Math.PI) * falloff * 0.12;
     });
     const cityBowl = Math.max(0, 1 - Math.sqrt(x * x + z * z) / 210);
-    positions.setZ(index, Math.max(0, y - cityBowl * 0.68));
+    positions.setZ(index, Math.max(0, y - cityBowl * 0.38));
   }
   positions.needsUpdate = true;
   geometry.computeVertexNormals();
 
-  const dayOpacity = 0.34;
-  const nightOpacity = 0.22;
+  const dayOpacity = 0;
+  const nightOpacity = 0;
   const terrain = new THREE.Mesh(geometry, createTerrainMaterial('#2f8a4f', dayOpacity, nightOpacity));
   terrain.rotation.x = -Math.PI / 2;
   terrain.position.y = -0.07;
@@ -5282,37 +6150,41 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
   const centerZ = district.z + 2;
   const biome = biomeTypeForDistrict(district);
 
-  // Large textured ground plane for this district
+  // Soft, organic biome patch for this district.
   const groundTex = generateBiomeTexture(biome, 512);
   groundTex.repeat.set(2, 2);
   const groundSize = 100;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(groundSize, groundSize),
+    new THREE.CircleGeometry(groundSize * 0.56, 56),
     new THREE.MeshStandardMaterial({
       map: groundTex,
       roughness: 0.9,
       metalness: biome === 'cyber' ? 0.3 : 0.05,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0,
+      depthWrite: false,
     }),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(centerX, -0.3, centerZ);
+  ground.rotation.z = seededUnit(districtIndex + 5.91) * Math.PI;
+  ground.scale.set(1.16 + seededUnit(districtIndex + 8.4) * 0.22, 0.82 + seededUnit(districtIndex + 11.2) * 0.18, 1);
+  ground.position.set(centerX, -0.42, centerZ);
   ground.renderOrder = -1;
   scene.add(ground);
 
-  // Blending ring (fades at edges)
+  // Soft biome edge shadow, kept subtle so districts feel like terrain rather than tokens.
   const fadeRing = new THREE.Mesh(
-    new THREE.RingGeometry(groundSize * 0.42, groundSize * 0.55, 32),
+    new THREE.RingGeometry(groundSize * 0.48, groundSize * 0.56, 48),
     new THREE.MeshBasicMaterial({
-      color: '#040606',
+      color: '#071019',
       transparent: true,
-      opacity: 0.6,
+      opacity: 0,
       depthWrite: false,
     }),
   );
   fadeRing.rotation.x = -Math.PI / 2;
-  fadeRing.position.set(centerX, -0.25, centerZ);
+  fadeRing.scale.copy(ground.scale);
+  fadeRing.position.set(centerX, -0.4, centerZ);
   scene.add(fadeRing);
 
   // 3D Environmental props per biome
@@ -5417,50 +6289,51 @@ function createGround(scene: THREE.Scene) {
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  // Muted civic grid background
-  ctx.fillStyle = '#06120d';
+  // Painterly atlas terrain base
+  const base = ctx.createLinearGradient(0, 0, 512, 512);
+  base.addColorStop(0, '#2e4a3d');
+  base.addColorStop(0.38, '#315343');
+  base.addColorStop(0.72, '#1f342c');
+  base.addColorStop(1, '#15251f');
+  ctx.fillStyle = base;
   ctx.fillRect(0, 0, 512, 512);
 
-  // Tech grid lines
-  ctx.strokeStyle = '#173829';
-  ctx.lineWidth = 1.5;
-  for (let i = 0; i < 512; i += 32) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, 512);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(512, i);
-    ctx.stroke();
-  }
-
-  ctx.globalAlpha = 0.22;
-  for (let i = 0; i < 90; i += 1) {
+  ctx.globalAlpha = 0.12;
+  for (let i = 0; i < 120; i += 1) {
     const x = seededUnit(i + 0.31) * 512;
     const y = seededUnit(i + 4.73) * 512;
-    const width = 8 + seededUnit(i + 7.19) * 36;
-    const height = 2 + seededUnit(i + 9.41) * 8;
-    ctx.fillStyle = i % 3 === 0 ? '#163d35' : i % 3 === 1 ? '#102b35' : '#24321f';
+    const width = 22 + seededUnit(i + 7.19) * 72;
+    const height = 5 + seededUnit(i + 9.41) * 18;
+    ctx.fillStyle = i % 3 === 0 ? '#3f6f55' : i % 3 === 1 ? '#27473f' : '#4d5938';
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate((seededUnit(i + 12.4) - 0.5) * 0.9);
-    roundRect(ctx, -width / 2, -height / 2, width, height, 2);
+    roundRect(ctx, -width / 2, -height / 2, width, height, 8);
     ctx.fill();
     ctx.restore();
+  }
+  ctx.globalAlpha = 0.035;
+  ctx.strokeStyle = '#9ec7b8';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 512; i += 64) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + 28, 512);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(16, 16);
+  texture.repeat.set(4, 4);
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(4000, 4000, 1, 1),
     new THREE.MeshBasicMaterial({
       map: texture,
+      transparent: true,
+      opacity: 0.12,
     }),
   );
   ground.rotation.x = -Math.PI / 2;
@@ -5471,11 +6344,11 @@ function createGround(scene: THREE.Scene) {
 
   createRollingTerrain(scene);
 
-  const grid = new THREE.GridHelper(4000, 200, '#4fb7c5', '#204d45');
+  const grid = new THREE.GridHelper(4000, 120, '#d8fff2', '#315d52');
   grid.userData.role = 'grid';
   const gridMaterial = grid.material as THREE.Material;
   gridMaterial.transparent = true;
-  gridMaterial.opacity = 0.045;
+  gridMaterial.opacity = 0.008;
   grid.position.y = -0.75;
   scene.add(grid);
 
@@ -5490,30 +6363,63 @@ function createGround(scene: THREE.Scene) {
     if (isIce) planeColor = '#e0f2fe';
 
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(90, 90),
+      new THREE.CircleGeometry(54, 48),
       new THREE.MeshBasicMaterial({
         color: planeColor,
         transparent: true,
-        opacity: isNature ? 0.18 : 0.12,
+        opacity: isNature ? 0.016 : 0.012,
         depthWrite: false,
       }),
     );
     plane.rotation.x = -Math.PI / 2;
+    plane.rotation.z = seededUnit(districtIndex + 13.7) * Math.PI;
+    plane.scale.set(1.2 + seededUnit(districtIndex + 15.1) * 0.25, 0.84 + seededUnit(districtIndex + 16.8) * 0.18, 1);
     plane.position.set(district.x, -0.2, district.z + 2);
     plane.userData.role = 'district-plane';
     scene.add(plane);
 
     createDistrictLandscaping(scene, district, districtIndex);
-
-    const labelTexture = makeSpriteTexture(district.label.toUpperCase(), 'semantic district', district.color, 520, 130);
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0.38, depthWrite: false }));
-    label.position.set(district.x, 1.4, district.z + 22);
-    label.scale.set(9.5, 2.25, 1);
-    scene.add(label);
   });
 }
 
+function createMountainBackdrop(scene: THREE.Scene) {
+  const group = new THREE.Group();
+  const mountainMaterial = new THREE.MeshStandardMaterial({
+    color: '#233347',
+    roughness: 0.86,
+    metalness: 0.02,
+    emissive: '#0d1b2b',
+    emissiveIntensity: 0.03,
+  });
+  const snowMaterial = new THREE.MeshStandardMaterial({
+    color: '#d9e8f2',
+    roughness: 0.72,
+    metalness: 0.02,
+  });
+
+  for (let i = 0; i < 22; i += 1) {
+    const width = 26 + seededUnit(i + 0.2) * 42;
+    const height = 18 + seededUnit(i + 1.8) * 48;
+    const x = -650 + i * 62 + seededUnit(i + 3.6) * 28;
+    const z = -900 - seededUnit(i + 4.4) * 170;
+    const mountain = new THREE.Mesh(new THREE.ConeGeometry(width, height, 6), mountainMaterial);
+    mountain.position.set(x, height / 2 - 20, z);
+    mountain.rotation.y = seededUnit(i + 5.1) * Math.PI;
+    group.add(mountain);
+
+    const snow = new THREE.Mesh(new THREE.ConeGeometry(width * 0.24, height * 0.11, 6), snowMaterial);
+    snow.position.set(x, height * 0.78 - 16, z);
+    snow.rotation.y = mountain.rotation.y;
+    group.add(snow);
+  }
+
+  group.userData.role = 'mountains';
+  scene.add(group);
+}
+
 function createSky(scene: THREE.Scene) {
+  // The atlas backdrop carries the mountain range; the live 3D layer stays focused on repos and PR roads.
+
   // Stars
   const starGeometry = new THREE.BufferGeometry();
   const positions: number[] = [];
@@ -5562,7 +6468,7 @@ function createSky(scene: THREE.Scene) {
   const skyTexture = new THREE.CanvasTexture(skyCanvas);
   const skyDome = new THREE.Mesh(
     new THREE.SphereGeometry(2500, 32, 16),
-    new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false }),
   );
   skyDome.userData.role = 'sky-dome';
   scene.add(skyDome);
@@ -5594,7 +6500,7 @@ function createSky(scene: THREE.Scene) {
   cloudTexture.wrapT = THREE.RepeatWrapping;
   const cloudPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(3000, 3000),
-    new THREE.MeshBasicMaterial({ map: cloudTexture, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
+    new THREE.MeshBasicMaterial({ map: cloudTexture, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
   );
   cloudPlane.rotation.x = -Math.PI / 2;
   cloudPlane.position.y = 350;
@@ -5605,7 +6511,7 @@ function createSky(scene: THREE.Scene) {
   const cloud2 = cloudPlane.clone();
   cloud2.position.y = 220;
   cloud2.rotation.z = Math.PI / 3;
-  (cloud2.material as THREE.MeshBasicMaterial).opacity = 0.2;
+  (cloud2.material as THREE.MeshBasicMaterial).opacity = 0;
   cloud2.userData.role = 'clouds-low';
   scene.add(cloud2);
 }
