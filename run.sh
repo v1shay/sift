@@ -72,14 +72,19 @@ if [[ ! -d "${ROOT_DIR}/frontend/node_modules" ]]; then
   npm install --prefix "${ROOT_DIR}/frontend"
 fi
 
-if ! PYTHONPATH="${ROOT_DIR}/backend" python3 - <<'PY' >/dev/null 2>&1
+PYTHON_CMD="python3"
+if [[ -f "${ROOT_DIR}/backend/venv/bin/python3" ]]; then
+  PYTHON_CMD="${ROOT_DIR}/backend/venv/bin/python3"
+fi
+
+if ! PYTHONPATH="${ROOT_DIR}/backend" "${PYTHON_CMD}" - <<'PY' >/dev/null 2>&1
 import fastapi
 import uvicorn
 import sqlalchemy
 PY
 then
   echo "Installing backend dependencies..."
-  python3 -m pip install -r "${ROOT_DIR}/backend/requirements.txt"
+  "${PYTHON_CMD}" -m pip install -r "${ROOT_DIR}/backend/requirements.txt"
 fi
 
 export PYTHONPATH="${ROOT_DIR}/backend:${PYTHONPATH:-}"
@@ -87,7 +92,7 @@ export PYTHONPATH="${ROOT_DIR}/backend:${PYTHONPATH:-}"
 echo "Starting SIFT backend on ${BACKEND_URL}"
 (
   cd "${ROOT_DIR}/backend"
-  python3 -m uvicorn app.main:app --reload --host "${HOST}" --port "${BACKEND_PORT}"
+  "${PYTHON_CMD}" -m uvicorn app.main:app --reload --host "${HOST}" --port "${BACKEND_PORT}"
 ) &
 BACKEND_PID="$!"
 

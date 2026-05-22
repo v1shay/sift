@@ -1,3 +1,16 @@
+// ─── 3D Scene Layers (Vertical Offsets) ───────────────────────────
+
+export const Z = {
+  terrain: 0,
+  biomeBase: 0.018,
+  roads: 0.035,
+  decals: 0.052,
+  buildingBase: 0.075,
+  buildings: 0.1,
+  particles: 0.2,
+  labels: 1.8
+};
+
 // ─── API Configuration ──────────────────────────────────────────────
 
 export const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';

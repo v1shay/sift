@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Activity, Github, GitPullRequest, HelpCircle, Moon, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { Z } from '@/lib/constants';
 
 type DistrictKey = string;
 type FilterKey = DistrictKey | 'stars' | 'safe' | 'all';
@@ -204,7 +205,7 @@ type SceneRefs = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  ambient: THREE.AmbientLight;
+  ambient: THREE.HemisphereLight;
   key: THREE.DirectionalLight;
   rim: THREE.PointLight;
   raycaster: THREE.Raycaster;
@@ -218,34 +219,35 @@ type SceneRefs = {
   cameraTarget: THREE.Vector3;
   zoom: number;
   targetZoom: number;
+  siftText: THREE.Group;
 };
 
 const DISTRICTS: District[] = [
   // Functional districts laid out as a fixed-perspective contribution atlas.
-  { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -150, z: -188, shape: 'spires', parent: 'systems' },
-  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 50, z: -165, shape: 'megatowers', parent: 'web' },
-  { key: 'volcano_forge', label: 'Cloud Infrastructure', color: '#f97316', accent: '#ffd2a0', x: 248, z: -135, shape: 'lava_foundries', parent: 'infra' },
-  { key: 'redwood_archive', label: 'Security + Auth', color: '#4f9b67', accent: '#d6f9c9', x: -286, z: -18, shape: 'redwood_towers', parent: 'infra' },
-  { key: 'financial_district', label: 'Data Platforms', color: '#e6bd63', accent: '#fff1c2', x: -88, z: 6, shape: 'blocks', parent: 'infra' },
-  { key: 'forest_repository', label: 'Databases + Cache', color: '#3fbf84', accent: '#c9ffd9', x: 70, z: 24, shape: 'giant_trees', parent: 'infra' },
-  { key: 'crystal_fields', label: 'AI + ML', color: '#a076ff', accent: '#f4dbff', x: 188, z: 52, shape: 'crystal_spires', parent: 'ai' },
-  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#8bd3ff', accent: '#f2fbff', x: 288, z: 152, shape: 'caves', parent: 'infra' },
-  { key: 'nomad_camps', label: 'Testing + QA', color: '#d6aa70', accent: '#fff0c8', x: -292, z: 152, shape: 'tents', parent: 'devtools' },
-  { key: 'floating_island', label: 'DevOps + Delivery', color: '#62c8a4', accent: '#e1fff1', x: -92, z: 186, shape: 'floating_stations', parent: 'ai' },
-  { key: 'ruined_empire', label: 'Kernels + OS', color: '#9d5cff', accent: '#efd7ff', x: 68, z: 212, shape: 'ruins', parent: 'systems' },
-  { key: 'canyon_networks', label: 'APIs + Networking', color: '#42d8ff', accent: '#d7fbff', x: 214, z: 222, shape: 'holographic', parent: 'infra' },
-  { key: 'clockwork_empire', label: 'Rust + Runtimes', color: '#ff6b8b', accent: '#ffd0da', x: -245, z: -122, shape: 'factories', parent: 'systems' },
-  { key: 'mountain_citadel', label: 'Compilers + Languages', color: '#f43f5e', accent: '#ffd1dc', x: -20, z: -82, shape: 'citadel', parent: 'systems' },
-  { key: 'brick_boroughs', label: 'UI Libraries', color: '#60a5fa', accent: '#d7e9ff', x: -160, z: 82, shape: 'apartments', parent: 'web' },
-  { key: 'neon_alley', label: 'Web Apps + SaaS', color: '#06b6d4', accent: '#c7fbff', x: 152, z: -52, shape: 'glass', parent: 'web' },
-  { key: 'tech_suburbs', label: 'CSS + Design Systems', color: '#0ea5e9', accent: '#bfeeff', x: -216, z: 78, shape: 'suburbs', parent: 'web' },
-  { key: 'coastal_fishing', label: 'Static Sites', color: '#2563eb', accent: '#d7e7ff', x: -210, z: 236, shape: 'fishing_docks', parent: 'web' },
-  { key: 'ether_realm', label: 'Agents + LLMs', color: '#a78bfa', accent: '#efe7ff', x: 28, z: -248, shape: 'holographic', parent: 'ai' },
-  { key: 'bamboo_valley', label: 'Developer Tools', color: '#10b981', accent: '#d4fff0', x: 270, z: 26, shape: 'bamboo_pagodas', parent: 'devtools' },
-  { key: 'valley_villages', label: 'Starter Projects', color: '#34d399', accent: '#e1fff3', x: -18, z: 114, shape: 'valley_villages', parent: 'devtools' },
-  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Code Security', x: 136, z: 152, shape: 'decayed', parent: 'infra' },
-  { key: 'overgrown_ruins', label: 'Embedded + IoT', color: '#22c55e', accent: '#dbffdf', x: -322, z: 62, shape: 'overgrown', parent: 'infra' },
-  { key: 'jungle_canopy', label: 'Cloud Platforms', color: '#44b36a', accent: '#edffe6', x: -38, z: 270, shape: 'mushroom_colonies', parent: 'infra' },
+  { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -240, z: -300, shape: 'spires', parent: 'systems' },
+  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 80, z: -264, shape: 'megatowers', parent: 'web' },
+  { key: 'volcano_forge', label: 'Cloud Infrastructure', color: '#f97316', accent: '#ffd2a0', x: 396, z: -216, shape: 'lava_foundries', parent: 'infra' },
+  { key: 'redwood_archive', label: 'Security + Auth', color: '#4f9b67', accent: '#d6f9c9', x: -457, z: -28, shape: 'redwood_towers', parent: 'infra' },
+  { key: 'financial_district', label: 'Data Platforms', color: '#e6bd63', accent: '#fff1c2', x: -140, z: 9, shape: 'blocks', parent: 'infra' },
+  { key: 'forest_repository', label: 'Databases + Cache', color: '#3fbf84', accent: '#c9ffd9', x: 112, z: 38, shape: 'giant_trees', parent: 'infra' },
+  { key: 'crystal_fields', label: 'AI + ML', color: '#a076ff', accent: '#f4dbff', x: 300, z: 83, shape: 'crystal_spires', parent: 'ai' },
+  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#8bd3ff', accent: '#f2fbff', x: 460, z: 243, shape: 'caves', parent: 'infra' },
+  { key: 'nomad_camps', label: 'Testing + QA', color: '#d6aa70', accent: '#fff0c8', x: -467, z: 243, shape: 'tents', parent: 'devtools' },
+  { key: 'floating_island', label: 'DevOps + Delivery', color: '#62c8a4', accent: '#e1fff1', x: -147, z: 297, shape: 'floating_stations', parent: 'ai' },
+  { key: 'ruined_empire', label: 'Kernels + OS', color: '#9d5cff', accent: '#efd7ff', x: 108, z: 339, shape: 'ruins', parent: 'systems' },
+  { key: 'canyon_networks', label: 'APIs + Networking', color: '#42d8ff', accent: '#d7fbff', x: 342, z: 355, shape: 'holographic', parent: 'infra' },
+  { key: 'clockwork_empire', label: 'Rust + Runtimes', color: '#ff6b8b', accent: '#ffd0da', x: -392, z: -195, shape: 'factories', parent: 'systems' },
+  { key: 'mountain_citadel', label: 'Compilers + Languages', color: '#f43f5e', accent: '#ffd1dc', x: -32, z: -131, shape: 'citadel', parent: 'systems' },
+  { key: 'brick_boroughs', label: 'UI Libraries', color: '#60a5fa', accent: '#d7e9ff', x: -256, z: 131, shape: 'apartments', parent: 'web' },
+  { key: 'neon_alley', label: 'Web Apps + SaaS', color: '#06b6d4', accent: '#c7fbff', x: 243, z: -83, shape: 'glass', parent: 'web' },
+  { key: 'tech_suburbs', label: 'CSS + Design Systems', color: '#0ea5e9', accent: '#bfeeff', x: -345, z: 124, shape: 'suburbs', parent: 'web' },
+  { key: 'coastal_fishing', label: 'Static Sites', color: '#2563eb', accent: '#d7e7ff', x: -336, z: 377, shape: 'fishing_docks', parent: 'web' },
+  { key: 'ether_realm', label: 'Agents + LLMs', color: '#a78bfa', accent: '#efe7ff', x: 44, z: -396, shape: 'holographic', parent: 'ai' },
+  { key: 'bamboo_valley', label: 'Developer Tools', color: '#10b981', accent: '#d4fff0', x: 432, z: 41, shape: 'bamboo_pagodas', parent: 'devtools' },
+  { key: 'valley_villages', label: 'Starter Projects', color: '#34d399', accent: '#e1fff3', x: -28, z: 182, shape: 'valley_villages', parent: 'devtools' },
+  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Code Security', x: 217, z: 243, shape: 'decayed', parent: 'infra' },
+  { key: 'overgrown_ruins', label: 'Embedded + IoT', color: '#22c55e', accent: '#dbffdf', x: -515, z: 99, shape: 'overgrown', parent: 'infra' },
+  { key: 'jungle_canopy', label: 'Cloud Platforms', color: '#44b36a', accent: '#edffe6', x: -60, z: 432, shape: 'mushroom_colonies', parent: 'infra' },
 ];
 
 const SAFETY_GREEN_THRESHOLD = 75;
@@ -767,10 +769,43 @@ const GRAPH_REPO_LIMIT = 1200;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 
-const INTRO_MS = 1200;
+const INTRO_MS = 7500; // Accelerated sweep
 const ENTRY_MS = 1000;
-const CAMERA_HOME = new THREE.Vector3(0, 215, 390);
-const TARGET_HOME = new THREE.Vector3(0, 8, 38);
+
+function createSiftText(scene: THREE.Scene) {
+  const group = new THREE.Group();
+  const letters = ['S', 'I', 'F', 'T'];
+  letters.forEach((char, i) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 512;
+    canvas.height = 512;
+    if (ctx) {
+      ctx.fillStyle = 'rgba(0,0,0,0)';
+      ctx.clearRect(0, 0, 512, 512);
+      ctx.font = '900 450px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 12;
+      ctx.strokeText(char, 256, 256);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText(char, 256, 256);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(120, 120, 1);
+    sprite.position.set(-200 + i * 140, 1200, -800);
+    sprite.userData.baseX = sprite.position.x;
+    sprite.userData.baseY = sprite.position.y;
+    group.add(sprite);
+  });
+  scene.add(group);
+  return group;
+}
+const CAMERA_HOME = new THREE.Vector3(0, 165, 620);
+const TARGET_HOME = new THREE.Vector3(0, 25, 50);
 const MIN_ZOOM = 0.58;
 const MAX_ZOOM = 1.42;
 const SCENE_PIXEL_RATIO = 1.15;
@@ -1171,10 +1206,11 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   const scale = repoScale(repo);
   const seed = repo.id.split('').reduce((total, char) => total + char.charCodeAt(0), 0) + index * 17.7;
   const angle = index * 2.399963 + seededUnit(seed) * 0.55;
-  const radius = 4.5 + Math.sqrt(index + 1) * 4.15 + seededUnit(seed + 2) * 3.4;
-  const isTallDistrict = ['spires', 'megatowers', 'vertical_arcology', 'glass'].includes(district.shape);
-  const x = district.x + Math.cos(angle) * radius * (isTallDistrict ? 0.82 : 1.08);
-  const z = district.z + Math.sin(angle) * radius * 0.78 + Math.cos(index * 1.13) * 1.2;
+  
+  // Restore original radius logic for better spacing/breathing room
+  const radius = 6.5 + Math.sqrt(index + 1) * 8.5 + seededUnit(seed + 2) * 5.2;
+  const x = district.x + Math.cos(angle) * radius * 1.25;
+  const z = district.z + Math.sin(angle) * radius * 0.95 + Math.cos(index * 1.13) * 2.5;
 
   let scaleDriver = scale.stars;
   if (heightScaleDriver === 'activity') {
@@ -1183,20 +1219,26 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
     scaleDriver = scale.community;
   }
 
+  // Refined Sigmoid: equitable distribution (min presence ~40-50% of max)
+  const sigmoid = (v: number) => 1 / (1 + Math.exp(-4 * (v - 0.5)));
+  const compressedDriver = 0.5 + sigmoid(scaleDriver) * 0.5;
+
   const heightBias =
-    district.shape === 'spires' || district.shape === 'megatowers' || district.shape === 'vertical_arcology' ? 1.12 :
-    district.shape === 'suburbs' || district.shape === 'tents' || district.shape === 'fishing_docks' ? 0.62 :
-    district.shape === 'blocks' || district.shape === 'lava_foundries' ? 0.78 :
-    0.94;
-  const districtHeroBoost = FEATURED_DISTRICT_KEYS.has(district.key) ? 1.22 : 0.86;
-  const height = clamp(1.35 + Math.pow(scaleDriver, 4.15) * 78 * heightBias * districtHeroBoost + Math.pow(scale.activity, 2.4) * 1.15, 1.65, 82);
+    district.shape === 'spires' || district.shape === 'megatowers' || district.shape === 'vertical_arcology' ? 1.2 :
+    district.shape === 'suburbs' || district.shape === 'tents' || district.shape === 'fishing_docks' ? 0.75 :
+    district.shape === 'blocks' || district.shape === 'lava_foundries' ? 0.85 :
+    0.95;
+  const districtHeroBoost = FEATURED_DISTRICT_KEYS.has(district.key) ? 1.15 : 0.92;
+  
+  // Rebalanced Height: Min 30, Max ~95. Prominent but not claustrophobic.
+  const height = clamp(12.5 + compressedDriver * 75 * heightBias * districtHeroBoost, 30, 95);
+  
   const widthBias =
-    district.shape === 'blocks' || district.shape === 'apartments' || district.shape === 'valley_villages' ? 1.28 :
-    district.shape === 'glass' || district.shape === 'crystal_spires' ? 0.92 :
-    district.shape === 'spires' || district.shape === 'citadel' ? 0.84 :
+    district.shape === 'blocks' || district.shape === 'apartments' || district.shape === 'valley_villages' ? 1.2 :
+    district.shape === 'glass' || district.shape === 'crystal_spires' ? 0.9 :
     1;
-  const width = clamp(1.25 + Math.pow(scale.forks, 1.65) * 3.75 + Math.pow(scale.activity, 1.45) * 0.4, 1.35, 5.9) * widthBias;
-  const depth = clamp(1.3 + Math.pow(scale.community, 1.65) * 3.65 + Math.pow(scale.beginnerSurface, 1.35) * 0.42, 1.45, 6.1) * (district.shape === 'blocks' ? 1.1 : 1);
+  const width = clamp(3.5 + compressedDriver * 4.5 * widthBias, 4.5, 9.5);
+  const depth = clamp(3.5 + compressedDriver * 4.5 * (district.shape === 'blocks' ? 1.1 : 1), 4.5, 9.5);
 
   return {
     position: new THREE.Vector3(x, 0, z),
@@ -1208,9 +1250,9 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
 
 function createSiftRenderer() {
   const rendererOptions: THREE.WebGLRendererParameters[] = [
-    { antialias: false, alpha: true, powerPreference: 'high-performance' },
-    { antialias: false, alpha: true, powerPreference: 'default' },
-    { antialias: false, alpha: true, powerPreference: 'low-power' },
+    { antialias: false, alpha: true, powerPreference: 'high-performance', logarithmicDepthBuffer: true },
+    { antialias: false, alpha: true, powerPreference: 'default', logarithmicDepthBuffer: true },
+    { antialias: false, alpha: true, powerPreference: 'low-power', logarithmicDepthBuffer: true },
   ];
 
   for (const options of rendererOptions) {
@@ -1265,7 +1307,7 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   const isDay = appearance === 'day';
   refs.scene.background = null;
   refs.renderer.setClearColor(0x000000, 0);
-  refs.scene.fog = new THREE.FogExp2(isDay ? '#93aec6' : '#08142a', isDay ? 0.00004 : 0.00022);
+  refs.scene.fog = new THREE.FogExp2(isDay ? '#9eb8a8' : '#08142a', isDay ? 0.000028 : 0.00022);
   refs.renderer.toneMappingExposure = isDay ? 1.28 : 1.16;
   refs.ambient.color.set(isDay ? '#dbeafe' : '#9bb7f0');
   refs.ambient.intensity = isDay ? 1.3 : 1.05;
@@ -1280,17 +1322,18 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
     const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
     if (!material) return;
 
-    if (role === 'ground') {
-      const groundMaterial = material as THREE.MeshBasicMaterial;
-      groundMaterial.color.set(isDay ? '#d8eee0' : '#536c88');
-      groundMaterial.transparent = true;
-      groundMaterial.opacity = 0;
+    if (role === 'ground' || role === 'terrain') {
+      const groundMaterial = (Array.isArray(material) ? material[0] : material) as THREE.MeshStandardMaterial;
+      groundMaterial.color.set(isDay ? '#f2f6f0' : '#8fa0b0');
+      groundMaterial.emissiveIntensity = isDay ? 0.04 : 0.08;
+      groundMaterial.transparent = false;
+      groundMaterial.opacity = 1;
+      groundMaterial.depthWrite = true;
     }
 
-    if (role === 'grid') setMaterialOpacity(material, 0);
+    if (role === 'grid') setMaterialOpacity(material, isDay ? 0.04 : 0.02);
     if (role === 'stars') setMaterialOpacity(material, isDay ? 0.02 : 0.24);
     if (role === 'moon') setMaterialOpacity(material, isDay ? 0.025 : 0.08);
-    if (role === 'district-plane') setMaterialOpacity(material, 0);
     if (role === 'landscape') {
       const firstMaterial = Array.isArray(material) ? material[0] : material;
       const opacity = isDay
@@ -1690,7 +1733,7 @@ export default function Home() {
     scene.fog = new THREE.FogExp2('#0c1514', 0.002);
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
-    camera.position.set(-220, 180, 260);
+    camera.position.set(-600, 350, -600); // Path start
 
     setWebglError('');
 
@@ -1710,24 +1753,32 @@ export default function Home() {
     renderer.shadowMap.enabled = false;
     mount.appendChild(renderer.domElement);
 
-    const ambient = new THREE.AmbientLight('#c0e8e0', 1.4);
+    const ambient = new THREE.HemisphereLight('#c0e8e0', '#020617', 1.2);
     scene.add(ambient);
 
-    const key = new THREE.DirectionalLight('#dbe8ff', 3.2);
-    key.position.set(-22, 48, 20);
+    const key = new THREE.DirectionalLight('#dbe8ff', 4.5);
+    key.position.set(-80, 120, 50);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
     scene.add(key);
 
-    const rim = new THREE.PointLight('#4fb7c5', 68, 120, 1.6);
-    rim.position.set(0, 18, -32);
+    const rim = new THREE.PointLight('#4fb7c5', 85, 250, 1.8);
+    rim.position.set(20, 45, -60);
     scene.add(rim);
+
+    scene.fog = new THREE.FogExp2('#0c1514', 0.0018);
 
     createGround(scene);
     createSky(scene);
+    const siftText = createSiftText(scene);
 
     const buildings: BuildingObject[] = [];
     visualReposByDistrict.forEach(({ repos }) => {
       repos.forEach((repo, index) => {
         const building = createBuilding(repo, index, repos, heightScaleDriver);
+        const surfaceY = getTerrainSurfaceY(building.position.x, building.position.z);
+        building.group.position.y = surfaceY;
+        building.position.y = surfaceY;
         buildings.push(building);
         scene.add(building.group);
       });
@@ -1755,6 +1806,7 @@ export default function Home() {
       cameraTarget: new THREE.Vector3(-12, 5, -1),
       zoom: 1,
       targetZoom: 1,
+      siftText,
     };
     sceneRef.current = refs;
     applyAppearance(refs, appearanceRef.current);
@@ -1795,9 +1847,9 @@ export default function Home() {
     const panForward = new THREE.Vector3();
 
     const clampFreeNavigation = () => {
-      freeNavX = clamp(freeNavX, -260, 260);
-      freeNavY = clamp(freeNavY, -165, 350);
-      freeNavZ = clamp(freeNavZ, -260, 260);
+      freeNavX = clamp(freeNavX, -450, 450);
+      freeNavY = clamp(freeNavY, -250, 600);
+      freeNavZ = clamp(freeNavZ, -450, 450);
     };
 
     const returnToCityOverview = () => {
@@ -1926,123 +1978,77 @@ export default function Home() {
     let hoverFrame = 0;
     const animate = () => {
       const now = performance.now();
+      const selected = selectedRef.current;
       const elapsed = (now - refs.startedAt) / 1000;
-      const introT = easeInOutCubic((now - refs.startedAt) / INTRO_MS);
+      const introProgress = Math.min(1, (now - refs.startedAt) / INTRO_MS);
+      const introT = easeInOutCubic(introProgress);
       const entryT = refs.enteredAt ? easeOutCubic((now - refs.enteredAt) / ENTRY_MS) : 0;
 
-      hoverFrame += 1;
-      const pointerOnStage = refs.pointer.x >= -1 && refs.pointer.x <= 1 && refs.pointer.y >= -1 && refs.pointer.y <= 1;
-      if (pointerOnStage && !isDragging && hoverFrame % 3 === 0) {
-        refs.raycaster.setFromCamera(refs.pointer, camera);
-        const intersections = refs.raycaster.intersectObjects(hitTargets, false);
-        const hovered = intersections.length ? findBuilding(intersections[0].object.userData.repoId as string | undefined) : null;
-        if (hovered?.repo.id !== hoverRef.current?.id) {
-          setHoveredRepo(hovered?.repo ?? null);
-          renderer.domElement.style.cursor = hovered ? 'pointer' : 'grab';
-        }
-      }
+      let desiredPosition = new THREE.Vector3();
+      let desiredTarget = new THREE.Vector3();
 
-      const selected = selectedRef.current;
-      const selectedBuilding = selected ? findBuilding(selected.id) : null;
+      // --- 1. Cinematic Opening Sweep (Priority) ---
+      if (introProgress < 1) {
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(-600, 350, -600), // City
+          new THREE.Vector3(500, 280, -400),  // Volcano
+          new THREE.Vector3(700, 450, 700),   // Snow
+          new THREE.Vector3(-700, 520, 800),  // Forest
+          new THREE.Vector3(0, 2800, 4200),   // Universe Peak
+        ]);
+        
+        const pos = curve.getPointAt(introT);
+        camera.position.copy(pos);
+        camera.lookAt(0, 60, 0);
 
-      // Process keyboard movement (W, A, S, D / Arrow keys)
-      const moveSpeed = 4.6 * refs.zoom;
-      if (enteredRef.current) {
-        let isUserMoving = false;
-        if (keysPressed['w']) {
-          freeNavZ -= moveSpeed;
-          isUserMoving = true;
+        // Reveal SIFT letters cinematicaly
+        if (introProgress > 0.55) {
+          const textT = easeOutCubic((introProgress - 0.55) / 0.45);
+          refs.siftText.children.forEach((child, i) => {
+            const sprite = child as THREE.Sprite;
+            sprite.material.opacity = textT;
+            sprite.position.y = sprite.userData.baseY + Math.sin(now * 0.001 + i) * 35 * textT;
+            sprite.scale.setScalar(120 + 60 * textT);
+          });
         }
-        if (keysPressed['s']) {
-          freeNavZ += moveSpeed;
-          isUserMoving = true;
-        }
-        if (keysPressed['a']) {
-          freeNavX -= moveSpeed;
-          isUserMoving = true;
-        }
-        if (keysPressed['d']) {
-          freeNavX += moveSpeed;
-          isUserMoving = true;
-        }
+        
+        refs.cameraPosition.copy(pos);
+        refs.cameraTarget.set(0, 60, 0);
+      } 
+      // --- 2. Interactive States ---
+      else {
+        const selectedBuilding = selected ? findBuilding(selected.id) : null;
+        const mouseParallax = new THREE.Vector2(0, 0); // Simplified for refactor
 
-        // Arrow keys pan the same fixed-perspective board as WASD.
-        if (keysPressed['arrowup']) {
-          freeNavZ -= moveSpeed;
-          isUserMoving = true;
-        }
-        if (keysPressed['arrowdown']) {
-          freeNavZ += moveSpeed;
-          isUserMoving = true;
-        }
-        if (keysPressed['arrowleft']) {
-          freeNavX -= moveSpeed;
-          isUserMoving = true;
-        }
-        if (keysPressed['arrowright']) {
-          freeNavX += moveSpeed;
-          isUserMoving = true;
-        }
-
-        clampFreeNavigation();
-
-        if (isUserMoving) {
-          targetDistrictCenterRef.current = null;
-        }
-
-        const targetCenter = targetDistrictCenterRef.current;
-        if (targetCenter) {
+        if (selectedBuilding) {
+          const focusDistance = clamp(selectedBuilding.height * 0.8, 45, 120);
+          const focusHeight = clamp(selectedBuilding.height * 0.6, 25, 80);
+          desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(focusDistance * 0.7, focusHeight, focusDistance));
+          desiredTarget = selectedBuilding.position.clone().add(new THREE.Vector3(0, selectedBuilding.height * 0.45, 0));
+        } else if (targetDistrictCenterRef.current) {
+          const targetCenter = targetDistrictCenterRef.current;
           freeNavX += (targetCenter.x - freeNavX) * 0.08;
           freeNavZ += (targetCenter.z - freeNavZ) * 0.08;
           freeNavY += (0 - freeNavY) * 0.08;
-          refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.74, 0.08);
-
-          if (Math.abs(targetCenter.x - freeNavX) < 1 && Math.abs(targetCenter.z - freeNavZ) < 1) {
-            targetDistrictCenterRef.current = null;
-          }
+          refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.78, 0.08);
+          
+          desiredPosition = CAMERA_HOME.clone().add(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
+          desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
+        } else {
+          const freeOffset = new THREE.Vector3(freeNavX, freeNavY, freeNavZ);
+          desiredPosition = CAMERA_HOME.clone().add(freeOffset);
+          desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
         }
-      }
 
-      const mouseParallax = new THREE.Vector3(0, 0, 0);
-
-      const introPosition = new THREE.Vector3(
-        THREE.MathUtils.lerp(-170, 104, introT),
-        THREE.MathUtils.lerp(104, 136, introT),
-        THREE.MathUtils.lerp(240, 218, introT),
-      );
-      const introTarget = new THREE.Vector3(THREE.MathUtils.lerp(-18, 0, introT), 15, THREE.MathUtils.lerp(6, 20, introT));
-
-      let desiredPosition = introPosition;
-      let desiredTarget = introTarget;
-
-      if (enteredRef.current) {
-        const freeOffset = new THREE.Vector3(freeNavX, freeNavY, freeNavZ);
-        desiredPosition = CAMERA_HOME.clone().add(mouseParallax).add(freeOffset);
-        desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
-      }
-
-      if (selectedBuilding && enteredRef.current) {
-        const focusDistance = clamp(selectedBuilding.height * 0.76, 32, 88);
-        const focusHeight = clamp(selectedBuilding.height * 0.58, 18, 58);
-        desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(focusDistance * 0.64, focusHeight, focusDistance));
-        desiredTarget = selectedBuilding.position.clone().add(new THREE.Vector3(0, selectedBuilding.height * 0.43, 0));
-      }
-
-      if (refs.enteredAt && entryT < 1 && !selectedBuilding) {
-        desiredPosition.lerpVectors(introPosition, CAMERA_HOME, entryT).add(mouseParallax);
-        desiredTarget.lerpVectors(introTarget, TARGET_HOME, entryT);
-      }
-
-      refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.08);
-      if (enteredRef.current) {
+        refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.08);
         const offset = desiredPosition.clone().sub(desiredTarget).multiplyScalar(refs.zoom);
         desiredPosition = desiredTarget.clone().add(offset);
-      }
 
-      refs.cameraPosition.lerp(desiredPosition, 0.045);
-      refs.cameraTarget.lerp(desiredTarget, 0.055);
-      camera.position.copy(refs.cameraPosition);
-      camera.lookAt(refs.cameraTarget);
+        refs.cameraPosition.lerp(desiredPosition, 0.06);
+        refs.cameraTarget.lerp(desiredTarget, 0.07);
+        camera.position.copy(refs.cameraPosition);
+        camera.lookAt(refs.cameraTarget);
+      }
 
       const similarActive = now < similarUntilRef.current;
       for (const building of buildings) {
@@ -2086,7 +2092,7 @@ export default function Home() {
           const t = (road.phase + elapsed * road.speed + carIndex / road.cars.length) % 1;
           const point = road.curve.getPointAt(t);
           car.position.copy(point);
-          car.position.y += 0.18 + road.flowStrength * 0.08 + Math.sin(elapsed * 8 + carIndex) * 0.035;
+          car.position.y += road.flowStrength * 0.08 + Math.sin(elapsed * 8 + carIndex) * 0.035;
           const tangent = road.curve.getTangentAt(t);
           car.rotation.y = Math.atan2(tangent.x, tangent.z);
           const material = car.material as THREE.MeshBasicMaterial;
@@ -2381,59 +2387,6 @@ export default function Home() {
           </div>
         ) : null}
       </div>
-
-      <section className="atlas-artwork-layer" aria-hidden="true">
-        <div className="atlas-map-base" />
-        <div className="atlas-river atlas-river-main" />
-        <div className="atlas-river atlas-river-west" />
-        <div className="atlas-route atlas-route-a" />
-        <div className="atlas-route atlas-route-b" />
-        <div className="atlas-route atlas-route-c" />
-        {featuredDistricts.map(({ district, repoCount, position }, index) => (
-          <div
-            key={`terrain-${district.key}`}
-            className={`atlas-region atlas-region-${atlasBiomeForDistrict(district)}`}
-            style={{
-              '--district-color': district.color,
-              '--district-accent': district.accent,
-              '--region-scale': atlasRegionScale(repoCount),
-              '--region-index': index,
-              left: `${position.left}%`,
-              top: `${position.top}%`,
-            } as CSSProperties}
-          >
-            <span className="region-shadow" />
-            <span className="region-plate" />
-            <span className="region-contour region-contour-a" />
-            <span className="region-contour region-contour-b" />
-            <span className="region-structures">
-              {Array.from({ length: atlasStructureCount(repoCount) }).map((_, pieceIndex) => (
-                <i key={`structure-${district.key}-${pieceIndex}`} style={{ '--piece-index': pieceIndex } as CSSProperties} />
-              ))}
-            </span>
-          </div>
-        ))}
-      </section>
-
-      <section className="atlas-hotspots" aria-label="Atlas districts">
-        {featuredDistricts.map(({ district, repoCount, topRepo, position }) => (
-          <button
-            key={`atlas-${district.key}`}
-            className={`atlas-hotspot ${filter === district.key ? 'is-active' : ''}`}
-            type="button"
-            onClick={() => focusDistrict(district)}
-            style={{
-              '--district-color': district.color,
-              '--district-accent': district.accent,
-              left: `${position.left}%`,
-              top: `${position.top}%`,
-            } as CSSProperties}
-          >
-            <strong>{district.label}</strong>
-            <span>{repoCount} repos{topRepo ? ` · ${topRepo.name}` : ''}</span>
-          </button>
-        ))}
-      </section>
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
         <div className="intro-copy">
@@ -4745,14 +4698,11 @@ export default function Home() {
         .three-stage {
           z-index: 2;
           background: transparent;
-          opacity: 0.32;
-          mix-blend-mode: screen;
-          filter: saturate(0.78) contrast(0.82);
+          opacity: 1;
         }
 
         .sift-page.is-day .three-stage {
-          opacity: 0.24;
-          mix-blend-mode: normal;
+          opacity: 1;
         }
 
         .sift-page::before,
@@ -5379,161 +5329,118 @@ export default function Home() {
 
 function createBuilding(repo: Repo, index: number, districtRepos: Repo[], heightScaleDriver: HeightScaleDriver) {
   const district = districtFor(repo);
+  const biome = biomeTypeForDistrict(district);
   const group = new THREE.Group();
   const layout = createRepoLayout(repo, index, districtRepos, heightScaleDriver);
   group.position.copy(layout.position);
 
-  const shape = buildingShapeFor(repo, district);
+  // Restore Color-Coded Palettes (District-driven)
   const baseColor = new THREE.Color(district.color);
-  const bodyColor = baseColor.clone().lerp(new THREE.Color('#050708'), 0.1);
+  const bodyColor = baseColor.clone().lerp(new THREE.Color('#020617'), 0.25);
   const accentColor = new THREE.Color(district.accent);
-  const isHighDetail = repo.stars >= 1000 || index % 5 === 0;
+  const isHighDetail = repo.stars >= 1200 || index % 6 === 0;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,
-    roughness: 0.48,
-    metalness: 0.22,
-    emissive: baseColor,
-    emissiveIntensity: 0.026,
+    roughness: 0.65,
+    metalness: 0.42,
+    emissive: bodyColor,
+    emissiveIntensity: 0.05,
   });
 
   const topMaterial = new THREE.MeshStandardMaterial({
     color: accentColor,
-    roughness: 0.36,
-    metalness: 0.32,
+    roughness: 0.35,
+    metalness: 0.75,
     emissive: accentColor,
-    emissiveIntensity: 0.08,
+    emissiveIntensity: 0.25,
   });
 
   const glassMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,
     roughness: 0.1,
-    metalness: 0.8,
+    metalness: 0.95,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.75,
     emissive: accentColor,
-    emissiveIntensity: 0.15,
+    emissiveIntensity: 0.35,
   });
 
-  let body: THREE.Mesh;
-  let top: THREE.Mesh;
   let visualHeight = layout.height;
   let bodyWidth = layout.width;
   let bodyDepth = layout.depth;
 
-  // Core platform and frontend tower forms
-  if (['spires', 'megatowers', 'vertical_arcology', 'skyline_core'].includes(shape)) {
-    bodyWidth *= 0.6; bodyDepth *= 0.6; visualHeight *= 1.4;
-    body = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.4, bodyWidth*0.8, visualHeight, 8), bodyMaterial);
-    top = new THREE.Mesh(new THREE.ConeGeometry(bodyWidth*0.4, visualHeight*0.3, 8), topMaterial);
-    top.position.y = visualHeight / 2 + visualHeight*0.15;
-    if (isHighDetail) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(bodyWidth, 0.1, 8, 16), topMaterial);
-      ring.position.y = visualHeight * 0.3;
-      ring.rotation.x = Math.PI / 2;
-      group.add(ring);
+  // --- Architectural Variety: Layered & Stepped Forms ---
+  
+  // Base Plate (Grounding)
+  const basePlate = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyWidth * 1.35, 1.2, bodyDepth * 1.35),
+    new THREE.MeshStandardMaterial({ color: '#1c1917', roughness: 0.9, metalness: 0.15 })
+  );
+  basePlate.position.y = Z.buildingBase;
+  basePlate.receiveShadow = true;
+  group.add(basePlate);
+
+  // Layered Tower Body
+  const layerCount = 3;
+  for (let i = 0; i < layerCount; i++) {
+    const t = i / (layerCount - 1);
+    const layerHeight = (visualHeight * 0.8) / layerCount;
+    const taper = 1 - t * 0.25;
+    const lWidth = bodyWidth * taper;
+    const lDepth = bodyDepth * taper;
+    
+    let layer: THREE.Mesh;
+    if (biome === 'city' || biome === 'arcology' || biome === 'holographic') {
+      layer = new THREE.Mesh(new THREE.BoxGeometry(lWidth, layerHeight, lDepth), i % 2 === 0 ? bodyMaterial : glassMaterial);
+    } else if (biome === 'forest' || biome === 'volcano') {
+      layer = new THREE.Mesh(new THREE.CylinderGeometry(lWidth * 0.45, lWidth * 0.55, layerHeight, 8), bodyMaterial);
+    } else {
+      layer = new THREE.Mesh(new THREE.BoxGeometry(lWidth, layerHeight, lDepth), bodyMaterial);
     }
-  } 
-  // Data platform low-block forms
-  else if (['blocks', 'financial_district', 'data'].includes(shape)) {
-    bodyWidth *= 1.2; bodyDepth *= 1.2; visualHeight *= 0.6;
-    body = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth, visualHeight, bodyDepth), glassMaterial);
-    top = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth*0.8, visualHeight*0.1, bodyDepth*0.8), topMaterial);
-    top.position.y = visualHeight / 2 + visualHeight*0.05;
-    if (isHighDetail) {
-      const vent = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.2, bodyWidth*0.2, visualHeight*0.2, 16), bodyMaterial);
-      vent.position.y = visualHeight / 2 + visualHeight*0.1;
-      vent.position.x = bodyWidth*0.2;
-      group.add(vent);
-    }
-  }
-  // Cloud infrastructure reactor forms
-  else if (['lava_foundries', 'volcano_forge', 'reactors'].includes(shape)) {
-    bodyWidth *= 1.3; bodyDepth *= 1.3; visualHeight *= 0.8;
-    body = new THREE.Mesh(new THREE.ConeGeometry(bodyWidth*0.4, visualHeight, 6), bodyMaterial);
-    top = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.15, bodyWidth*0.15, visualHeight*0.4, 6), topMaterial);
-    top.position.y = visualHeight / 2 + visualHeight*0.2;
-    if (isHighDetail) {
-      const lava = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.16, bodyWidth*0.16, visualHeight*0.41, 6), new THREE.MeshBasicMaterial({color: '#ff2200', transparent: true, opacity: 0.8}));
-      lava.position.copy(top.position);
-      group.add(lava);
-    }
-  }
-  // AI and distributed-system crystal forms
-  else if (['caves', 'frozen_kingdom', 'crystal_fields', 'crystal_spires'].includes(shape)) {
-    bodyWidth *= 0.8; bodyDepth *= 0.8; visualHeight *= 1.2;
-    body = new THREE.Mesh(new THREE.OctahedronGeometry(bodyWidth, 0), glassMaterial);
-    body.scale.set(1, visualHeight/bodyWidth, 1);
-    top = new THREE.Mesh(new THREE.ConeGeometry(bodyWidth*0.3, visualHeight*0.4, 4), topMaterial);
-    top.position.y = visualHeight / 2 + visualHeight*0.2;
-    if (isHighDetail) {
-      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(bodyWidth*0.5, 0), glassMaterial);
-      shard.position.set(bodyWidth*0.5, visualHeight*0.3, bodyDepth*0.5);
-      shard.rotation.z = Math.PI / 4;
-      group.add(shard);
-    }
-  }
-  // Database, security, and natural cluster forms
-  else if (['giant_trees', 'forest_repository', 'redwood_archive', 'redwood_towers'].includes(shape)) {
-    bodyWidth *= 0.9; bodyDepth *= 0.9; visualHeight *= 1.1;
-    body = new THREE.Mesh(new THREE.CylinderGeometry(bodyWidth*0.3, bodyWidth*0.6, visualHeight, 7), bodyMaterial);
-    top = new THREE.Mesh(new THREE.DodecahedronGeometry(bodyWidth*0.8, 1), topMaterial);
-    top.position.y = visualHeight / 2;
-    if (isHighDetail) {
-      const root = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, visualHeight*0.5, 5), bodyMaterial);
-      root.position.set(bodyWidth*0.4, -visualHeight*0.25, 0);
-      root.rotation.z = -Math.PI / 6;
-      group.add(root);
-    }
-  }
-  // Agent and network signal forms
-  else if (['holographic', 'floating_stations', 'ether_realm', 'holographic_forms'].includes(shape)) {
-    bodyWidth *= 0.9; bodyDepth *= 0.9; visualHeight *= 0.9;
-    body = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth, visualHeight, bodyDepth), glassMaterial);
-    body.position.y += visualHeight * 0.3; // Floating!
-    top = new THREE.Mesh(new THREE.TetrahedronGeometry(bodyWidth*0.6, 0), topMaterial);
-    top.position.y = visualHeight + visualHeight*0.3;
-    if (isHighDetail) {
-      const halo = new THREE.Mesh(new THREE.TorusGeometry(bodyWidth*0.8, 0.05, 16, 32), topMaterial);
-      halo.position.y = visualHeight*0.5;
-      halo.rotation.x = Math.PI / 2;
-      group.add(halo);
-    }
-  }
-  // Base default styles for everything else
-  else {
-    bodyWidth *= 0.8; bodyDepth *= 0.8; visualHeight *= 0.8;
-    body = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth, visualHeight, bodyDepth), bodyMaterial);
-    top = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth*0.9, visualHeight*0.1, bodyDepth*0.9), topMaterial);
-    top.position.y = visualHeight / 2 + visualHeight*0.05;
+    
+    layer.position.y = Z.buildings + layerHeight / 2 + (i * layerHeight);
+    layer.receiveShadow = true;
+    layer.castShadow = true;
+    layer.userData.repoId = repo.id;
+    group.add(layer);
   }
 
-  // Adjust body Y position to sit on ground unless it was explicitly floated
-  if (body.position.y === 0) {
-    body.position.y = visualHeight / 2;
+  // Roof / Top Landmark
+  let top: THREE.Mesh;
+  const topY = Z.buildings + visualHeight * 0.8 + 1.5;
+  if (biome === 'city') {
+    top = new THREE.Mesh(new THREE.CylinderGeometry(0.1, bodyWidth * 0.3, 4, 4), topMaterial);
+  } else if (biome === 'forest') {
+    top = new THREE.Mesh(new THREE.DodecahedronGeometry(bodyWidth * 0.65, 1), topMaterial);
+  } else if (biome === 'volcano') {
+    top = new THREE.Mesh(new THREE.ConeGeometry(bodyWidth * 0.4, 6, 6), topMaterial);
+  } else if (biome === 'crystal' || biome === 'snow') {
+    top = new THREE.Mesh(new THREE.OctahedronGeometry(bodyWidth * 0.5, 0), topMaterial);
+  } else {
+    top = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth * 0.5, 1, bodyDepth * 0.5), topMaterial);
   }
-
-  body.userData.repoId = repo.id;
+  
+  top.position.y = topY;
   top.userData.repoId = repo.id;
-  group.add(body);
   group.add(top);
 
-  // Instanced Windows
-  const showWindows = repo.stars >= 50 && !['lava_foundries', 'volcano_forge', 'giant_trees', 'caves'].includes(shape);
+  // Instanced Windows (City/Arcology only)
+  const showWindows = repo.stars >= 50 && (biome === 'city' || biome === 'arcology');
   let windows: THREE.InstancedMesh;
   if (showWindows) {
-    const windowGeometry = new THREE.PlaneGeometry(0.2, 0.15);
-    const windowMaterial = new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: 0.4, depthWrite: false });
-    const cols = Math.max(1, Math.floor(bodyWidth / 1.5));
-    const rows = Math.max(1, Math.floor(visualHeight / 4));
+    const windowGeometry = new THREE.PlaneGeometry(0.25, 0.18);
+    const windowMaterial = new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: 0.45, depthWrite: false });
+    const cols = Math.max(1, Math.floor(bodyWidth / 1.4));
+    const rows = Math.max(1, Math.floor(visualHeight / 3.5));
     const litWindows = [];
     const dummy = new THREE.Object3D();
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (Math.random() > 0.4) {
-          const wx = -bodyWidth/2 + 0.3 + c * (bodyWidth / cols);
-          const wy = visualHeight*0.2 + r * (visualHeight*0.8 / rows);
-          dummy.position.set(wx, wy, bodyDepth/2 + 0.05);
+        if (seededUnit(index + r * 7 + c) > 0.45) {
+          const wx = -bodyWidth/2 + 0.4 + c * (bodyWidth / cols);
+          const wy = Z.buildings + 2 + r * (visualHeight*0.75 / rows);
+          dummy.position.set(wx, wy, bodyDepth/2 + 0.08);
           dummy.updateMatrix();
           litWindows.push(dummy.matrix.clone());
         }
@@ -5542,7 +5449,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     windows = new THREE.InstancedMesh(windowGeometry, windowMaterial, Math.max(1, litWindows.length));
     litWindows.forEach((mat, i) => windows.setMatrixAt(i, mat));
   } else {
-    windows = new THREE.InstancedMesh(new THREE.PlaneGeometry(0,0), new THREE.MeshBasicMaterial(), 1);
+    windows = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.01,0.01), new THREE.MeshBasicMaterial(), 1);
     windows.visible = false;
   }
   windows.userData.repoId = repo.id;
@@ -5557,7 +5464,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     repo,
     district,
     group,
-    body: body as RepoBuildingMesh,
+    body: group.children[1] as RepoBuildingMesh, // Use first layer as 'body' reference
     top: top as RepoBuildingMesh,
     windows: windows as RepoWindowsMesh,
     beacon,
@@ -5917,22 +5824,51 @@ function createRollingTerrain(scene: THREE.Scene) {
   positions.needsUpdate = true;
   geometry.computeVertexNormals();
 
-  const dayOpacity = 0;
-  const nightOpacity = 0;
-  const terrain = new THREE.Mesh(geometry, createTerrainMaterial('#2f8a4f', dayOpacity, nightOpacity));
+  const grassTexture = generateBiomeTexture('forest', 512);
+  grassTexture.repeat.set(10, 10);
+  const dayOpacity = 0.94;
+  const nightOpacity = 0.8;
+  const terrainMaterial = new THREE.MeshStandardMaterial({
+    map: grassTexture,
+    color: '#3f7a54',
+    roughness: 0.96,
+    metalness: 0,
+    transparent: true,
+    opacity: dayOpacity,
+    depthWrite: true,
+  });
+  terrainMaterial.userData.dayOpacity = dayOpacity;
+  terrainMaterial.userData.nightOpacity = nightOpacity;
+  const terrain = new THREE.Mesh(geometry, terrainMaterial);
   terrain.rotation.x = -Math.PI / 2;
-  terrain.position.y = -0.07;
-  terrain.renderOrder = -2;
+  terrain.position.y = -0.14;
+  terrain.renderOrder = -8;
   markLandscape(terrain, dayOpacity, nightOpacity);
   scene.add(terrain);
   return terrain;
 }
 
-function generateBiomeTexture(biomeType: string, size: number = 512): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+function generateBiomeTexture(
+  biomeType: string,
+  size: number = 512,
+  targetCtx?: CanvasRenderingContext2D | null,
+): THREE.CanvasTexture {
+  let canvas: HTMLCanvasElement;
+  let ctx: CanvasRenderingContext2D;
+  if (targetCtx) {
+    canvas = targetCtx.canvas as HTMLCanvasElement;
+    if (canvas.width !== size || canvas.height !== size) {
+      canvas.width = size;
+      canvas.height = size;
+    }
+    ctx = targetCtx;
+    ctx.clearRect(0, 0, size, size);
+  } else {
+    canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    ctx = canvas.getContext('2d')!;
+  }
 
   if (biomeType === 'lava') {
     // Volcanic cracked rock with lava veins
@@ -6115,302 +6051,827 @@ function generateBiomeTexture(biomeType: string, size: number = 512): THREE.Canv
       ctx.fillRect(0, 0, size, size);
     }
     ctx.globalAlpha = 1;
-  } else {
-    // Default: industrial concrete
-    ctx.fillStyle = '#1c1917';
+  } else if (biomeType === 'rock') {
+    const bed = ctx.createLinearGradient(0, 0, size, size);
+    bed.addColorStop(0, '#7a848f');
+    bed.addColorStop(0.45, '#5c646c');
+    bed.addColorStop(1, '#3f454b');
+    ctx.fillStyle = bed;
     ctx.fillRect(0, 0, size, size);
-    ctx.globalAlpha = 0.2;
-    for (let i = 0; i < 80; i++) {
-      ctx.fillStyle = Math.random() > 0.5 ? '#292524' : '#1c1917';
-      ctx.fillRect(Math.random()*size, Math.random()*size, 4+Math.random()*16, 4+Math.random()*16);
+    ctx.globalAlpha = 0.62;
+    for (let i = 0; i < 240; i += 1) {
+      const x = seededUnit(i + 130.2) * size;
+      const y = seededUnit(i + 131.4) * size;
+      const w = 10 + seededUnit(i + 132.1) * 42;
+      const h = 8 + seededUnit(i + 133.2) * 34;
+      ctx.fillStyle = ['#9ca3af', '#78716c', '#6b7280', '#57534e', '#a8a29e'][i % 5];
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate((seededUnit(i + 134.3) - 0.5) * 0.8);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = '#2f3439';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 90; i += 1) {
+      let x = seededUnit(i + 140.1) * size;
+      let y = seededUnit(i + 141.3) * size;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let step = 0; step < 5; step += 1) {
+        x += (seededUnit(i + step + 142.1) - 0.5) * 28;
+        y += (seededUnit(i + step + 143.2) - 0.5) * 22;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 0.28;
+    for (let i = 0; i < 60; i += 1) {
+      const x = seededUnit(i + 150.1) * size;
+      const y = seededUnit(i + 151.2) * size;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, 8 + seededUnit(i + 152.3) * 18);
+      grad.addColorStop(0, 'rgba(212, 218, 224, 0.5)');
+      grad.addColorStop(1, 'rgba(55, 60, 66, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - 20, y - 20, 40, 40);
+    }
+    ctx.globalAlpha = 1;
+  } else {
+    // Urban asphalt / concrete with worn road lanes
+    const asphalt = ctx.createLinearGradient(0, 0, size, size);
+    asphalt.addColorStop(0, '#3d4248');
+    asphalt.addColorStop(0.5, '#2a2e33');
+    asphalt.addColorStop(1, '#353a40');
+    ctx.fillStyle = asphalt;
+    ctx.fillRect(0, 0, size, size);
+    ctx.globalAlpha = 0.35;
+    for (let i = 0; i < 120; i += 1) {
+      const x = seededUnit(i + 0.4) * size;
+      const y = seededUnit(i + 1.7) * size;
+      const w = 6 + seededUnit(i + 2.3) * 28;
+      const h = 4 + seededUnit(i + 3.1) * 14;
+      ctx.fillStyle = seededUnit(i + 4.2) > 0.5 ? '#4b5563' : '#1f2937';
+      ctx.fillRect(x, y, w, h);
+    }
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = '#9ca3af';
+    ctx.lineWidth = 2;
+    for (let lane = 0; lane < 4; lane += 1) {
+      const y = size * (0.18 + lane * 0.2);
+      ctx.setLineDash([18, 14]);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y + seededUnit(lane + 8.1) * 12);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.18;
+    for (let i = 0; i < 24; i += 1) {
+      const x = seededUnit(i + 20.1) * size;
+      const y = seededUnit(i + 21.4) * size;
+      ctx.fillStyle = '#6b7280';
+      ctx.fillRect(x, y, 3 + seededUnit(i + 22.2) * 8, 2 + seededUnit(i + 23.1) * 6);
     }
     ctx.globalAlpha = 1;
   }
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  return tex;
+  return configureTerrainTexture(new THREE.CanvasTexture(canvas), true);
+}
+
+function configureTerrainTexture(texture: THREE.CanvasTexture, repeat = true) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 4;
+  if (repeat) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+  } else {
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+  }
+  return texture;
+}
+
+const BIOME_LANDSCAPE_TINTS: Record<string, { inner: string; mid: string; outer: string }> = {
+  forest: { inner: 'rgba(52, 150, 96, 0.42)', mid: 'rgba(30, 100, 62, 0.18)', outer: 'rgba(18, 58, 38, 0)' },
+  lava: { inner: 'rgba(220, 90, 32, 0.38)', mid: 'rgba(110, 38, 16, 0.16)', outer: 'rgba(40, 16, 8, 0)' },
+  ice: { inner: 'rgba(200, 232, 255, 0.45)', mid: 'rgba(130, 188, 228, 0.18)', outer: 'rgba(70, 120, 150, 0)' },
+  crystal: { inner: 'rgba(167, 130, 236, 0.36)', mid: 'rgba(100, 62, 190, 0.14)', outer: 'rgba(40, 24, 80, 0)' },
+  concrete: { inner: 'rgba(118, 126, 142, 0.48)', mid: 'rgba(72, 78, 90, 0.2)', outer: 'rgba(36, 40, 48, 0)' },
+  cyber: { inner: 'rgba(56, 189, 248, 0.38)', mid: 'rgba(14, 116, 178, 0.16)', outer: 'rgba(4, 40, 64, 0)' },
+  desert: { inner: 'rgba(210, 178, 120, 0.44)', mid: 'rgba(150, 120, 78, 0.18)', outer: 'rgba(72, 58, 40, 0)' },
+  wasteland: { inner: 'rgba(192, 88, 200, 0.3)', mid: 'rgba(100, 42, 110, 0.12)', outer: 'rgba(32, 12, 40, 0)' },
+};
+
+function worldUvForDistrict(district: District, size: number, worldSpan = 720) {
+  return {
+    x: ((district.x + worldSpan / 2) / worldSpan) * size,
+    y: ((district.z + worldSpan / 2) / worldSpan) * size,
+  };
+}
+
+function createSoftRadialMask(maskSize: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = maskSize;
+  canvas.height = maskSize;
+  const ctx = canvas.getContext('2d')!;
+  const center = maskSize / 2;
+  const gradient = ctx.createRadialGradient(center, center, 0, center, center, center);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.2, 'rgba(255,255,255,0.95)');
+  gradient.addColorStop(0.45, 'rgba(255,255,255,0.62)');
+  gradient.addColorStop(0.68, 'rgba(255,255,255,0.22)');
+  gradient.addColorStop(0.86, 'rgba(255,255,255,0.06)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, maskSize, maskSize);
+  return canvas;
+}
+
+function paintDistantHorizonScapes(ctx: CanvasRenderingContext2D, size: number) {
+  const sky = ctx.createLinearGradient(0, 0, 0, size * 0.52);
+  sky.addColorStop(0, '#8eb8c8');
+  sky.addColorStop(0.18, '#9ec4a8');
+  sky.addColorStop(0.42, '#7faa72');
+  sky.addColorStop(1, 'rgba(90, 128, 88, 0)');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, size, size * 0.55);
+
+  const ridges = [
+    { y: size * 0.14, h: size * 0.1, color: 'rgba(42, 62, 78, 0.55)' },
+    { y: size * 0.2, h: size * 0.12, color: 'rgba(52, 78, 62, 0.48)' },
+    { y: size * 0.28, h: size * 0.14, color: 'rgba(68, 92, 72, 0.38)' },
+  ];
+  ridges.forEach((ridge, index) => {
+    ctx.fillStyle = ridge.color;
+    ctx.beginPath();
+    ctx.moveTo(0, ridge.y + ridge.h);
+    for (let x = 0; x <= size; x += 48) {
+      const wave = Math.sin((x / size) * Math.PI * 4 + index * 1.4) * ridge.h * 0.35;
+      ctx.lineTo(x, ridge.y + wave);
+    }
+    ctx.lineTo(size, size * 0.55);
+    ctx.lineTo(0, size * 0.55);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  ctx.globalAlpha = 0.55;
+  for (let i = 0; i < 14; i += 1) {
+    const x = seededUnit(i + 90.1) * size;
+    const y = seededUnit(i + 91.3) * size * 0.38;
+    const radius = size * (0.08 + seededUnit(i + 92.2) * 0.12);
+    const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    glow.addColorStop(0, ['rgba(220,236,255,0.5)', 'rgba(186,230,253,0.42)', 'rgba(167,243,208,0.38)', 'rgba(196,181,253,0.35)'][i % 4]);
+    glow.addColorStop(0.55, 'rgba(120,160,180,0.12)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function paintVariedLandscapeBase(ctx: CanvasRenderingContext2D, size: number) {
+  const field = ctx.createLinearGradient(0, size * 0.35, 0, size);
+  field.addColorStop(0, '#6d9a62');
+  field.addColorStop(0.35, '#5f8f54');
+  field.addColorStop(0.65, '#7a8e52');
+  field.addColorStop(1, '#425c40');
+  ctx.fillStyle = field;
+  ctx.fillRect(0, size * 0.32, size, size * 0.68);
+
+  const regions = [
+    { x: size * 0.24, y: size * 0.58, r: size * 0.34, inner: 'rgba(48, 110, 68, 0.5)', mid: 'rgba(32, 78, 52, 0.15)' },
+    { x: size * 0.76, y: size * 0.52, r: size * 0.32, inner: 'rgba(92, 98, 112, 0.48)', mid: 'rgba(58, 64, 74, 0.14)' },
+    { x: size * 0.5, y: size * 0.78, r: size * 0.38, inner: 'rgba(108, 128, 68, 0.42)', mid: 'rgba(64, 84, 48, 0.12)' },
+    { x: size * 0.16, y: size * 0.72, r: size * 0.28, inner: 'rgba(88, 128, 148, 0.36)', mid: 'rgba(48, 78, 98, 0.1)' },
+    { x: size * 0.84, y: size * 0.74, r: size * 0.3, inner: 'rgba(188, 148, 92, 0.4)', mid: 'rgba(128, 98, 58, 0.12)' },
+  ];
+  regions.forEach((region) => {
+    const wash = ctx.createRadialGradient(region.x, region.y, 0, region.x, region.y, region.r);
+    wash.addColorStop(0, region.inner);
+    wash.addColorStop(0.6, region.mid);
+    wash.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, size, size);
+  });
+}
+
+function paintBiomeTextureBlends(ctx: CanvasRenderingContext2D, size: number) {
+  const worldSpan = 720;
+  DISTRICTS.forEach((district, index) => {
+    const biome = biomeTypeForDistrict(district);
+    const patchSize = 448;
+    const patch = document.createElement('canvas');
+    patch.width = patchSize;
+    patch.height = patchSize;
+    generateBiomeTexture(biome, patchSize, patch.getContext('2d')!);
+
+    const mask = createSoftRadialMask(patchSize);
+    const masked = document.createElement('canvas');
+    masked.width = patchSize;
+    masked.height = patchSize;
+    const maskedCtx = masked.getContext('2d')!;
+    maskedCtx.drawImage(patch, 0, 0);
+    maskedCtx.globalCompositeOperation = 'destination-in';
+    maskedCtx.drawImage(mask, 0, 0);
+
+    const { x, y } = worldUvForDistrict(district, size, worldSpan);
+    const drawSize = size * (0.19 + seededUnit(index + 80.1) * 0.07);
+    const blendMode = biome === 'lava' || biome === 'cyber' ? 'screen' : 'multiply';
+
+    ctx.save();
+    ctx.globalAlpha = biome === 'ice' ? 0.58 : biome === 'crystal' ? 0.52 : 0.72;
+    ctx.globalCompositeOperation = blendMode;
+    ctx.drawImage(masked, x - drawSize / 2, y - drawSize / 2, drawSize, drawSize);
+    ctx.restore();
+  });
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+}
+
+function paintSoftBiomeWashes(ctx: CanvasRenderingContext2D, size: number) {
+  const worldSpan = 720;
+  DISTRICTS.forEach((district, index) => {
+    const biome = biomeTypeForDistrict(district);
+    const tint = BIOME_LANDSCAPE_TINTS[biome] ?? BIOME_LANDSCAPE_TINTS.concrete;
+    const { x, y } = worldUvForDistrict(district, size, worldSpan);
+    const radius = size * (0.14 + seededUnit(index + 70.4) * 0.06);
+    const stretch = 0.78 + seededUnit(index + 71.8) * 0.34;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, stretch);
+    ctx.rotate(seededUnit(index + 72.5) * Math.PI * 0.35 - Math.PI * 0.175);
+    const wash = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+    wash.addColorStop(0, tint.inner);
+    wash.addColorStop(0.35, tint.mid);
+    wash.addColorStop(0.72, 'rgba(255,255,255,0.04)');
+    wash.addColorStop(1, tint.outer);
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = wash;
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+    ctx.restore();
+  });
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+}
+
+function paintMacroTerrainDetail(ctx: CanvasRenderingContext2D, size: number) {
+  ctx.globalAlpha = 0.38;
+  for (let i = 0; i < 280; i += 1) {
+    const x = seededUnit(i + 0.9) * size;
+    const y = size * 0.38 + seededUnit(i + 1.4) * size * 0.58;
+    const radius = 2 + seededUnit(i + 2.1) * 12;
+    const blade = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    blade.addColorStop(0, ['rgba(134,239,172,0.55)', 'rgba(74,222,128,0.45)', 'rgba(52,211,153,0.38)'][i % 3]);
+    blade.addColorStop(1, 'rgba(47,99,64,0)');
+    ctx.fillStyle = blade;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 0.42;
+  for (let i = 0; i < 160; i += 1) {
+    const x = seededUnit(i + 40.3) * size;
+    const y = size * 0.4 + seededUnit(i + 41.6) * size * 0.55;
+    const radius = 2 + seededUnit(i + 42.4) * 14;
+    const rock = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    rock.addColorStop(0, ['#d1d5db', '#9ca3af', '#78716c', '#57534e'][i % 4]);
+    rock.addColorStop(0.55, 'rgba(68,64,60,0.45)');
+    rock.addColorStop(1, 'rgba(47,99,64,0)');
+    ctx.fillStyle = rock;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 0.22;
+  ctx.strokeStyle = 'rgba(55,65,81,0.35)';
+  ctx.lineWidth = 0.7;
+  for (let i = 0; i < 80; i += 1) {
+    let x = seededUnit(i + 50.1) * size;
+    let y = size * 0.42 + seededUnit(i + 51.3) * size * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let step = 0; step < 5; step += 1) {
+      x += (seededUnit(i + step + 52.1) - 0.5) * 18;
+      y += (seededUnit(i + step + 53.2) - 0.5) * 12;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function paintTerrainGrain(ctx: CanvasRenderingContext2D, size: number) {
+  ctx.globalAlpha = 0.08;
+  for (let i = 0; i < 6000; i += 1) {
+    const x = seededUnit(i + 110.2) * size;
+    const y = seededUnit(i + 111.4) * size;
+    const shade = seededUnit(i + 112.1) > 0.5 ? 255 : 0;
+    ctx.fillStyle = `rgba(${shade},${shade},${shade},0.35)`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function paintHorizonFade(ctx: CanvasRenderingContext2D, size: number) {
+  const mist = ctx.createLinearGradient(0, 0, 0, size * 0.45);
+  mist.addColorStop(0, 'rgba(186, 214, 228, 0.42)');
+  mist.addColorStop(0.55, 'rgba(140, 180, 160, 0.18)');
+  mist.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = mist;
+  ctx.fillRect(0, 0, size, size * 0.48);
+
+  const vignette = ctx.createRadialGradient(size / 2, size * 0.55, size * 0.2, size / 2, size * 0.55, size * 0.72);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(12,24,18,0.22)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, size, size);
+}
+
+function generateWorldFloorTexture() {
+  const size = 2048;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  paintDistantHorizonScapes(ctx, size);
+  paintVariedLandscapeBase(ctx, size);
+  paintBiomeTextureBlends(ctx, size);
+  paintSoftBiomeWashes(ctx, size);
+  paintMacroTerrainDetail(ctx, size);
+  paintTerrainGrain(ctx, size);
+  paintHorizonFade(ctx, size);
+
+  return configureTerrainTexture(new THREE.CanvasTexture(canvas), false);
 }
 
 function biomeTypeForDistrict(district: District): string {
   const k = district.key;
-  if (k === 'volcano_forge') return 'lava';
-  if (k === 'frozen_kingdom') return 'ice';
+  if (k === 'volcano_forge') return 'volcano';
+  if (k === 'frozen_kingdom') return 'snow';
   if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins', 'redwood_archive'].includes(k)) return 'forest';
-  if (['crystal_fields', 'ether_realm', 'floating_island'].includes(k)) return 'crystal';
-  if (['ruined_empire', 'corruption_wasteland'].includes(k)) return 'wasteland';
+  if (['crystal_fields', 'ether_realm'].includes(k)) return 'crystal';
+  if (k === 'floating_island') return 'floating';
   if (['nomad_camps', 'valley_villages', 'coastal_fishing'].includes(k)) return 'desert';
-  if (['neon_alley', 'tech_suburbs', 'canyon_networks'].includes(k)) return 'cyber';
-  return 'concrete';
+  if (['neon_alley', 'tech_suburbs', 'canyon_networks', 'corruption_wasteland'].includes(k)) return 'holographic';
+  if (k === 'vertical_arcology') return 'arcology';
+  if (k === 'skyline_core') return 'city';
+  return 'city';
+}
+
+function placeOnTerrain(x: number, z: number, lift = 0) {
+  return getTerrainSurfaceY(x, z) + lift;
+}
+
+function createDistrictLabel(scene: THREE.Scene, district: District) {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  const width = 512;
+  const height = 128;
+  canvas.width = width;
+  canvas.height = height;
+
+  if (context) {
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = 'rgba(2, 6, 23, 0.88)';
+    context.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+    context.lineWidth = 4;
+    context.roundRect(10, 10, width - 20, height - 20, 24);
+    context.fill();
+    context.stroke();
+    
+    context.font = 'bold 38px Inter, sans-serif';
+    context.fillStyle = '#f8fafc';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(district.label.toUpperCase(), width / 2, height / 2);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+  const sprite = new THREE.Sprite(material);
+  
+  const x = district.x;
+  const z = district.z;
+  const h = sampleTerrainHeight(x, z);
+  const y = TERRAIN_BASE_Y + h + 50 + Z.labels;
+  
+  sprite.position.set(x, y, z);
+  sprite.scale.set(32, 8, 1);
+  sprite.renderOrder = 10;
+  scene.add(sprite);
+  return sprite;
 }
 
 function createDistrictLandscaping(scene: THREE.Scene, district: District, districtIndex: number) {
   const centerX = district.x;
-  const centerZ = district.z + 2;
+  const centerZ = district.z;
   const biome = biomeTypeForDistrict(district);
+  const propSeed = districtIndex * 23.4;
 
-  // Soft, organic biome patch for this district.
-  const groundTex = generateBiomeTexture(biome, 512);
-  groundTex.repeat.set(2, 2);
-  const groundSize = 100;
-  const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(groundSize * 0.56, 56),
-    new THREE.MeshStandardMaterial({
-      map: groundTex,
-      roughness: 0.9,
-      metalness: biome === 'cyber' ? 0.3 : 0.05,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-    }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.rotation.z = seededUnit(districtIndex + 5.91) * Math.PI;
-  ground.scale.set(1.16 + seededUnit(districtIndex + 8.4) * 0.22, 0.82 + seededUnit(districtIndex + 11.2) * 0.18, 1);
-  ground.position.set(centerX, -0.42, centerZ);
-  ground.renderOrder = -1;
-  scene.add(ground);
+  createDistrictLabel(scene, district);
 
-  // Soft biome edge shadow, kept subtle so districts feel like terrain rather than tokens.
-  const fadeRing = new THREE.Mesh(
-    new THREE.RingGeometry(groundSize * 0.48, groundSize * 0.56, 48),
-    new THREE.MeshBasicMaterial({
-      color: '#071019',
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-    }),
-  );
-  fadeRing.rotation.x = -Math.PI / 2;
-  fadeRing.scale.copy(ground.scale);
-  fadeRing.position.set(centerX, -0.4, centerZ);
-  scene.add(fadeRing);
+  // Procedural Clutter Layers
+  const clutterCount = 24 + (districtIndex % 5) * 8;
+  for (let i = 0; i < clutterCount; i++) {
+    const angle = (i / clutterCount) * Math.PI * 2 + seededUnit(propSeed + i) * 0.5;
+    const dist = 40 + seededUnit(propSeed + i + 10) * 85;
+    const px = centerX + Math.cos(angle) * dist;
+    const pz = centerZ + Math.sin(angle) * dist;
+    const baseY = placeOnTerrain(px, pz);
 
-  // 3D Environmental props per biome
-  if (biome === 'lava') {
-    // Lava pools
-    for (let i = 0; i < 6; i++) {
-      const pool = new THREE.Mesh(
-        new THREE.CircleGeometry(3 + Math.random() * 5, 16),
-        new THREE.MeshBasicMaterial({ color: '#ff3300', transparent: true, opacity: 0.7 }),
-      );
-      pool.rotation.x = -Math.PI / 2;
-      pool.position.set(centerX + (Math.random()-0.5)*60, 0.05, centerZ + (Math.random()-0.5)*60);
-      scene.add(pool);
-    }
-    // Rock pillars
-    for (let i = 0; i < 8; i++) {
-      const rock = new THREE.Mesh(
-        new THREE.ConeGeometry(1.5 + Math.random()*2, 3 + Math.random()*5, 5),
-        new THREE.MeshStandardMaterial({ color: '#292524', roughness: 0.95 }),
-      );
-      rock.position.set(centerX + (Math.random()-0.5)*70, 1.5, centerZ + (Math.random()-0.5)*70);
-      scene.add(rock);
-    }
-  } else if (biome === 'ice') {
-    // Ice shards sticking up
-    for (let i = 0; i < 12; i++) {
+    if (biome === 'volcano') {
+      // Lava vents and scorched rocks
+      if (i % 6 === 0) {
+        const vent = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.8, 1.5, 1.2, 6),
+          new THREE.MeshStandardMaterial({ color: '#1a0a05', roughness: 0.9 })
+        );
+        vent.position.set(px, baseY + 0.6, pz);
+        scene.add(vent);
+        const glow = new THREE.Mesh(
+          new THREE.CircleGeometry(0.6, 8),
+          new THREE.MeshBasicMaterial({ color: '#ff4400', transparent: true, opacity: 0.8 })
+        );
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.set(px, baseY + 1.25, pz);
+        scene.add(glow);
+      } else {
+        const rock = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.5 + seededUnit(propSeed + i) * 1.5, 0),
+          new THREE.MeshStandardMaterial({ color: '#2d1a10', roughness: 0.95 })
+        );
+        rock.position.set(px, baseY + 0.2, pz);
+        rock.rotation.set(seededUnit(i), seededUnit(i+1), seededUnit(i+2));
+        scene.add(rock);
+      }
+    } else if (biome === 'snow') {
+      // Ice shards and frozen rubble
       const shard = new THREE.Mesh(
-        new THREE.ConeGeometry(0.8+Math.random()*1.5, 4+Math.random()*8, 4),
-        new THREE.MeshStandardMaterial({ color: '#bae6fd', roughness: 0.15, metalness: 0.6, transparent: true, opacity: 0.7 }),
+        new THREE.ConeGeometry(0.4 + seededUnit(i) * 0.8, 2 + seededUnit(i+1) * 4, 4),
+        new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.1, metalness: 0.5, transparent: true, opacity: 0.6 })
       );
-      shard.position.set(centerX + (Math.random()-0.5)*80, 2, centerZ + (Math.random()-0.5)*80);
-      shard.rotation.z = (Math.random()-0.5)*0.3;
+      shard.position.set(px, baseY + 1, pz);
+      shard.rotation.z = (seededUnit(i+2) - 0.5) * 1.5;
       scene.add(shard);
-    }
-  } else if (biome === 'forest') {
-    // Undergrowth mounds
-    for (let i = 0; i < 10; i++) {
-      const mound = new THREE.Mesh(
-        new THREE.SphereGeometry(3+Math.random()*4, 8, 6),
-        new THREE.MeshStandardMaterial({ color: ['#166534','#14532d','#064e3b'][i%3], roughness: 0.95 }),
+    } else if (biome === 'forest') {
+      // Roots and mossy boulders
+      if (i % 4 === 0) {
+        const root = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.1, 0.4, 8, 5),
+          new THREE.MeshStandardMaterial({ color: '#2d1a10', roughness: 0.9 })
+        );
+        root.position.set(px, baseY, pz);
+        root.rotation.set(Math.PI / 2, seededUnit(i) * Math.PI, (seededUnit(i+1) - 0.5) * 0.4);
+        scene.add(root);
+      } else {
+        const boulder = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(1 + seededUnit(i) * 2, 1),
+          new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.98 })
+        );
+        boulder.position.set(px, baseY + 0.5, pz);
+        scene.add(boulder);
+      }
+    } else if (biome === 'crystal') {
+      // Floating crystal fragments
+      const fragment = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.3 + seededUnit(i) * 0.7, 0),
+        new THREE.MeshStandardMaterial({ color: '#a78bfa', roughness: 0, metalness: 0.9, transparent: true, opacity: 0.8 })
       );
-      mound.position.set(centerX + (Math.random()-0.5)*80, 0.5, centerZ + (Math.random()-0.5)*80);
-      mound.scale.y = 0.4;
-      scene.add(mound);
-    }
-    // Small mushroom/plant shapes
-    for (let i = 0; i < 6; i++) {
-      const stem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.2, 0.3, 2+Math.random()*3, 6),
-        new THREE.MeshStandardMaterial({ color: '#854d0e', roughness: 0.9 }),
-      );
-      const cap = new THREE.Mesh(
-        new THREE.SphereGeometry(1+Math.random(), 8, 6),
-        new THREE.MeshStandardMaterial({ color: '#15803d', roughness: 0.8 }),
-      );
-      const x = centerX + (Math.random()-0.5)*70;
-      const z = centerZ + (Math.random()-0.5)*70;
-      stem.position.set(x, 1.5, z);
-      cap.position.set(x, 3 + Math.random()*2, z);
-      cap.scale.y = 0.5;
-      scene.add(stem, cap);
-    }
-  } else if (biome === 'crystal') {
-    // Floating crystal clusters
-    for (let i = 0; i < 8; i++) {
-      const crystal = new THREE.Mesh(
-        new THREE.OctahedronGeometry(1.5+Math.random()*2, 0),
-        new THREE.MeshStandardMaterial({ color: ['#a78bfa','#c084fc','#06b6d4'][i%3], roughness: 0.1, metalness: 0.7, transparent: true, opacity: 0.8 }),
-      );
-      crystal.position.set(centerX + (Math.random()-0.5)*70, 1+Math.random()*4, centerZ + (Math.random()-0.5)*70);
-      crystal.rotation.set(Math.random(), Math.random(), Math.random());
-      scene.add(crystal);
-    }
-  } else if (biome === 'wasteland') {
-    // Broken slabs
-    for (let i = 0; i < 10; i++) {
+      fragment.position.set(px, baseY + 2 + seededUnit(i+1) * 6, pz);
+      fragment.rotation.set(seededUnit(i+2), seededUnit(i+3), seededUnit(i+4));
+      scene.add(fragment);
+    } else if (biome === 'city' || biome === 'arcology') {
+      // Industrial debris and urban clutter
       const slab = new THREE.Mesh(
-        new THREE.BoxGeometry(4+Math.random()*6, 0.5+Math.random()*2, 3+Math.random()*5),
-        new THREE.MeshStandardMaterial({ color: '#44403c', roughness: 0.9 }),
+        new THREE.BoxGeometry(2 + seededUnit(i) * 4, 0.2, 1.5 + seededUnit(i+1) * 3),
+        new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.8 })
       );
-      slab.position.set(centerX + (Math.random()-0.5)*70, 0.5, centerZ + (Math.random()-0.5)*70);
-      slab.rotation.set((Math.random()-0.5)*0.4, Math.random()*Math.PI, (Math.random()-0.5)*0.3);
+      slab.position.set(px, baseY + 0.1, pz);
+      slab.rotation.y = seededUnit(i+2) * Math.PI;
       scene.add(slab);
     }
-  } else if (biome === 'cyber') {
-    // Holographic panels
-    for (let i = 0; i < 5; i++) {
-      const panel = new THREE.Mesh(
-        new THREE.PlaneGeometry(3+Math.random()*4, 2+Math.random()*3),
-        new THREE.MeshBasicMaterial({ color: ['#0ea5e9','#38bdf8','#06b6d4'][i%3], transparent: true, opacity: 0.15, side: THREE.DoubleSide }),
-      );
-      panel.position.set(centerX + (Math.random()-0.5)*60, 3+Math.random()*5, centerZ + (Math.random()-0.5)*60);
-      panel.rotation.y = Math.random() * Math.PI;
-      scene.add(panel);
-    }
   }
+
+  // Environmental Storytelling: Collapsed structures
+  if (districtIndex % 3 === 0) {
+    const px = centerX + 110;
+    const pz = centerZ - 40;
+    const baseY = placeOnTerrain(px, pz);
+    const ruin = new THREE.Mesh(
+      new THREE.BoxGeometry(12, 4, 8),
+      new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.9 })
+    );
+    ruin.position.set(px, baseY + 1, pz);
+    ruin.rotation.set(0.4, 0.2, 0.1);
+    scene.add(ruin);
+  }
+}
+    const TERRAIN_BASE_Y = -1.5;
+
+const TERRAIN_PLAY_EXTENT = 2800;
+
+function noise2D(x: number, z: number) {
+  const i = Math.floor(x);
+  const j = Math.floor(z);
+  const fx = x - i;
+  const fz = z - j;
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fz * fz * (3 - 2 * fz);
+  const a = seededUnit(i + j * 57);
+  const b = seededUnit(i + 1 + j * 57);
+  const c = seededUnit(i + (j + 1) * 57);
+  const d = seededUnit(i + 1 + (j + 1) * 57);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+function fbm(x: number, z: number, octaves = 3) {
+  let value = 0;
+  let amplitude = 0.5;
+  let frequency = 0.008;
+  for (let i = 0; i < octaves; i++) {
+    value += amplitude * noise2D(x * frequency, z * frequency);
+    frequency *= 2.1;
+    amplitude *= 0.45;
+  }
+  return value;
+}
+
+function sampleTerrainHeight(worldX: number, worldZ: number) {
+  // 1. Macro-scale foundational geography (Global mountains & valleys)
+  let height = fbm(worldX * 0.7, worldZ * 0.7, 5) * 12;
+  
+  // Massive ridge line across the world
+  const ridge = Math.abs(noise2D(worldX * 0.003, worldZ * 0.003) - 0.5) * 45;
+  height += Math.pow(Math.max(0, 1 - ridge / 10), 2) * 25;
+
+  // 2. Biome-specific hand-crafted features
+  DISTRICTS.forEach((district, index) => {
+    const biome = biomeTypeForDistrict(district);
+    const centerX = district.x;
+    const centerZ = district.z;
+    const dx = worldX - centerX;
+    const dz = worldZ - centerZ;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    
+    if (biome === 'volcano') {
+      const radius = 160;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        // Massive Caldera: high rim, depressed center
+        const rim = Math.pow(Math.sin(t * Math.PI), 1.2) * 45;
+        const crater = (dist < 45) ? -15 * (1 - dist / 45) : 0;
+        height += (rim + crater) * t;
+        // Lava channels
+        const angle = Math.atan2(dz, dx);
+        const channel = Math.sin(angle * 4 + fbm(worldX * 0.05, worldZ * 0.05) * 3);
+        if (channel > 0.88) height -= 4 * t;
+      }
+    } else if (biome === 'snow') {
+      const radius = 180;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        // Glacial shelves: stepped terraces
+        const steps = Math.floor(t * 8) / 8;
+        height += steps * 42 + fbm(worldX * 0.1, worldZ * 0.1) * 6 * t;
+        // Icy cliffs
+        if (Math.sin(dist * 0.12) > 0.94) height += 18 * t;
+      }
+    } else if (biome === 'city') {
+      const radius = 140;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        // Urban Plateaus: flat raised areas
+        const plateau = Math.pow(t, 0.4) * 15;
+        const grid = (Math.abs(Math.sin(worldX * 0.12)) > 0.9 || Math.abs(Math.sin(worldZ * 0.12)) > 0.9) ? 1.5 : 0;
+        height += plateau + grid;
+      }
+    } else if (biome === 'crystal') {
+      const radius = 150;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        // Fractured Crater: jagged spikes and depressions
+        const spikes = Math.pow(noise2D(worldX * 0.2, worldZ * 0.2), 3) * 22;
+        const crater = Math.pow(t, 2) * 8;
+        height += (spikes - crater) * t;
+      }
+    } else if (biome === 'forest') {
+      const radius = 170;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        // Organic uneven topology: knolls and roots
+        const roots = fbm(worldX * 0.15, worldZ * 0.15, 4) * 12;
+        const knolls = Math.pow(Math.sin(dist * 0.08), 2) * 8;
+        height += (roots + knolls) * t;
+      }
+    } else if (biome === 'floating') {
+      const radius = 120;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        // Depressions in terrain below floating islands
+        height -= Math.pow(t, 1.5) * 12;
+      }
+    } else {
+      const radius = 100;
+      if (dist < radius) {
+        const t = 1 - dist / radius;
+        height += Math.pow(t, 1.8) * 12;
+      }
+    }
+  });
+
+  // 3. Medium-scale detail (Erosion, paths, riverbeds)
+  const erosion = fbm(worldX * 0.04, worldZ * 0.04, 2) * 4;
+  height += erosion;
+
+  // 4. Micro-scale grain
+  const grain = (seededUnit(Math.floor(worldX * 8.5 + worldZ * 5.2)) - 0.5) * 0.25;
+  height += grain;
+
+  return Math.max(0, height);
+}
+
+function getTerrainSurfaceY(worldX: number, worldZ: number) {
+  return TERRAIN_BASE_Y + sampleTerrainHeight(worldX, worldZ);
+}
+
+function getTerrainColor(x: number, z: number, h: number) {
+  let nearestDist = Infinity;
+  let secondNearestDist = Infinity;
+  let nearestDistrict = DISTRICTS[0];
+  let secondNearestDistrict = DISTRICTS[0];
+
+  DISTRICTS.forEach((d) => {
+    const dx = x - d.x;
+    const dz = z - d.z;
+    const dist = dx * dx + dz * dz;
+    if (dist < nearestDist) {
+      secondNearestDist = nearestDist;
+      secondNearestDistrict = nearestDistrict;
+      nearestDist = dist;
+      nearestDistrict = d;
+    } else if (dist < secondNearestDist) {
+      secondNearestDist = dist;
+      secondNearestDistrict = d;
+    }
+  });
+
+  const biome1 = biomeTypeForDistrict(nearestDistrict);
+  const biome2 = biomeTypeForDistrict(secondNearestDistrict);
+  
+  const blend = clamp(1 - nearestDist / (nearestDist + secondNearestDist + 0.1), 0, 1);
+  const mixFactor = Math.pow(blend, 2) * (3 - 2 * blend);
+
+  const getColorForBiome = (biome: string) => {
+    const slate = new THREE.Color('#475569');
+    const concrete = new THREE.Color('#94a3b8');
+    const earth = new THREE.Color('#71717a');
+
+    if (biome === 'volcano') {
+      const lavaFlow = Math.sin(x * 0.12 + z * 0.08 + fbm(x * 0.1, z * 0.1) * 4);
+      if (lavaFlow > 0.85) return new THREE.Color('#b91c1c').lerp(new THREE.Color('#450a0a'), 0.2); // Grounded ember
+      return new THREE.Color('#1c1917'); // Obsidian / Ash
+    }
+    if (biome === 'snow') {
+      const rockMelt = fbm(x * 0.2, z * 0.2, 3);
+      if (rockMelt > 0.72) return slate.clone().lerp(new THREE.Color('#1e293b'), 0.5); // Slate rock
+      return new THREE.Color('#f1f5f9').lerp(new THREE.Color('#cbd5e1'), 0.15); // Icy white
+    }
+    if (biome === 'forest') {
+      const moss = fbm(x * 0.3, z * 0.3, 2);
+      return new THREE.Color(moss > 0.6 ? '#14532d' : '#365314').lerp(earth, 0.4); // Deep moss/pine
+    }
+    if (biome === 'crystal') {
+      const fracture = Math.abs(noise2D(x * 0.2, z * 0.2) - 0.5);
+      if (fracture < 0.04) return new THREE.Color('#4c1d95'); // Deep mineral purple
+      return new THREE.Color('#0f172a'); // Quartz slate
+    }
+    if (biome === 'desert') {
+      return new THREE.Color('#d97706').lerp(new THREE.Color('#92400e'), 0.3).lerp(concrete, 0.4); // Sandstone/clay
+    }
+    if (biome === 'holographic') {
+      return new THREE.Color('#082f49'); // Steel blue/glass
+    }
+    return concrete.clone().lerp(earth, 0.3); // City concrete
+  };
+
+  const color1 = getColorForBiome(biome1);
+  const color2 = getColorForBiome(biome2);
+  const finalColor = color1.lerp(color2, mixFactor);
+
+  const shade = clamp(h * 0.038, 0, 0.42);
+  finalColor.multiplyScalar(1 - shade);
+
+  return finalColor;
+}
+
+function createBiomeTerrain(scene: THREE.Scene) {
+  const extent = TERRAIN_PLAY_EXTENT;
+  const res = 320;
+  const geometry = new THREE.PlaneGeometry(extent, extent, res, res);
+  const positions = geometry.attributes.position as THREE.BufferAttribute;
+  const colors = new THREE.BufferAttribute(new Float32Array(positions.count * 3), 3);
+  geometry.setAttribute('color', colors);
+
+  for (let i = 0; i < positions.count; i += 1) {
+    const x = positions.getX(i);
+    const z = positions.getY(i);
+    const h = sampleTerrainHeight(x, z);
+    positions.setZ(i, h);
+
+    const color = getTerrainColor(x, z, h);
+    colors.setXYZ(i, color.r, color.g, color.b);
+  }
+
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+
+  const terrain = new THREE.Mesh(
+    geometry,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.85,
+      metalness: 0.12,
+      emissive: '#05080a',
+      emissiveIntensity: 0.05,
+    }),
+  );
+  terrain.rotation.x = -Math.PI / 2;
+  terrain.position.y = TERRAIN_BASE_Y + Z.terrain;
+  terrain.receiveShadow = true;
+  terrain.renderOrder = -8;
+  terrain.userData.role = 'terrain';
+  scene.add(terrain);
+  return terrain;
 }
 
 function createGround(scene: THREE.Scene) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d')!;
+  // Main organic terrain
+  createBiomeTerrain(scene);
 
-  // Painterly atlas terrain base
-  const base = ctx.createLinearGradient(0, 0, 512, 512);
-  base.addColorStop(0, '#2e4a3d');
-  base.addColorStop(0.38, '#315343');
-  base.addColorStop(0.72, '#1f342c');
-  base.addColorStop(1, '#15251f');
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, 512, 512);
-
-  ctx.globalAlpha = 0.12;
-  for (let i = 0; i < 120; i += 1) {
-    const x = seededUnit(i + 0.31) * 512;
-    const y = seededUnit(i + 4.73) * 512;
-    const width = 22 + seededUnit(i + 7.19) * 72;
-    const height = 5 + seededUnit(i + 9.41) * 18;
-    ctx.fillStyle = i % 3 === 0 ? '#3f6f55' : i % 3 === 1 ? '#27473f' : '#4d5938';
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate((seededUnit(i + 12.4) - 0.5) * 0.9);
-    roundRect(ctx, -width / 2, -height / 2, width, height, 8);
-    ctx.fill();
-    ctx.restore();
-  }
-  ctx.globalAlpha = 0.035;
-  ctx.strokeStyle = '#9ec7b8';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 512; i += 64) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i + 28, 512);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(4, 4);
-
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(4000, 4000, 1, 1),
-    new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 0.12,
-    }),
+  // Far distant floor for horizon
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(8000, 8000, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#040606', roughness: 1, metalness: 0 }),
   );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -1.5;
-  ground.receiveShadow = true;
-  ground.userData.role = 'ground';
-  scene.add(ground);
-
-  createRollingTerrain(scene);
-
-  const grid = new THREE.GridHelper(4000, 120, '#d8fff2', '#315d52');
-  grid.userData.role = 'grid';
-  const gridMaterial = grid.material as THREE.Material;
-  gridMaterial.transparent = true;
-  gridMaterial.opacity = 0.008;
-  grid.position.y = -0.75;
-  scene.add(grid);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = TERRAIN_BASE_Y - 5;
+  floor.renderOrder = -10;
+  scene.add(floor);
 
   DISTRICTS.forEach((district, districtIndex) => {
-    const isNature = ['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins'].includes(district.key);
-    const isLava = district.key === 'volcano_forge';
-    const isIce = district.key === 'frozen_kingdom';
-
-    let planeColor = district.color;
-    if (isNature) planeColor = '#064e3b';
-    if (isLava) planeColor = '#450a0a';
-    if (isIce) planeColor = '#e0f2fe';
-
-    const plane = new THREE.Mesh(
-      new THREE.CircleGeometry(54, 48),
-      new THREE.MeshBasicMaterial({
-        color: planeColor,
-        transparent: true,
-        opacity: isNature ? 0.016 : 0.012,
-        depthWrite: false,
-      }),
-    );
-    plane.rotation.x = -Math.PI / 2;
-    plane.rotation.z = seededUnit(districtIndex + 13.7) * Math.PI;
-    plane.scale.set(1.2 + seededUnit(districtIndex + 15.1) * 0.25, 0.84 + seededUnit(districtIndex + 16.8) * 0.18, 1);
-    plane.position.set(district.x, -0.2, district.z + 2);
-    plane.userData.role = 'district-plane';
-    scene.add(plane);
-
     createDistrictLandscaping(scene, district, districtIndex);
   });
 }
 
+
 function createMountainBackdrop(scene: THREE.Scene) {
   const group = new THREE.Group();
   const mountainMaterial = new THREE.MeshStandardMaterial({
-    color: '#233347',
-    roughness: 0.86,
-    metalness: 0.02,
-    emissive: '#0d1b2b',
-    emissiveIntensity: 0.03,
+    color: '#0f172a',
+    roughness: 0.9,
+    metalness: 0.1,
+    emissive: '#020617',
+    emissiveIntensity: 0.05,
   });
   const snowMaterial = new THREE.MeshStandardMaterial({
-    color: '#d9e8f2',
-    roughness: 0.72,
-    metalness: 0.02,
+    color: '#f8fafc',
+    roughness: 0.5,
   });
 
-  for (let i = 0; i < 22; i += 1) {
-    const width = 26 + seededUnit(i + 0.2) * 42;
-    const height = 18 + seededUnit(i + 1.8) * 48;
-    const x = -650 + i * 62 + seededUnit(i + 3.6) * 28;
-    const z = -900 - seededUnit(i + 4.4) * 170;
-    const mountain = new THREE.Mesh(new THREE.ConeGeometry(width, height, 6), mountainMaterial);
-    mountain.position.set(x, height / 2 - 20, z);
-    mountain.rotation.y = seededUnit(i + 5.1) * Math.PI;
+  for (let i = 0; i < 32; i += 1) {
+    const seed = i * 14.7;
+    const width = 120 + seededUnit(seed) * 250;
+    const height = 80 + seededUnit(seed + 1) * 320;
+    const x = -1500 + i * 100 + seededUnit(seed + 2) * 50;
+    const z = -1800 - seededUnit(seed + 3) * 400;
+    
+    const mountain = new THREE.Mesh(
+      new THREE.ConeGeometry(width, height, 4 + Math.floor(seededUnit(seed+4)*3)),
+      mountainMaterial
+    );
+    mountain.position.set(x, height / 2 - 50, z);
+    mountain.rotation.y = seededUnit(seed + 5) * Math.PI;
     group.add(mountain);
 
-    const snow = new THREE.Mesh(new THREE.ConeGeometry(width * 0.24, height * 0.11, 6), snowMaterial);
-    snow.position.set(x, height * 0.78 - 16, z);
-    snow.rotation.y = mountain.rotation.y;
-    group.add(snow);
+    if (height > 200) {
+      const snow = new THREE.Mesh(
+        new THREE.ConeGeometry(width * 0.3, height * 0.15, 4),
+        snowMaterial
+      );
+      snow.position.set(x, height * 0.82 - 50, z);
+      snow.rotation.y = mountain.rotation.y;
+      group.add(snow);
+    }
   }
 
   group.userData.role = 'mountains';
@@ -6568,13 +7029,16 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const bow = (seededUnit(seed) - 0.5) * clamp(distance * 0.24, 6, 24) + (laneIndex - 0.5) * 2.8;
     const midX = (p1.x + p2.x) / 2 + normal.x * bow;
     const midZ = (p1.z + p2.z) / 2 + normal.z * bow;
-    const start = new THREE.Vector3(p1.x, 0.18, p1.z);
-    const end = new THREE.Vector3(p2.x, 0.18, p2.z);
+    const startY = getTerrainSurfaceY(p1.x, p1.z) + 0.22;
+    const endY = getTerrainSurfaceY(p2.x, p2.z) + 0.22;
+    const midY = getTerrainSurfaceY(midX, midZ) + 0.35 + flowStrength * 0.15;
+    const start = new THREE.Vector3(p1.x, startY + Z.roads, p1.z);
+    const end = new THREE.Vector3(p2.x, endY + Z.roads, p2.z);
     const curve = new THREE.CatmullRomCurve3([
       start,
-      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, 0.2 + flowStrength * 0.08, p1.z * 0.72 + midZ * 0.28),
-      new THREE.Vector3(midX, 0.22 + flowStrength * 0.1, midZ),
-      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, 0.2 + flowStrength * 0.08, p2.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, startY + flowStrength * 0.12 + Z.roads, p1.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(midX, midY + Z.roads, midZ),
+      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, endY + flowStrength * 0.12 + Z.roads, p2.z * 0.72 + midZ * 0.28),
       end,
     ]);
 
@@ -6584,6 +7048,9 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       opacity: baseOpacity,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
     });
     roadMaterial.userData.filteredOpacity = baseOpacity;
 
@@ -6620,7 +7087,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const labelTexture = makeSpriteTexture(flowLabel, 'PR flow', pathColor, 260, 72);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
     const labelPoint = curve.getPointAt(0.5);
-    label.position.set(labelPoint.x, 2.1 + flowStrength * 0.5, labelPoint.z);
+    label.position.set(labelPoint.x, 3.2 + flowStrength * 0.8 + Z.labels, labelPoint.z);
     label.scale.set(5.2, 1.45, 1);
     label.visible = source.repo.prs.length > 0 || flowStrength > 0.72;
     scene.add(label);
