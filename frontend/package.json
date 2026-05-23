@@ -6,7 +6,8 @@
     "dev": "rm -rf .next && concurrently \"next dev\" \"cd ../backend && python3 -m uvicorn app.main:app --reload --port 8000\"",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:atlas": "node scripts/atlas-smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.26.0",

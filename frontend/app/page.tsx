@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { Activity, Github, GitPullRequest, HelpCircle, Moon, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, MouseEvent, PointerEvent, WheelEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 
 type DistrictKey = string;
 type FilterKey = DistrictKey | 'stars' | 'safe' | 'all';
@@ -80,6 +80,7 @@ type BackendPrFlowResponse = {
 type Repo = {
   id: string;
   backendId?: number;
+  backendDomain?: string;
   name: string;
   owner: string;
   district: DistrictKey;
@@ -162,8 +163,29 @@ type GraphRepositoryNode = {
   safetyUnknowns?: string[];
 };
 
+type GraphClusterNode = {
+  id?: string;
+  name?: string;
+  group?: string;
+  nodeType?: string;
+  repoCount?: number;
+  stars?: number;
+};
+
+type GraphNode = GraphRepositoryNode | GraphClusterNode;
+
+type GraphLink = {
+  source?: string;
+  target?: string;
+  type?: string;
+};
+
 type GraphFullResponse = {
-  nodes?: GraphRepositoryNode[];
+  nodes?: GraphNode[];
+  links?: GraphLink[];
+  meta?: {
+    groupBy?: string;
+  };
 };
 
 type RepoBuildingMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
@@ -516,6 +538,10 @@ function isGraphRepositoryNode(node: GraphRepositoryNode) {
   return node.group === 'repository' || node.nodeType === 'repository';
 }
 
+function isGraphClusterNode(node: GraphNode): node is GraphClusterNode {
+  return node.nodeType === 'cluster';
+}
+
 function backendRepoIdFromGraphNode(node: GraphRepositoryNode) {
   const match = /^repo_(\d+)$/.exec(node.id ?? '');
   return match ? Number(match[1]) : undefined;
@@ -632,6 +658,39 @@ function applyBackendPrFlow(repo: Repo, summary?: BackendPrFlowSummary): Repo {
     openPRs: Math.max(repo.openPRs, summary.openCount),
     prs: prs.length ? prs : repo.prs,
   };
+}
+
+function enrichReposWithBackendDomains(
+  repos: Repo[],
+  nodes: GraphNode[] = [],
+  links: GraphLink[] = [],
+) {
+  const clusterById = new Map(
+    nodes
+      .filter(isGraphClusterNode)
+      .filter((node) => Boolean(node.id))
+      .map((node) => [node.id as string, node]),
+  );
+
+  if (!clusterById.size || !links.length) return repos;
+
+  const domainByRepoNodeId = new Map<string, string>();
+  for (const link of links) {
+    const source = String(link.source ?? '');
+    const target = String(link.target ?? '');
+    if (!source || !target || !target.startsWith('repo_')) continue;
+    const cluster = clusterById.get(source);
+    if (!cluster?.name) continue;
+    if (link.type && !link.type.startsWith('grouped_by_')) continue;
+    domainByRepoNodeId.set(target, cluster.name);
+  }
+
+  if (!domainByRepoNodeId.size) return repos;
+
+  return repos.map((repo) => {
+    const domain = repo.backendId ? domainByRepoNodeId.get(`repo_${repo.backendId}`) : undefined;
+    return domain ? { ...repo, backendDomain: domain } : repo;
+  });
 }
 
 const REPOS: Repo[] = [
@@ -789,6 +848,21 @@ const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'ruined_empire',
   'canyon_networks',
 ]);
+
+const ATLAS_DISTRICT_POSITIONS: Partial<Record<DistrictKey, { left: number; top: number }>> = {
+  skyline_core: { left: 34.8, top: 11.7 },
+  vertical_arcology: { left: 54.8, top: 15.0 },
+  volcano_forge: { left: 70.7, top: 17.8 },
+  redwood_archive: { left: 13.8, top: 34.6 },
+  financial_district: { left: 34.9, top: 35.0 },
+  forest_repository: { left: 50.9, top: 39.0 },
+  crystal_fields: { left: 67.1, top: 37.4 },
+  frozen_kingdom: { left: 84.5, top: 62.8 },
+  nomad_camps: { left: 15.1, top: 65.2 },
+  floating_island: { left: 28.2, top: 90.0 },
+  ruined_empire: { left: 53.2, top: 90.2 },
+  canyon_networks: { left: 79.4, top: 88.0 },
+};
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
 const MAX_PR_FLOW_ROADS = 132;
@@ -888,6 +962,29 @@ function districtFor(repo: Repo) {
   return DISTRICTS.find((district) => district.key === repo.district) ?? DISTRICTS[0];
 }
 
+function buildDistrictLabelOverrides(repos: Repo[]) {
+  const weights = new Map<DistrictKey, Map<string, number>>();
+
+  repos.forEach((repo) => {
+    const domain = repo.backendDomain?.trim();
+    if (!domain) return;
+    const domainWeights = weights.get(repo.district) ?? new Map<string, number>();
+    const domainWeight = 1 + Math.log10(repo.stars + 10) + getOpenWorkItems(repo) * 0.015;
+    domainWeights.set(domain, (domainWeights.get(domain) ?? 0) + domainWeight);
+    weights.set(repo.district, domainWeights);
+  });
+
+  const overrides: Partial<Record<DistrictKey, string>> = {};
+  weights.forEach((domainWeights, districtKey) => {
+    const [topDomain] = Array.from(domainWeights.entries()).sort((a, b) => b[1] - a[1])[0] ?? [];
+    if (!topDomain) return;
+    const cleaned = topDomain.replace(/\s+/g, ' ').trim();
+    if (cleaned.length) overrides[districtKey] = cleaned;
+  });
+
+  return overrides;
+}
+
 function districtCenterForFilter(filter: FilterKey) {
   const districts = DISTRICTS.filter((district) => district.key === filter || district.parent === filter);
   if (!districts.length) return null;
@@ -913,6 +1010,7 @@ function repoScale(repo: Repo) {
 }
 
 function contributionStyleFor(repo: Repo) {
+  if (repo.backendDomain) return `${repo.backendDomain.toLowerCase()} repo`;
   if (repoHas(repo, ['kernel', 'driver', 'operating-system'])) return 'kernel spire';
   if (repoHas(repo, ['compiler', 'parser', 'language'])) return 'compiler citadel';
   if (repoHas(repo, ['react', 'svelte', 'vue', 'frontend', 'ui', 'css', 'tailwind'])) return 'framework glass';
@@ -1263,16 +1361,16 @@ function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity
 
 function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   const isDay = appearance === 'day';
-  refs.scene.background = null;
-  refs.renderer.setClearColor(0x000000, 0);
-  refs.scene.fog = new THREE.FogExp2(isDay ? '#93aec6' : '#08142a', isDay ? 0.00004 : 0.00022);
-  refs.renderer.toneMappingExposure = isDay ? 1.28 : 1.16;
-  refs.ambient.color.set(isDay ? '#dbeafe' : '#9bb7f0');
-  refs.ambient.intensity = isDay ? 1.3 : 1.05;
-  refs.key.color.set(isDay ? '#fff4cf' : '#dbe8ff');
-  refs.key.intensity = isDay ? 3.2 : 2.75;
-  refs.rim.color.set(isDay ? '#7bbcff' : '#4f8cff');
-  refs.rim.intensity = isDay ? 38 : 74;
+  refs.scene.background = new THREE.Color(isDay ? '#9fc7f8' : '#050a18');
+  refs.renderer.setClearColor(isDay ? 0x9fc7f8 : 0x050a18, 1);
+  refs.scene.fog = new THREE.FogExp2(isDay ? '#8eb1de' : '#090f24', isDay ? 0.00105 : 0.00145);
+  refs.renderer.toneMappingExposure = isDay ? 1.14 : 1.2;
+  refs.ambient.color.set(isDay ? '#d8e9ff' : '#8aa7ff');
+  refs.ambient.intensity = isDay ? 1.18 : 1.26;
+  refs.key.color.set(isDay ? '#ffe7bf' : '#a8ccff');
+  refs.key.intensity = isDay ? 3.4 : 3.25;
+  refs.rim.color.set(isDay ? '#6fd2ff' : '#9a6bff');
+  refs.rim.intensity = isDay ? 44 : 92;
 
   refs.scene.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -1282,15 +1380,18 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
 
     if (role === 'ground') {
       const groundMaterial = material as THREE.MeshBasicMaterial;
-      groundMaterial.color.set(isDay ? '#d8eee0' : '#536c88');
+      groundMaterial.color.set(isDay ? '#b9c8c1' : '#324868');
       groundMaterial.transparent = true;
-      groundMaterial.opacity = 0;
+      groundMaterial.opacity = isDay ? 0.54 : 0.56;
     }
 
-    if (role === 'grid') setMaterialOpacity(material, 0);
-    if (role === 'stars') setMaterialOpacity(material, isDay ? 0.02 : 0.24);
-    if (role === 'moon') setMaterialOpacity(material, isDay ? 0.025 : 0.08);
-    if (role === 'district-plane') setMaterialOpacity(material, 0);
+    if (role === 'grid') setMaterialOpacity(material, isDay ? 0.046 : 0.065);
+    if (role === 'stars') setMaterialOpacity(material, isDay ? 0.015 : 0.33);
+    if (role === 'moon') setMaterialOpacity(material, isDay ? 0.03 : 0.1);
+    if (role === 'district-plane') setMaterialOpacity(material, isDay ? 0.1 : 0.15);
+    if (role === 'sky-dome') setMaterialOpacity(material, isDay ? 0.7 : 1);
+    if (role === 'clouds') setMaterialOpacity(material, isDay ? 0.18 : 0.3);
+    if (role === 'clouds-low') setMaterialOpacity(material, isDay ? 0.1 : 0.18);
     if (role === 'landscape') {
       const firstMaterial = Array.isArray(material) ? material[0] : material;
       const opacity = isDay
@@ -1354,6 +1455,9 @@ function getRepoScreenPosition(building: BuildingObject, camera: THREE.Perspecti
 }
 
 function atlasPositionForDistrict(district: District) {
+  const atlasPosition = ATLAS_DISTRICT_POSITIONS[district.key];
+  if (atlasPosition) return atlasPosition;
+
   return {
     left: clamp(50 + district.x / 7.1, 6, 68),
     top: clamp(48 + district.z / 7.4, 12, 86),
@@ -1368,6 +1472,15 @@ function atlasViewForDistrict(district: District) {
   };
 }
 
+function repoBuildingKind(repo: Repo) {
+  if (isGreenSafety(repo.safetyScore) && repo.goodFirstIssues > 0) return 'safe';
+  if (getOpenWorkItems(repo) >= 50 || repo.prs.length >= 2) return 'pr';
+  if (repo.stars >= HIGH_DETAIL_REPO_STARS) return 'landmark';
+  if (repo.contributors >= 100 || repo.forks >= 5000) return 'community';
+  if (repo.commitsPerWeek >= 80) return 'activity';
+  return 'standard';
+}
+
 function atlasBiomeForDistrict(district: District) {
   if (['spires', 'megatowers', 'citadel', 'glass', 'apartments'].includes(district.shape)) return 'city';
   if (['lava_foundries', 'factories', 'decayed'].includes(district.shape)) return 'forge';
@@ -1375,6 +1488,12 @@ function atlasBiomeForDistrict(district: District) {
   if (['crystal_spires', 'caves', 'holographic'].includes(district.shape) || district.parent === 'ai') return 'signal';
   if (['fishing_docks', 'floating_stations', 'canyon_forts'].includes(district.shape)) return 'water';
   return 'field';
+}
+
+function atlasTerrainKindForBiome(biome: string) {
+  if (biome === 'signal') return 'crystal';
+  if (biome === 'field') return 'city';
+  return biome;
 }
 
 function atlasRegionScale(repoCount: number) {
@@ -1410,10 +1529,11 @@ export default function Home() {
           const mappedRepos = (data.nodes ?? [])
             .filter(isGraphRepositoryNode)
             .map(buildRepoFromGraphNode);
+          const reposWithDomains = enrichReposWithBackendDomains(mappedRepos, data.nodes, data.links);
 
-          if (!mappedRepos.length) throw new Error('Graph response contained no repositories');
+          if (!reposWithDomains.length) throw new Error('Graph response contained no repositories');
           if (!cancelled) {
-            setRepos(mappedRepos);
+            setRepos(reposWithDomains);
             setLoadingRepos(false);
           }
           return;
@@ -1506,7 +1626,7 @@ export default function Home() {
   const sceneRef = useRef<SceneRefs | null>(null);
   const enteredRef = useRef(true);
   const filterRef = useRef<FilterKey>('all');
-  const appearanceRef = useRef<Appearance>('day');
+  const appearanceRef = useRef<Appearance>('night');
   const selectedRef = useRef<Repo | null>(null);
   const hoverRef = useRef<Repo | null>(null);
   const similarDistrictRef = useRef<DistrictKey | null>(null);
@@ -1514,7 +1634,7 @@ export default function Home() {
 
   const [entered, setEntered] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [appearance, setAppearance] = useState<Appearance>('day');
+  const [appearance, setAppearance] = useState<Appearance>('night');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
   const [zoomValue, setZoomValue] = useState(1);
   const [atlasView, setAtlasView] = useState({ x: 0, y: 0, scale: 1 });
@@ -1529,6 +1649,15 @@ export default function Home() {
   const [safetyProfiles, setSafetyProfiles] = useState<Record<string, SafetyProfile>>({});
   const [backendPrFlow, setBackendPrFlow] = useState<Record<string, BackendPrFlowSummary>>({});
   const [rendererRetryToken, setRendererRetryToken] = useState(0);
+  const atlasDragRef = useRef({
+    active: false,
+    didDrag: false,
+    endedAt: 0,
+    pointerId: -1,
+    suppressClick: false,
+    x: 0,
+    y: 0,
+  });
 
   const allRepos = useMemo(() => {
     const importedIds = new Set(loadedRepos.map((repo) => repo.id));
@@ -1541,6 +1670,16 @@ export default function Home() {
       return applyBackendPrFlow(scoredRepo, backendPrFlow[repo.id]);
     });
   }, [allRepos, backendPrFlow, safetyProfiles]);
+  const districtLabelOverrides = useMemo(
+    () => buildDistrictLabelOverrides(effectiveRepos),
+    [effectiveRepos],
+  );
+  const districtLabelForKey = (districtKey: DistrictKey) => {
+    const district = DISTRICTS.find((item) => item.key === districtKey);
+    if (!district) return districtKey;
+    return districtLabelOverrides[districtKey] ?? district.label;
+  };
+  const districtLabelForRepo = (repo: Repo) => districtLabelForKey(repo.district);
 
   const reposByDistrict = useMemo(() => {
     return DISTRICTS.map((district) => ({
@@ -1572,6 +1711,121 @@ export default function Home() {
       return { district, repos: visible };
     });
   }, [loadedRepos, reposByDistrict, selectedRepo]);
+  const atlasRepoMarkers = useMemo(() => {
+    return visualReposByDistrict.flatMap(({ district, repos }) => {
+      const districtPosition = atlasPositionForDistrict(district);
+      const isTallDistrict = ['spires', 'megatowers', 'vertical_arcology', 'glass', 'crystal_spires'].includes(district.shape);
+      const markerLimit = FEATURED_DISTRICT_KEYS.has(district.key) ? 24 : 10;
+
+      return repos.slice(0, markerLimit).map((repo, index) => {
+        const scale = repoScale(repo);
+        const seed = repoDetailSeed(repo) + index * 9.71;
+        const angle = index * 2.399963 + seededUnit(seed) * 0.9;
+        const ring = 0.55 + Math.sqrt(index + 1) * 0.54 + seededUnit(seed + 1.7) * 0.44;
+        const spreadX = isTallDistrict ? 2.4 : 3.2;
+        const spreadY = isTallDistrict ? 2.1 : 2.7;
+        const height = clamp(12 + Math.pow(scale.stars, 1.85) * 46 + Math.pow(scale.activity, 1.4) * 10, 13, isTallDistrict ? 74 : 48);
+        const width = clamp(8 + Math.pow(scale.forks, 1.2) * 13, 8, 22);
+
+        return {
+          repo,
+          district,
+          left: clamp(districtPosition.left + Math.cos(angle) * ring * spreadX, 2, 98),
+          top: clamp(districtPosition.top + Math.sin(angle) * ring * spreadY + seededUnit(seed + 3.3) * 1.4, 4, 96),
+          height,
+          width,
+          delay: `${(seededUnit(seed + 4.8) * -3.2).toFixed(2)}s`,
+          biome: atlasBiomeForDistrict(district),
+          kind: repoBuildingKind(repo),
+        };
+      });
+    });
+  }, [visualReposByDistrict]);
+  const atlasConnectors = useMemo(() => {
+    const ordered = [...featuredDistricts].sort((a, b) => a.position.left - b.position.left);
+    if (ordered.length < 2) return [];
+
+    return ordered.slice(0, 16).map((source, index) => {
+      const target = ordered[(index + 1) % ordered.length];
+      const sourceWork = source.topRepo ? getOpenWorkItems(source.topRepo) : 0;
+      const targetWork = target.topRepo ? getOpenWorkItems(target.topRepo) : 0;
+      const sourceSafe = source.topRepo ? isGreenSafety(source.topRepo.safetyScore) : false;
+      const targetSafe = target.topRepo ? isGreenSafety(target.topRepo.safetyScore) : false;
+      const deltaX = target.position.left - source.position.left;
+      const deltaY = target.position.top - source.position.top;
+      const width = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      const active =
+        filter === 'all' ||
+        filter === source.district.key ||
+        filter === target.district.key ||
+        filter === source.district.parent ||
+        filter === target.district.parent ||
+        (filter === 'safe' && (sourceSafe || targetSafe)) ||
+        (filter === 'stars' && ((source.topRepo?.stars ?? 0) >= 10000 || (target.topRepo?.stars ?? 0) >= 10000));
+
+      return {
+        id: `${source.district.key}-${target.district.key}`,
+        left: source.position.left,
+        top: source.position.top,
+        width,
+        angle: Math.atan2(deltaY, deltaX) * 180 / Math.PI,
+        intensity: clamp((sourceWork + targetWork) / 140, 0.22, 1),
+        style: sourceWork + targetWork > 80 ? 'pr' : sourceSafe || targetSafe ? 'safe' : index % 3 === 0 ? 'contributor' : 'issue',
+        active,
+      };
+    });
+  }, [featuredDistricts, filter]);
+  const atlasTerrainTiles = useMemo(() => {
+    return featuredDistricts.flatMap(({ district, repoCount, position }, index) => {
+      const biome = atlasBiomeForDistrict(district);
+      const primaryKind = atlasTerrainKindForBiome(biome);
+      const seed = index * 19.71 + position.left * 0.53 + position.top * 0.79;
+      const baseScale = atlasRegionScale(repoCount);
+      const tiles = [
+        {
+          id: `${district.key}-terrain-primary`,
+          kind: primaryKind,
+          variant: Math.floor(seededUnit(seed + 1.2) * 10),
+          left: clamp(position.left + (seededUnit(seed + 2.1) - 0.5) * 4.2, -2, 102),
+          top: clamp(position.top + (seededUnit(seed + 3.1) - 0.5) * 3.8 + 1.2, 0, 102),
+          scale: clamp(baseScale * (0.58 + seededUnit(seed + 4.3) * 0.14), 0.48, 1.05),
+          rotation: -18 + (seededUnit(seed + 5.6) - 0.5) * 14,
+          opacity: 0.44,
+          accent: false,
+        },
+      ];
+
+      if (index % 2 === 0 && biome !== 'forge') {
+        tiles.push({
+          id: `${district.key}-terrain-water`,
+          kind: 'water',
+          variant: (index * 3 + 1) % 10,
+          left: clamp(position.left - 4.8 + seededUnit(seed + 6.4) * 3.2, -4, 104),
+          top: clamp(position.top + 6.2 + seededUnit(seed + 7.4) * 3.8, 0, 104),
+          scale: clamp(baseScale * 0.44, 0.34, 0.72),
+          rotation: -22 + seededUnit(seed + 8.4) * 22,
+          opacity: 0.34,
+          accent: true,
+        });
+      }
+
+      if (index % 3 === 1 && biome !== 'green' && biome !== 'water') {
+        tiles.push({
+          id: `${district.key}-terrain-green`,
+          kind: 'green',
+          variant: (index * 5 + 2) % 10,
+          left: clamp(position.left + 5.2 - seededUnit(seed + 9.5) * 4.4, -4, 104),
+          top: clamp(position.top + 3.8 - seededUnit(seed + 10.5) * 4.6, 0, 104),
+          scale: clamp(baseScale * 0.38, 0.32, 0.66),
+          rotation: -20 + seededUnit(seed + 11.5) * 24,
+          opacity: 0.3,
+          accent: true,
+        });
+      }
+
+      return tiles;
+    });
+  }, [featuredDistricts]);
   const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
   const loadedTodayRepos = useMemo(() => {
@@ -2050,9 +2304,9 @@ export default function Home() {
         const isSelected = selectedRef.current?.id === building.repo.id;
         const isSimilar = similarActive && (similarDistrictRef.current === building.repo.district || similarDistrictRef.current === building.district.parent);
         const pulse = 0.5 + Math.sin(elapsed * 2.5 + building.phase * 8) * 0.5;
-        building.body.material.emissiveIntensity = isSelected ? 0.12 : isHovered ? 0.08 : isSimilar ? 0.06 + pulse * 0.025 : 0.018;
-        building.top.material.emissiveIntensity = isSelected || isHovered ? 0.32 : isSimilar ? 0.18 : 0.08;
-        building.windows.material.opacity = isHovered || isSelected ? 0.58 : filterRef.current === 'all' ? 0.28 : building.windows.material.opacity;
+        building.body.material.emissiveIntensity = isSelected ? 0.2 : isHovered ? 0.14 : isSimilar ? 0.09 + pulse * 0.05 : 0.036;
+        building.top.material.emissiveIntensity = isSelected || isHovered ? 0.52 : isSimilar ? 0.28 : 0.16;
+        building.windows.material.opacity = isHovered || isSelected ? 0.74 : filterRef.current === 'all' ? 0.4 : building.windows.material.opacity;
         if (isSelected) {
           const details = ensureSelectedBuildingDetails(building);
           details.visible = true;
@@ -2075,12 +2329,12 @@ export default function Home() {
         const roadPulse = 0.5 + Math.sin(elapsed * 2.2 + road.phase * 6) * 0.5;
         const filteredRoadOpacity = typeof road.mesh.material.userData.filteredOpacity === 'number' ? road.mesh.material.userData.filteredOpacity : road.baseOpacity;
         road.mesh.material.opacity = selectedRoad
-          ? Math.min(0.54, filteredRoadOpacity + 0.18 + roadPulse * 0.06)
+          ? Math.min(0.74, filteredRoadOpacity + 0.22 + roadPulse * 0.1)
           : filteredRoadOpacity;
         if (road.label.visible) {
           const labelPoint = road.curve.getPointAt(0.5);
           road.label.position.set(labelPoint.x, 2.2 + road.flowStrength * 0.6, labelPoint.z);
-          road.label.material.opacity = selectedRoad ? 0.5 : 0;
+          road.label.material.opacity = selectedRoad ? 0.66 : 0;
         }
         road.cars.forEach((car, carIndex) => {
           const t = (road.phase + elapsed * road.speed + carIndex / road.cars.length) % 1;
@@ -2201,6 +2455,72 @@ export default function Home() {
     similarUntilRef.current = 0;
   };
 
+  const handleAtlasPointerDown = (event: PointerEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (event.button !== 0 || target.closest('button, input, a, label')) return;
+    event.preventDefault();
+    atlasDragRef.current = {
+      active: true,
+      didDrag: false,
+      endedAt: 0,
+      pointerId: event.pointerId,
+      suppressClick: false,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleAtlasPointerMove = (event: PointerEvent<HTMLElement>) => {
+    const drag = atlasDragRef.current;
+    if (!drag.active || drag.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - drag.x;
+    const deltaY = event.clientY - drag.y;
+    if (Math.abs(deltaX) + Math.abs(deltaY) > 2) drag.didDrag = true;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+
+    setAtlasView((current) => ({
+      ...current,
+      x: current.x + deltaX,
+      y: current.y + deltaY,
+    }));
+  };
+
+  const handleAtlasPointerUp = (event: PointerEvent<HTMLElement>) => {
+    if (atlasDragRef.current.pointerId === event.pointerId) {
+      atlasDragRef.current.active = false;
+      atlasDragRef.current.endedAt = event.timeStamp;
+      if (atlasDragRef.current.didDrag) {
+        atlasDragRef.current.suppressClick = true;
+        window.setTimeout(() => {
+          atlasDragRef.current.didDrag = false;
+          atlasDragRef.current.suppressClick = false;
+        }, 120);
+      }
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+    }
+  };
+
+  const handleAtlasWheel = (event: WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    setZoom((sceneRef.current?.targetZoom ?? zoomValue) + Math.sign(event.deltaY) * 0.08);
+  };
+
+  const handleAtlasClickCapture = (event: MouseEvent<HTMLElement>) => {
+    const drag = atlasDragRef.current;
+    if (!drag.suppressClick) return;
+    drag.didDrag = false;
+    drag.suppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   const openTutorial = () => {
     setEntered(true);
     setTutorialStep(0);
@@ -2224,7 +2544,16 @@ export default function Home() {
     }
     const tokens = tokenizeSearch(query);
     const district = DISTRICTS.find(
-      (item) => lower.includes(item.label.toLowerCase()) || lower.includes(item.key) || lower.includes(item.label.split('/')[0].toLowerCase()),
+      (item) => {
+        const displayLabel = districtLabelForKey(item.key).toLowerCase();
+        return (
+          lower.includes(displayLabel) ||
+          lower.includes(item.label.toLowerCase()) ||
+          lower.includes(item.key) ||
+          lower.includes(displayLabel.split('/')[0]) ||
+          lower.includes(item.label.split('/')[0].toLowerCase())
+        );
+      },
     );
     const uniqueParents = DISTRICTS.map((item) => item.parent).filter((parent, index, allParents) => allParents.indexOf(parent) === index);
     const parentDistrict = uniqueParents.find((parent) => tokens.includes(parent));
@@ -2278,7 +2607,7 @@ export default function Home() {
       const imported = buildRepoFromGithub(payload, wantsContributions, openPulls);
       setLoadedRepos((current) => [imported, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
-      setImportStatus(`${imported.owner}/${imported.name} loaded into ${districtFor(imported).label}.`);
+      setImportStatus(`${imported.owner}/${imported.name} loaded into ${districtLabelForRepo(imported)}.`);
       focusRepo(imported);
     } catch (error) {
       console.error('[SIFT imports] GitHub import failed:', error);
@@ -2323,11 +2652,22 @@ export default function Home() {
     similarUntilRef.current = performance.now() + 6000;
   };
 
+  const zoomTierClass =
+    zoomValue <= 0.72
+      ? 'is-zoom-hyper'
+      : zoomValue <= 0.9
+      ? 'is-zoom-near'
+      : zoomValue >= 1.16
+      ? 'is-zoom-far'
+      : 'is-zoom-mid';
+  const zoomBlend = clamp((1.12 - zoomValue) / 0.4, 0, 1);
+
   return (
     <main
-      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''}`}
+      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''} ${zoomTierClass}`}
       aria-label="SIFT 3D open-source city"
       style={{
+        '--zoom-blend': zoomBlend.toFixed(3),
         '--atlas-pan-x': `${atlasView.x}px`,
         '--atlas-pan-y': `${atlasView.y}px`,
         '--atlas-scale': atlasView.scale,
@@ -2344,95 +2684,145 @@ export default function Home() {
         </div>
       )}
 
-      <div ref={mountRef} className="three-stage" aria-label="Interactive 3D city of open-source repositories">
-        {webglError ? (
-          <div className={`fallback-city ${entered ? 'is-entered' : ''}`} role="img" aria-label="Lightweight city of open-source repositories">
-            <div className="fallback-map" aria-hidden={!entered}>
-              {fallbackCity.items.map(({ repo, district, layout }) => {
-                const left = ((layout.position.x + fallbackCity.extent) / (fallbackCity.extent * 2)) * 100;
-                const top = ((layout.position.z + fallbackCity.extent) / (fallbackCity.extent * 2)) * 100;
-                const height = clamp(layout.height * 1.35, 8, 92);
-                const width = clamp(layout.width * 1.7, 4, 16);
-                return (
-                  <button
-                    key={repo.id}
-                    className="fallback-building"
-                    type="button"
-                    title={`${repo.owner}/${repo.name}: ${formatMetric(repo.stars)} stars`}
-                    aria-label={`${repo.owner}/${repo.name}, ${formatMetric(repo.stars)} stars`}
-                    onClick={() => focusRepo(repo)}
-                    style={{
-                      '--repo-color': district.color,
-                      '--repo-accent': district.accent,
-                      '--fallback-height': `${height}px`,
-                      '--fallback-width': `${width}px`,
-                      left: `${left}%`,
-                      top: `${top}%`,
-                    } as CSSProperties}
-                  />
-                );
-              })}
-            </div>
-            <div className="fallback-notice" role="status">
-              <strong>Map mode</strong>
-              <span>Showing the lightweight city view for this browser session.</span>
-              <button type="button" onClick={retry3dRenderer}>Try full 3D</button>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      <div className="three-stage" aria-hidden="true" />
 
-      <section className="atlas-artwork-layer" aria-hidden="true">
-        <div className="atlas-map-base" />
-        <div className="atlas-river atlas-river-main" />
-        <div className="atlas-river atlas-river-west" />
-        <div className="atlas-route atlas-route-a" />
-        <div className="atlas-route atlas-route-b" />
-        <div className="atlas-route atlas-route-c" />
-        {featuredDistricts.map(({ district, repoCount, position }, index) => (
-          <div
-            key={`terrain-${district.key}`}
-            className={`atlas-region atlas-region-${atlasBiomeForDistrict(district)}`}
-            style={{
-              '--district-color': district.color,
-              '--district-accent': district.accent,
-              '--region-scale': atlasRegionScale(repoCount),
-              '--region-index': index,
-              left: `${position.left}%`,
-              top: `${position.top}%`,
-            } as CSSProperties}
-          >
-            <span className="region-shadow" />
-            <span className="region-plate" />
-            <span className="region-contour region-contour-a" />
-            <span className="region-contour region-contour-b" />
-            <span className="region-structures">
-              {Array.from({ length: atlasStructureCount(repoCount) }).map((_, pieceIndex) => (
-                <i key={`structure-${district.key}-${pieceIndex}`} style={{ '--piece-index': pieceIndex } as CSSProperties} />
-              ))}
+      <section
+        className="rendered-atlas-layer"
+        aria-label="Rendered contribution atlas"
+        onPointerDown={handleAtlasPointerDown}
+        onPointerMove={handleAtlasPointerMove}
+        onPointerUp={handleAtlasPointerUp}
+        onPointerCancel={handleAtlasPointerUp}
+        onClickCapture={handleAtlasClickCapture}
+        onWheel={handleAtlasWheel}
+      >
+        <div className="rendered-atlas-board">
+          <div className="atlas-skywash" aria-hidden="true" />
+          <div className="atlas-water-basin" aria-hidden="true" />
+          <div className="atlas-code-grid" aria-hidden="true" />
+          {atlasTerrainTiles.map((tile) => (
+            <span
+              key={`atlas-ground-${tile.id}`}
+              className={`atlas-ground-tile atlas-ground-${tile.kind} atlas-ground-variant-${tile.variant} ${tile.accent ? 'is-accent' : ''}`}
+              aria-hidden="true"
+              style={{
+                '--terrain-scale': tile.scale,
+                '--terrain-rotation': `${tile.rotation}deg`,
+                '--terrain-opacity': tile.opacity,
+                left: `${tile.left}%`,
+                top: `${tile.top}%`,
+              } as CSSProperties}
+            />
+          ))}
+          {featuredDistricts.map(({ district, repoCount, position }) => (
+            <span
+              key={`atlas-terrain-${district.key}`}
+              className={`atlas-terrain-region atlas-terrain-${atlasBiomeForDistrict(district)}`}
+              aria-hidden="true"
+              style={{
+                '--district-color': district.color,
+                '--district-accent': district.accent,
+                '--region-scale': atlasRegionScale(repoCount),
+                left: `${position.left}%`,
+                top: `${position.top}%`,
+              } as CSSProperties}
+            >
+              <i />
             </span>
-          </div>
-        ))}
-      </section>
+          ))}
+          {atlasConnectors.map((connector) => (
+            <span
+              key={`atlas-path-bed-${connector.id}`}
+              className={`atlas-path-bed atlas-path-bed-${connector.style} ${connector.active ? 'is-active' : 'is-muted'}`}
+              aria-hidden="true"
+              style={{
+                '--connector-width': `${connector.width}%`,
+                '--connector-angle': `${connector.angle}deg`,
+                '--connector-intensity': connector.intensity,
+                left: `${connector.left}%`,
+                top: `${connector.top}%`,
+              } as CSSProperties}
+            >
+              <i />
+            </span>
+          ))}
+          {atlasConnectors.map((connector) => (
+            <span
+              key={`atlas-connector-${connector.id}`}
+              className={`atlas-connector atlas-connector-${connector.style} ${connector.active ? 'is-active' : 'is-muted'}`}
+              aria-hidden="true"
+              style={{
+                '--connector-width': `${connector.width}%`,
+                '--connector-angle': `${connector.angle}deg`,
+                '--connector-intensity': connector.intensity,
+                left: `${connector.left}%`,
+                top: `${connector.top}%`,
+              } as CSSProperties}
+            >
+              <i />
+            </span>
+          ))}
+          <div className="rendered-atlas-shade" aria-hidden="true" />
+          {atlasRepoMarkers.map(({ repo, district, left, top, width, height, delay, biome, kind }) => {
+            const active =
+              filter === 'all' ||
+              repo.district === filter ||
+              district.parent === filter ||
+              (filter === 'stars' && repo.stars >= 10000) ||
+              (filter === 'safe' && isGreenSafety(repo.safetyScore));
+            const selected = selectedRepo?.id === repo.id;
 
-      <section className="atlas-hotspots" aria-label="Atlas districts">
-        {featuredDistricts.map(({ district, repoCount, topRepo, position }) => (
-          <button
-            key={`atlas-${district.key}`}
-            className={`atlas-hotspot ${filter === district.key ? 'is-active' : ''}`}
-            type="button"
-            onClick={() => focusDistrict(district)}
-            style={{
-              '--district-color': district.color,
-              '--district-accent': district.accent,
-              left: `${position.left}%`,
-              top: `${position.top}%`,
-            } as CSSProperties}
-          >
-            <strong>{district.label}</strong>
-            <span>{repoCount} repos{topRepo ? ` · ${topRepo.name}` : ''}</span>
-          </button>
-        ))}
+            return (
+              <button
+                key={`atlas-repo-${repo.id}`}
+                className={`atlas-repo-marker atlas-repo-${biome} atlas-repo-kind-${kind} ${active ? 'is-active' : 'is-muted'} ${selected ? 'is-selected' : ''}`}
+                type="button"
+                title={`${repo.owner}/${repo.name}: ${formatMetric(repo.stars)} stars, ${repo.safetyScore}% safe`}
+                aria-label={`${repo.owner}/${repo.name}, ${formatMetric(repo.stars)} stars, ${repo.safetyScore}% safe`}
+                onMouseEnter={() => setHoveredRepo(repo)}
+                onMouseLeave={() => setHoveredRepo(null)}
+                onClick={() => focusRepo(repo)}
+                style={{
+                  '--repo-color': district.color,
+                  '--repo-accent': district.accent,
+                  '--repo-width': `${width}px`,
+                  '--repo-height': `${height}px`,
+                  '--repo-delay': delay,
+                  left: `${left}%`,
+                  top: `${top}%`,
+                } as CSSProperties}
+              >
+                <span aria-hidden="true" />
+              </button>
+            );
+          })}
+          {featuredDistricts.map(({ district, repoCount, topRepo, position }) => (
+            <button
+              key={`rendered-atlas-${district.key}`}
+              className={`rendered-district rendered-district-${atlasBiomeForDistrict(district)} ${filter === district.key ? 'is-active' : ''}`}
+              type="button"
+              onClick={() => focusDistrict(district)}
+              aria-label={`${districtLabelForKey(district.key)}, ${repoCount} repositories${topRepo ? `, top repository ${topRepo.name}` : ''}`}
+              style={{
+                '--district-color': district.color,
+                '--district-accent': district.accent,
+                '--region-scale': atlasRegionScale(repoCount),
+                left: `${position.left}%`,
+                top: `${position.top}%`,
+              } as CSSProperties}
+            >
+              <span className="rendered-district-art" aria-hidden="true">
+                {Array.from({ length: atlasStructureCount(repoCount) }).map((_, pieceIndex) => (
+                  <i key={`rendered-piece-${district.key}-${pieceIndex}`} style={{ '--piece-index': pieceIndex } as CSSProperties} />
+                ))}
+              </span>
+              <span className="rendered-district-label">
+                <strong>{districtLabelForKey(district.key)}</strong>
+                <span>{repoCount} repos{topRepo ? ` · ${topRepo.name}` : ''}</span>
+              </span>
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
@@ -2534,7 +2924,7 @@ export default function Home() {
                 >
                   <div className="search-result-main">
                     <span>{result.repo.name}</span>
-                    <strong>{districtFor(result.repo).label} · {result.repo.language} · {result.repo.safetyScore}% safe</strong>
+                    <strong>{districtLabelForRepo(result.repo)} · {result.repo.language} · {result.repo.safetyScore}% safe</strong>
                   </div>
                   <div className="search-pings">
                     {result.pings.map((ping) => (
@@ -2614,7 +3004,7 @@ export default function Home() {
                       }}
                     >
                       <span className="color-dot" style={{ background: district.color }} />
-                      {district.label}
+                      {districtLabelForKey(district.key)}
                     </button>
                   ))}
                 </div>
@@ -2688,7 +3078,7 @@ export default function Home() {
             {(loadedTodayRepos.length ? loadedTodayRepos : loadedRepos.slice(0, 3)).map((repo) => (
               <button key={`loaded-${repo.id}`} type="button" onClick={() => focusRepo(repo)}>
                 <strong>{repo.owner}/{repo.name}</strong>
-                <span>{districtFor(repo).label}</span>
+                <span>{districtLabelForRepo(repo)}</span>
               </button>
             ))}
             {loadedRepos.length === 0 ? <p>No imports yet</p> : null}
@@ -2772,7 +3162,7 @@ export default function Home() {
             <button className="panel-close" type="button" onClick={() => setSelectedRepo(null)} aria-label="Close repository panel">
               ×
             </button>
-            <div className="panel-kicker">{districtFor(selectedRepo).label} district</div>
+            <div className="panel-kicker">{districtLabelForRepo(selectedRepo)} district</div>
             <h2>{selectedRepo.name}</h2>
             <p>{selectedRepo.description}</p>
 
@@ -4723,36 +5113,102 @@ export default function Home() {
 
         /* Code-native atlas pass */
         .sift-page {
-          --sift-bg-deep: #07101b;
-          --sift-glass-surface: rgba(7, 15, 25, 0.62);
-          --sift-glass-border: rgba(206, 226, 255, 0.14);
+          --sift-bg-deep: #050a16;
+          --sift-glass-surface: rgba(10, 18, 37, 0.62);
+          --sift-glass-border: rgba(114, 151, 255, 0.28);
+          --repo-marker-scale: 0.56;
+          --repo-marker-opacity: 0.42;
           font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           background:
-            linear-gradient(180deg, rgba(6,12,22,0.02), rgba(6,12,22,0.32)),
-            linear-gradient(180deg, #13233a 0%, #263d49 34%, #17261d 100%);
+            radial-gradient(circle at 84% 10%, rgba(255, 132, 78, 0.16), transparent 30%),
+            radial-gradient(circle at 24% 20%, rgba(98, 120, 255, 0.22), transparent 36%),
+            radial-gradient(circle at 58% 68%, rgba(54, 201, 255, 0.1), transparent 38%),
+            linear-gradient(180deg, #0a152d 0%, #10172f 44%, #0a1326 100%);
         }
 
         .sift-page.is-day {
-          --sift-glass-surface: rgba(7, 15, 25, 0.56);
-          --sift-glass-border: rgba(224, 238, 255, 0.18);
+          --sift-glass-surface: rgba(17, 36, 66, 0.54);
+          --sift-glass-border: rgba(174, 201, 255, 0.34);
           --sift-text-primary: rgba(255,255,255,0.94);
           --sift-text-secondary: rgba(222,232,245,0.68);
           background:
-            linear-gradient(180deg, rgba(10,18,31,0.02), rgba(10,18,31,0.26)),
-            linear-gradient(180deg, #b9d7f2 0%, #779296 34%, #132118 100%);
+            radial-gradient(circle at 84% 10%, rgba(255, 156, 108, 0.16), transparent 32%),
+            radial-gradient(circle at 24% 20%, rgba(114, 161, 255, 0.2), transparent 36%),
+            radial-gradient(circle at 54% 68%, rgba(76, 214, 255, 0.1), transparent 38%),
+            linear-gradient(180deg, #17396a 0%, #1f3d64 44%, #173354 100%);
+        }
+
+        .sift-page.is-zoom-far {
+          --repo-marker-scale: 0.42;
+          --repo-marker-opacity: 0.18;
+        }
+
+        .sift-page.is-zoom-near {
+          --repo-marker-scale: 0.84;
+          --repo-marker-opacity: 0.72;
+        }
+
+        .sift-page.is-zoom-hyper {
+          --repo-marker-scale: 1;
+          --repo-marker-opacity: 0.86;
+        }
+
+        .sift-page.is-zoom-far .atlas-artwork-layer {
+          opacity: 1;
+          filter: saturate(0.92) contrast(1.16) brightness(0.72);
+        }
+
+        .sift-page.is-zoom-mid .atlas-artwork-layer {
+          opacity: 0.76;
+          filter: saturate(1.02) contrast(1.1) brightness(0.86);
+        }
+
+        .sift-page.is-zoom-near .atlas-artwork-layer {
+          opacity: 0.24;
+          filter: saturate(1.35) contrast(1.08) blur(0.35px);
+        }
+
+        .sift-page.is-zoom-hyper .atlas-artwork-layer {
+          opacity: 0.12;
+          filter: saturate(1.55) contrast(1.14) brightness(0.94) blur(0.7px);
+        }
+
+        .sift-page.is-zoom-mid .atlas-hotspots {
+          opacity: 0.62;
+        }
+
+        .sift-page.is-zoom-near .atlas-hotspots,
+        .sift-page.is-zoom-hyper .atlas-hotspots {
+          opacity: 0;
+          pointer-events: none;
         }
 
         .three-stage {
           z-index: 2;
           background: transparent;
-          opacity: 0.32;
-          mix-blend-mode: screen;
-          filter: saturate(0.78) contrast(0.82);
+          opacity: 0.76;
+          mix-blend-mode: normal;
+          filter: saturate(1.12) contrast(1.1) brightness(0.9);
         }
 
         .sift-page.is-day .three-stage {
-          opacity: 0.24;
+          opacity: 0.8;
           mix-blend-mode: normal;
+        }
+
+        .sift-page.is-zoom-mid .three-stage {
+          opacity: 0.87;
+          filter: saturate(1.34) contrast(1.14) brightness(0.98);
+        }
+
+        .sift-page.is-zoom-near .three-stage {
+          opacity: 1;
+          filter: saturate(1.72) contrast(1.18) brightness(1.1) drop-shadow(0 0 42px rgba(96, 94, 255, 0.16));
+        }
+
+        .sift-page.is-zoom-hyper .three-stage {
+          opacity: 1;
+          filter: saturate(1.95) contrast(1.25) brightness(1.14) hue-rotate(-8deg) drop-shadow(0 0 55px rgba(82, 218, 255, 0.24));
         }
 
         .sift-page::before,
@@ -4760,9 +5216,19 @@ export default function Home() {
           z-index: 3;
           opacity: 1;
           background:
-            radial-gradient(circle at 50% 42%, transparent 24%, rgba(2,6,12,0.2) 74%),
-            linear-gradient(180deg, rgba(3,8,15,0.04) 0%, transparent 52%, rgba(3,8,15,0.26) 100%),
-            linear-gradient(90deg, rgba(2,6,12,0.3), transparent 18%, transparent 72%, rgba(2,6,12,0.38));
+            radial-gradient(circle at 50% 42%, transparent 30%, rgba(9, 18, 42, 0.38) 88%),
+            linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 42%, rgba(8, 16, 36, 0.34) 100%),
+            linear-gradient(90deg, rgba(2,8,20,0.26), transparent 14%, transparent 84%, rgba(2,8,20,0.3));
+        }
+
+        .sift-page.is-zoom-near::before,
+        .sift-page.is-day.is-zoom-near::before,
+        .sift-page.is-zoom-hyper::before,
+        .sift-page.is-day.is-zoom-hyper::before {
+          background:
+            radial-gradient(circle at 50% 46%, transparent 44%, rgba(16, 22, 78, 0.16) 92%),
+            linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 62%, rgba(8, 18, 54, 0.24) 100%),
+            linear-gradient(90deg, rgba(67, 36, 167, 0.24), transparent 12%, transparent 88%, rgba(45, 195, 255, 0.18));
         }
 
         .sift-page::after {
@@ -4776,10 +5242,10 @@ export default function Home() {
           pointer-events: none;
           opacity: 1;
           background:
-            radial-gradient(circle at 18% 76%, rgba(214,170,112,0.26), transparent 18%),
-            radial-gradient(circle at 66% 26%, rgba(80,142,90,0.24), transparent 21%),
-            radial-gradient(circle at 72% 70%, rgba(66,216,255,0.14), transparent 19%),
-            linear-gradient(180deg, rgba(124,161,143,0.74), rgba(27,52,38,0.96));
+            radial-gradient(circle at 17% 76%, rgba(255, 165, 108, 0.14), transparent 20%),
+            radial-gradient(circle at 68% 24%, rgba(105, 134, 255, 0.2), transparent 24%),
+            radial-gradient(circle at 74% 68%, rgba(84, 224, 255, 0.13), transparent 20%),
+            linear-gradient(180deg, rgba(31, 48, 75, 0.64), rgba(14, 24, 44, 0.74));
           transform: translate3d(var(--atlas-pan-x, 0px), var(--atlas-pan-y, 0px), 0) scale(var(--atlas-scale, 1));
           transform-origin: 50% 50%;
           will-change: transform;
@@ -4793,15 +5259,15 @@ export default function Home() {
           height: min(820px, 82vw);
           border-radius: 48% 52% 44% 56% / 58% 42% 54% 46%;
           background:
-            radial-gradient(ellipse at 31% 26%, rgba(80,104,83,0.92), transparent 27%),
-            radial-gradient(ellipse at 72% 32%, rgba(96,88,62,0.86), transparent 25%),
-            radial-gradient(ellipse at 38% 70%, rgba(37,88,71,0.92), transparent 24%),
-            radial-gradient(ellipse at 73% 73%, rgba(41,71,84,0.88), transparent 27%),
-            linear-gradient(140deg, #5b765c 0%, #2e5945 38%, #283c35 66%, #17281f 100%);
+            radial-gradient(ellipse at 28% 24%, rgba(81, 101, 129, 0.78), transparent 28%),
+            radial-gradient(ellipse at 72% 30%, rgba(117, 92, 77, 0.64), transparent 25%),
+            radial-gradient(ellipse at 36% 70%, rgba(55, 94, 76, 0.7), transparent 25%),
+            radial-gradient(ellipse at 73% 73%, rgba(59, 95, 118, 0.64), transparent 28%),
+            linear-gradient(140deg, #475a69 0%, #2f4350 32%, #223741 62%, #162b38 100%);
           box-shadow:
-            0 70px 120px rgba(1,5,9,0.38),
+            0 58px 110px rgba(5, 10, 22, 0.46),
             inset 0 2px 0 rgba(255,255,255,0.16),
-            inset 0 -38px 70px rgba(2,8,11,0.34);
+            inset 0 -38px 72px rgba(6, 14, 28, 0.44);
           transform: translate(-50%, -50%) rotate(-5deg) skewY(-3deg);
         }
 
@@ -4816,18 +5282,18 @@ export default function Home() {
 
         .atlas-map-base::before {
           background:
-            repeating-linear-gradient(18deg, rgba(255,255,255,0.055) 0 1px, transparent 1px 38px),
-            repeating-linear-gradient(105deg, rgba(5,16,15,0.12) 0 1px, transparent 1px 52px);
-          opacity: 0.48;
+            repeating-linear-gradient(18deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 38px),
+            repeating-linear-gradient(105deg, rgba(3,9,20,0.2) 0 1px, transparent 1px 52px);
+          opacity: 0.54;
           mask-image: radial-gradient(ellipse at center, black 34%, transparent 75%);
         }
 
         .atlas-map-base::after {
           inset: 13% 11%;
-          border: 1px solid rgba(255,255,255,0.06);
+          border: 1px solid rgba(191, 214, 255, 0.1);
           box-shadow:
-            0 0 0 18px rgba(255,255,255,0.018),
-            inset 0 0 60px rgba(2,8,12,0.24);
+            0 0 0 18px rgba(128, 151, 211, 0.05),
+            inset 0 0 72px rgba(4, 10, 26, 0.42);
           opacity: 0.8;
         }
 
@@ -4842,10 +5308,10 @@ export default function Home() {
         .atlas-river {
           height: 18px;
           background:
-            linear-gradient(90deg, rgba(117,210,223,0.06), rgba(128,218,231,0.5), rgba(117,210,223,0.08));
-          box-shadow: 0 0 18px rgba(96,205,220,0.18), inset 0 1px 0 rgba(255,255,255,0.2);
+            linear-gradient(90deg, rgba(82,194,244,0.04), rgba(90,183,240,0.4), rgba(82,194,244,0.08));
+          box-shadow: 0 0 24px rgba(62,151,227,0.22), inset 0 1px 0 rgba(255,255,255,0.18);
           filter: blur(0.2px);
-          opacity: 0.7;
+          opacity: 0.72;
         }
 
         .atlas-river-main {
@@ -4866,9 +5332,9 @@ export default function Home() {
         .atlas-route {
           height: 5px;
           background:
-            repeating-linear-gradient(90deg, rgba(241,211,150,0.62) 0 20px, rgba(241,211,150,0.1) 20px 32px);
-          box-shadow: 0 0 11px rgba(236,196,107,0.16);
-          opacity: 0.44;
+            repeating-linear-gradient(90deg, rgba(246, 181, 112, 0.58) 0 20px, rgba(246, 181, 112, 0.08) 20px 32px);
+          box-shadow: 0 0 14px rgba(246, 162, 94, 0.2);
+          opacity: 0.48;
         }
 
         .atlas-route-a {
@@ -4899,7 +5365,7 @@ export default function Home() {
           aspect-ratio: 1.38;
           transform: translate(-50%, -50%) scale(var(--region-scale, 1)) rotate(-7deg) skew(-9deg, -2deg);
           transform-origin: 50% 50%;
-          filter: drop-shadow(18px 25px 28px rgba(1,8,10,0.32));
+          filter: drop-shadow(20px 28px 34px rgba(1, 4, 12, 0.48));
         }
 
         .region-shadow,
@@ -4913,8 +5379,8 @@ export default function Home() {
         .region-shadow {
           inset: 22% 4% -10% 10%;
           border-radius: 50%;
-          background: rgba(1,8,12,0.3);
-          filter: blur(16px);
+          background: rgba(0, 4, 12, 0.44);
+          filter: blur(18px);
           transform: translate(12px, 18px);
         }
 
@@ -4923,11 +5389,11 @@ export default function Home() {
           background:
             radial-gradient(circle at 30% 24%, color-mix(in srgb, var(--district-accent), white 14%), transparent 12%),
             radial-gradient(circle at 62% 70%, color-mix(in srgb, var(--district-color), black 18%), transparent 30%),
-            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #d5e9bb 24%), color-mix(in srgb, var(--district-color), #07110f 42%));
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #8ca6d5 22%), color-mix(in srgb, var(--district-color), #0b1428 44%));
           clip-path: polygon(11% 17%, 35% 4%, 72% 8%, 93% 28%, 88% 71%, 63% 96%, 22% 87%, 5% 54%);
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,0.2),
-            inset 0 -14px 30px rgba(2,9,9,0.25);
+            inset 0 -14px 30px rgba(4, 9, 24, 0.34);
         }
 
         .region-contour {
@@ -4975,7 +5441,7 @@ export default function Home() {
         .atlas-region-forge .region-plate {
           background:
             radial-gradient(circle at 58% 42%, rgba(255,120,52,0.52), transparent 20%),
-            linear-gradient(145deg, #7a4534, color-mix(in srgb, var(--district-color), #141011 54%));
+            linear-gradient(145deg, #7f3d2f, color-mix(in srgb, var(--district-color), #150b13 56%));
         }
 
         .atlas-region-forge .region-structures i {
@@ -4988,9 +5454,9 @@ export default function Home() {
 
         .atlas-region-green .region-plate {
           background:
-            radial-gradient(circle at 28% 28%, rgba(219,255,199,0.4), transparent 14%),
-            radial-gradient(circle at 68% 62%, rgba(17,73,42,0.8), transparent 34%),
-            linear-gradient(150deg, color-mix(in srgb, var(--district-color), #b8d88f 28%), #173622);
+            radial-gradient(circle at 28% 28%, rgba(219,255,199,0.34), transparent 16%),
+            radial-gradient(circle at 68% 62%, rgba(15,56,74,0.72), transparent 36%),
+            linear-gradient(150deg, color-mix(in srgb, var(--district-color), #6e8ea9 26%), #152d34);
         }
 
         .atlas-region-green .region-structures i {
@@ -5018,7 +5484,7 @@ export default function Home() {
         .atlas-region-signal .region-plate {
           background:
             radial-gradient(circle at 46% 45%, color-mix(in srgb, var(--district-accent), transparent 28%), transparent 26%),
-            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #233852 20%), #152133);
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #2b3d72 20%), #141d36);
         }
 
         .atlas-region-signal .region-structures i {
@@ -5033,7 +5499,7 @@ export default function Home() {
         .atlas-region-water .region-plate {
           background:
             radial-gradient(ellipse at 55% 48%, rgba(119,214,224,0.4), transparent 32%),
-            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #4d806d 22%), #16333a);
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #43739a 22%), #142b3c);
         }
 
         .atlas-region-water .region-structures i {
@@ -5066,28 +5532,28 @@ export default function Home() {
           min-width: 132px;
           max-width: 180px;
           padding: 9px 11px 10px;
-          border: 1px solid color-mix(in srgb, var(--district-accent), transparent 44%);
-          border-radius: 8px;
+          border: 1px solid color-mix(in srgb, var(--district-accent), #7da1ff 42%);
+          border-radius: 10px;
           background:
-            linear-gradient(145deg, color-mix(in srgb, var(--district-color), transparent 68%), rgba(4,10,18,0.76)),
-            rgba(5, 12, 22, 0.78);
-          color: rgba(255,255,255,0.9);
-          box-shadow: 0 16px 38px rgba(1,5,12,0.34), inset 0 1px 0 rgba(255,255,255,0.12);
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #15253f 54%), rgba(10, 18, 43, 0.72)),
+            rgba(7, 15, 32, 0.68);
+          color: rgba(255,255,255,0.95);
+          box-shadow: 0 14px 34px rgba(3, 8, 22, 0.48), inset 0 1px 0 rgba(255,255,255,0.18);
           text-align: left;
           pointer-events: auto;
           cursor: pointer;
-          backdrop-filter: blur(14px) saturate(130%);
-          -webkit-backdrop-filter: blur(14px) saturate(130%);
+          backdrop-filter: blur(9px) saturate(138%);
+          -webkit-backdrop-filter: blur(9px) saturate(138%);
           transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
         }
 
         .atlas-hotspot:hover,
         .atlas-hotspot.is-active {
           transform: translate(-50%, -50%) scale(1.04);
-          border-color: color-mix(in srgb, var(--district-accent), white 18%);
+          border-color: color-mix(in srgb, var(--district-accent), #d4ecff 18%);
           background:
-            linear-gradient(145deg, color-mix(in srgb, var(--district-color), transparent 46%), rgba(4,10,18,0.82)),
-            rgba(5, 12, 22, 0.84);
+            linear-gradient(145deg, color-mix(in srgb, var(--district-color), #1a325f 52%), rgba(14, 25, 58, 0.76)),
+            rgba(10, 18, 44, 0.76);
         }
 
         .atlas-hotspot strong,
@@ -5106,7 +5572,7 @@ export default function Home() {
 
         .atlas-hotspot span {
           margin-top: 4px;
-          color: rgba(232,241,255,0.68);
+          color: rgba(224, 238, 255, 0.82);
           font-size: 10px;
         }
 
@@ -5137,11 +5603,11 @@ export default function Home() {
           border-radius: 12px;
           border-color: var(--sift-glass-border);
           background:
-            linear-gradient(145deg, rgba(255,255,255,0.09), rgba(255,255,255,0.025)),
+            linear-gradient(145deg, rgba(147, 184, 255, 0.16), rgba(255,255,255,0.04)),
             var(--sift-glass-surface);
-          box-shadow: 0 20px 70px rgba(2,7,14,0.28), inset 0 1px 0 rgba(255,255,255,0.12);
-          backdrop-filter: blur(22px) saturate(130%);
-          -webkit-backdrop-filter: blur(22px) saturate(130%);
+          box-shadow: 0 20px 70px rgba(2, 7, 21, 0.42), inset 0 1px 0 rgba(255,255,255,0.18);
+          backdrop-filter: blur(16px) saturate(136%);
+          -webkit-backdrop-filter: blur(16px) saturate(136%);
         }
 
         .tool-group {
@@ -5159,9 +5625,48 @@ export default function Home() {
         }
 
         .mode-toggle button.is-active {
-          border-color: rgba(154, 189, 255, 0.5);
-          background: rgba(72, 108, 196, 0.32);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.16);
+          border-color: rgba(138, 186, 255, 0.62);
+          background: linear-gradient(140deg, rgba(55, 105, 215, 0.36), rgba(50, 184, 255, 0.24));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 0 16px rgba(76, 157, 255, 0.16);
+        }
+
+        .sift-page.is-zoom-near .tool-group,
+        .sift-page.is-zoom-near .mode-toggle,
+        .sift-page.is-zoom-near .guide-button,
+        .sift-page.is-zoom-near .network-dock,
+        .sift-page.is-zoom-near .repo-panel,
+        .sift-page.is-zoom-near .search-results,
+        .sift-page.is-zoom-near .repo-tooltip,
+        .sift-page.is-zoom-near .tutorial-card {
+          border-color: rgba(133, 170, 218, 0.42);
+          background:
+            linear-gradient(145deg, rgba(61, 92, 134, 0.28), rgba(38, 64, 96, 0.18)),
+            rgba(9, 18, 35, 0.68);
+          box-shadow: 0 22px 78px rgba(2, 8, 21, 0.54), inset 0 1px 0 rgba(255,255,255,0.16), 0 0 28px rgba(82, 151, 213, 0.12);
+        }
+
+        .sift-page.is-zoom-hyper .tool-group,
+        .sift-page.is-zoom-hyper .mode-toggle,
+        .sift-page.is-zoom-hyper .guide-button,
+        .sift-page.is-zoom-hyper .network-dock,
+        .sift-page.is-zoom-hyper .repo-panel,
+        .sift-page.is-zoom-hyper .search-results,
+        .sift-page.is-zoom-hyper .repo-tooltip,
+        .sift-page.is-zoom-hyper .tutorial-card {
+          border-color: rgba(138, 179, 230, 0.5);
+          background:
+            linear-gradient(145deg, rgba(73, 105, 151, 0.34), rgba(43, 76, 112, 0.24)),
+            rgba(8, 16, 34, 0.78);
+          box-shadow: 0 24px 90px rgba(2, 8, 22, 0.62), inset 0 1px 0 rgba(255,255,255,0.18), 0 0 34px rgba(88, 158, 220, 0.14);
+        }
+
+        .sift-page.is-zoom-near .filter-chip.is-active,
+        .sift-page.is-zoom-near .mode-toggle button.is-active,
+        .sift-page.is-zoom-hyper .filter-chip.is-active,
+        .sift-page.is-zoom-hyper .mode-toggle button.is-active {
+          border-color: rgba(111, 180, 244, 0.68);
+          background: linear-gradient(135deg, rgba(58, 131, 214, 0.46), rgba(70, 103, 170, 0.42));
+          box-shadow: 0 0 24px rgba(93, 161, 230, 0.2);
         }
 
         .stat-bar {
@@ -5169,23 +5674,23 @@ export default function Home() {
           right: 116px;
           gap: 42px;
           padding: 5px 12px;
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid rgba(141, 177, 255, 0.3);
           border-top: 0;
           border-radius: 0 0 10px 10px;
-          background: rgba(4, 10, 18, 0.18);
-          backdrop-filter: blur(14px);
+          background: rgba(10, 20, 44, 0.52);
+          backdrop-filter: blur(12px);
         }
 
         .stat-bar strong {
           font-size: 17px;
-          color: rgba(255,255,255,0.9);
-          text-shadow: 0 1px 22px rgba(78,128,210,0.32);
+          color: rgba(255,255,255,0.96);
+          text-shadow: 0 1px 18px rgba(52, 120, 255, 0.38);
         }
 
         .stat-bar span,
         .cinema-readout span {
           font-size: 7px;
-          color: rgba(232, 239, 247, 0.5);
+          color: rgba(240, 249, 255, 0.68);
         }
 
         .network-dock {
@@ -5198,15 +5703,15 @@ export default function Home() {
 
         .network-head span {
           font-size: 11px;
-          color: rgba(238,246,255,0.86);
+          color: rgba(249, 253, 255, 0.94);
         }
 
         .repo-load-form {
           grid-template-columns: minmax(0, 1fr) 78px;
           padding: 10px;
-          border: 1px solid rgba(255,255,255,0.07);
+          border: 1px solid rgba(145, 177, 255, 0.3);
           border-radius: 10px;
-          background: rgba(255,255,255,0.035);
+          background: rgba(11, 23, 50, 0.44);
         }
 
         .repo-load-form input,
@@ -5240,7 +5745,7 @@ export default function Home() {
         .search-cluster {
           bottom: 28px;
           width: min(760px, calc(100vw - 560px));
-          opacity: 0.78;
+          opacity: 0.94;
         }
 
         .search-cluster:hover,
@@ -5252,9 +5757,9 @@ export default function Home() {
           min-height: 54px;
           border-radius: 12px;
           background:
-            linear-gradient(145deg, rgba(255,255,255,0.11), rgba(255,255,255,0.03)),
-            rgba(7,15,25,0.58);
-          box-shadow: 0 20px 60px rgba(2,7,14,0.32), inset 0 1px 0 rgba(255,255,255,0.13);
+            linear-gradient(145deg, rgba(132, 174, 255, 0.24), rgba(255,255,255,0.07)),
+            rgba(9, 24, 55, 0.54);
+          box-shadow: 0 18px 48px rgba(8, 14, 44, 0.34), inset 0 1px 0 rgba(255,255,255,0.18);
         }
 
         .glass-search::before,
@@ -5265,17 +5770,37 @@ export default function Home() {
         .glass-search input {
           font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           font-size: 14px;
+          color: rgba(250, 254, 255, 0.96);
         }
 
         .glass-search button {
           height: 38px;
           border-radius: 8px;
-          background: linear-gradient(135deg, rgba(132,172,203,0.92), rgba(135,120,92,0.72));
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+          background: linear-gradient(135deg, rgba(96, 179, 255, 0.94), rgba(121, 122, 255, 0.9));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.24), 0 0 16px rgba(110, 166, 255, 0.26);
+        }
+
+        .sift-page.is-zoom-near .glass-search,
+        .sift-page.is-zoom-hyper .glass-search {
+          background:
+            linear-gradient(145deg, rgba(78, 117, 164, 0.36), rgba(44, 82, 122, 0.24)),
+            rgba(10, 22, 48, 0.68);
+          box-shadow: 0 18px 54px rgba(4, 10, 28, 0.46), inset 0 1px 0 rgba(255,255,255,0.18), 0 0 24px rgba(87, 171, 229, 0.12);
+        }
+
+        .sift-page.is-zoom-near .glass-search button,
+        .sift-page.is-zoom-hyper .glass-search button {
+          background: linear-gradient(135deg, rgba(118, 185, 255, 0.95), rgba(81, 129, 225, 0.92));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 20px rgba(106, 171, 240, 0.22);
         }
 
         .filter-row {
-          opacity: 0.76;
+          opacity: 0.9;
+        }
+
+        .sift-page.is-zoom-near .filter-row,
+        .sift-page.is-zoom-hyper .filter-row {
+          opacity: 1;
         }
 
         .cinema-readout {
@@ -5287,9 +5812,9 @@ export default function Home() {
         .repo-panel {
           width: min(390px, calc(100vw - 20px));
           background:
-            radial-gradient(circle at 18% 4%, color-mix(in srgb, var(--repo-color), transparent 78%), transparent 32%),
-            linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.03)),
-            rgba(7, 15, 25, 0.72);
+            radial-gradient(circle at 18% 4%, color-mix(in srgb, var(--repo-color), transparent 72%), transparent 32%),
+            linear-gradient(145deg, rgba(143, 175, 255, 0.2), rgba(255,255,255,0.05)),
+            rgba(11, 21, 56, 0.8);
         }
 
         .repo-panel h2 {
@@ -5298,7 +5823,769 @@ export default function Home() {
           letter-spacing: -0.02em;
         }
 
+        /* Rendered 2D atlas: art, labels, and hit targets share one transform. */
+        .three-stage {
+          z-index: 1;
+          opacity: 0.01 !important;
+          filter: none !important;
+        }
+
+        .rendered-atlas-layer {
+          position: fixed;
+          inset: 0;
+          z-index: 2;
+          overflow: hidden;
+          --atlas-edge-color: #070d15;
+          --atlas-edge-color-soft: #0a1420;
+          --atlas-ground: #111a24;
+          pointer-events: auto;
+          cursor: grab;
+          touch-action: none;
+          user-select: none;
+          -webkit-user-select: none;
+          background:
+            radial-gradient(ellipse at 28% 72%, rgba(48, 93, 74, 0.28), transparent 34%),
+            radial-gradient(ellipse at 74% 22%, rgba(96, 50, 46, 0.28), transparent 32%),
+            radial-gradient(ellipse at 50% 31%, rgba(59, 81, 101, 0.42), transparent 46%),
+            radial-gradient(circle at 47% 17%, rgba(220, 233, 255, 0.08), transparent 19%),
+            linear-gradient(180deg, var(--atlas-edge-color-soft) 0%, var(--atlas-edge-color) 100%);
+        }
+
+        .rendered-atlas-layer:active {
+          cursor: grabbing;
+        }
+
+        .rendered-atlas-layer * {
+          -webkit-user-drag: none;
+        }
+
+        .rendered-atlas-board {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: max(1458px, 122vw);
+          aspect-ratio: 1458 / 778;
+          transform: translate(-50%, -50%) translate3d(var(--atlas-pan-x, 0px), var(--atlas-pan-y, 0px), 0) scale(var(--atlas-scale, 1));
+          transform-origin: 50% 50%;
+          will-change: transform;
+          isolation: isolate;
+        }
+
+        .rendered-atlas-board::before {
+          content: "";
+          position: absolute;
+          inset: -82vh -88vw;
+          z-index: -2;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse at 26% 68%, rgba(53, 100, 78, 0.5), transparent 27%),
+            radial-gradient(ellipse at 70% 28%, rgba(151, 66, 42, 0.34), transparent 24%),
+            radial-gradient(ellipse at 58% 78%, rgba(60, 180, 210, 0.18), transparent 30%),
+            radial-gradient(ellipse at 50% 50%, rgba(41, 61, 78, 0.7) 0%, rgba(16, 29, 43, 0.86) 28%, var(--atlas-edge-color) 70%),
+            var(--atlas-edge-color);
+          box-shadow: 0 0 0 180vmax var(--atlas-edge-color);
+        }
+
+        .rendered-atlas-board::after {
+          content: "";
+          position: absolute;
+          inset: -2px;
+          z-index: 2;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse at 50% 48%, transparent 56%, rgba(7, 13, 21, 0.24) 76%, var(--atlas-edge-color) 100%),
+            linear-gradient(90deg, var(--atlas-edge-color) 0%, transparent 10%, transparent 90%, var(--atlas-edge-color) 100%),
+            linear-gradient(180deg, var(--atlas-edge-color-soft) 0%, transparent 13%, transparent 84%, var(--atlas-edge-color) 100%);
+          mix-blend-mode: normal;
+        }
+
+        .atlas-skywash,
+        .atlas-water-basin,
+        .atlas-code-grid {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+        }
+
+        .atlas-skywash {
+          z-index: -1;
+          background:
+            radial-gradient(ellipse at 34% 18%, rgba(128, 170, 220, 0.22), transparent 19%),
+            radial-gradient(ellipse at 68% 38%, rgba(170, 83, 255, 0.14), transparent 22%),
+            linear-gradient(180deg, rgba(47, 62, 78, 0.55), rgba(9, 15, 23, 0.78));
+          filter: saturate(1.16);
+        }
+
+        .atlas-water-basin {
+          z-index: 0;
+          background:
+            radial-gradient(ellipse at 33% 66%, rgba(43, 150, 170, 0.26), transparent 19%),
+            radial-gradient(ellipse at 56% 64%, rgba(64, 184, 210, 0.2), transparent 20%),
+            radial-gradient(ellipse at 73% 75%, rgba(51, 160, 190, 0.17), transparent 22%);
+          mix-blend-mode: screen;
+          opacity: 0.74;
+        }
+
+        .atlas-code-grid {
+          z-index: 1;
+          opacity: 0.36;
+          background-image:
+            linear-gradient(30deg, rgba(119, 161, 203, 0.1) 1px, transparent 1px),
+            linear-gradient(150deg, rgba(119, 161, 203, 0.07) 1px, transparent 1px);
+          background-size: 74px 42px;
+          mask-image: radial-gradient(ellipse at 50% 50%, #000 0 52%, transparent 83%);
+        }
+
+        .atlas-ground-tile {
+          position: absolute;
+          z-index: 2;
+          width: 285px;
+          height: 158px;
+          pointer-events: none;
+          background-image: var(--terrain-image);
+          background-position: var(--terrain-x, 50%) var(--terrain-y, 50%);
+          background-repeat: no-repeat;
+          background-size: 520% auto;
+          opacity: var(--terrain-opacity, 0.7);
+          transform: translate(-50%, -50%) rotate(var(--terrain-rotation, -18deg)) scale(var(--terrain-scale, 1));
+          transform-origin: 50% 50%;
+          filter:
+            drop-shadow(0 26px 30px rgba(0, 0, 0, 0.34))
+            saturate(1.24)
+            brightness(1.08);
+          mix-blend-mode: normal;
+          animation: atlasGroundDrift 8.5s ease-in-out infinite;
+        }
+
+        .atlas-ground-tile::after {
+          content: "";
+          position: absolute;
+          inset: 18% 12% 10%;
+          border-radius: 50%;
+          background: radial-gradient(ellipse at 50% 50%, rgba(96, 214, 255, 0.18), transparent 64%);
+          filter: blur(12px);
+          mix-blend-mode: screen;
+          pointer-events: none;
+        }
+
+        .atlas-ground-tile.is-accent {
+          width: 220px;
+          height: 122px;
+          opacity: calc(var(--terrain-opacity, 0.56) * 0.84);
+          filter:
+            drop-shadow(0 18px 22px rgba(0, 0, 0, 0.26))
+            saturate(1.18)
+            brightness(1.04);
+        }
+
+        .atlas-ground-water {
+          --terrain-image: url(/images/atlas-reference-assets/terrain-water-layer.png);
+        }
+
+        .atlas-ground-green {
+          --terrain-image: url(/images/atlas-reference-assets/terrain-green-layer.png);
+        }
+
+        .atlas-ground-city {
+          --terrain-image: url(/images/atlas-reference-assets/terrain-city-layer.png);
+        }
+
+        .atlas-ground-forge {
+          --terrain-image: url(/images/atlas-reference-assets/terrain-forge-layer.png);
+        }
+
+        .atlas-ground-crystal {
+          --terrain-image: url(/images/atlas-reference-assets/terrain-crystal-layer.png);
+        }
+
+        .atlas-ground-variant-0 { --terrain-x: 5%; --terrain-y: 22%; }
+        .atlas-ground-variant-1 { --terrain-x: 27%; --terrain-y: 22%; }
+        .atlas-ground-variant-2 { --terrain-x: 50%; --terrain-y: 22%; }
+        .atlas-ground-variant-3 { --terrain-x: 73%; --terrain-y: 22%; }
+        .atlas-ground-variant-4 { --terrain-x: 96%; --terrain-y: 22%; }
+        .atlas-ground-variant-5 { --terrain-x: 5%; --terrain-y: 78%; }
+        .atlas-ground-variant-6 { --terrain-x: 27%; --terrain-y: 78%; }
+        .atlas-ground-variant-7 { --terrain-x: 50%; --terrain-y: 78%; }
+        .atlas-ground-variant-8 { --terrain-x: 73%; --terrain-y: 78%; }
+        .atlas-ground-variant-9 { --terrain-x: 96%; --terrain-y: 78%; }
+
+        .rendered-atlas-shade {
+          position: absolute;
+          inset: 0;
+          z-index: 3;
+          background:
+            radial-gradient(ellipse at 49% 43%, transparent 34%, rgba(3, 7, 15, 0.3) 79%),
+            linear-gradient(90deg, rgba(2, 7, 16, 0.18), transparent 18%, transparent 78%, rgba(2, 7, 16, 0.34)),
+            linear-gradient(180deg, rgba(6, 12, 24, 0.16), transparent 34%, rgba(4, 9, 17, 0.34));
+          pointer-events: none;
+        }
+
+        .atlas-terrain-region {
+          position: absolute;
+          z-index: 2;
+          width: calc(180px * var(--region-scale, 1));
+          height: calc(104px * var(--region-scale, 1));
+          transform: translate(-50%, -42%) rotate(-17deg);
+          transform-origin: 50% 50%;
+          pointer-events: none;
+          border-radius: 50%;
+          background:
+            radial-gradient(ellipse at 48% 42%, color-mix(in srgb, var(--district-accent), transparent 62%), transparent 36%),
+            radial-gradient(ellipse at 50% 56%, color-mix(in srgb, var(--district-color), #101827 22%), transparent 68%);
+          filter: saturate(1.3) drop-shadow(0 26px 24px rgba(0, 0, 0, 0.34));
+          opacity: 0.84;
+        }
+
+        .atlas-terrain-region::before,
+        .atlas-terrain-region::after,
+        .atlas-terrain-region i {
+          content: "";
+          position: absolute;
+          display: block;
+          inset: 16% 10%;
+          border-radius: inherit;
+          background:
+            linear-gradient(135deg, rgba(255,255,255,0.16), transparent 28% 68%, rgba(0,0,0,0.2)),
+            repeating-linear-gradient(90deg, transparent 0 18px, color-mix(in srgb, var(--district-accent), transparent 74%) 18px 20px);
+          transform: rotate(17deg) skewX(-16deg);
+          opacity: 0.54;
+        }
+
+        .atlas-terrain-region::after {
+          inset: 55% 3% 10% 25%;
+          opacity: 0.38;
+          filter: blur(8px);
+        }
+
+        .atlas-terrain-green {
+          border-radius: 58% 44% 50% 46%;
+        }
+
+        .atlas-terrain-forge {
+          background:
+            radial-gradient(ellipse at 55% 44%, rgba(255, 133, 52, 0.52), transparent 32%),
+            radial-gradient(ellipse at 50% 58%, color-mix(in srgb, var(--district-color), #2b0705 26%), transparent 72%);
+        }
+
+        .atlas-terrain-signal {
+          clip-path: polygon(8% 44%, 42% 4%, 88% 18%, 98% 66%, 58% 100%, 14% 82%);
+        }
+
+        .atlas-terrain-water {
+          background:
+            radial-gradient(ellipse at 50% 48%, rgba(128, 225, 255, 0.48), transparent 38%),
+            radial-gradient(ellipse at 50% 58%, color-mix(in srgb, var(--district-color), #071827 28%), transparent 72%);
+        }
+
+        .atlas-connector {
+          position: absolute;
+          z-index: 5;
+          width: var(--connector-width);
+          height: 7px;
+          border-radius: 999px;
+          opacity: calc(0.32 + var(--connector-intensity) * 0.52);
+          transform: rotate(var(--connector-angle));
+          transform-origin: 0 50%;
+          background:
+            linear-gradient(90deg, transparent, rgba(255,255,255,0.52), transparent),
+            repeating-linear-gradient(90deg, rgba(99, 232, 255, 0.14) 0 10px, rgba(99, 232, 255, 0.82) 10px 16px, rgba(99, 232, 255, 0.14) 16px 32px);
+          background-size: 220% 100%, 64px 100%;
+          box-shadow: 0 0 18px rgba(79, 218, 255, 0.42), inset 0 0 0 1px rgba(255,255,255,0.12);
+          pointer-events: none;
+          animation: atlasFlowSweep 5.4s linear infinite;
+        }
+
+        .atlas-connector::before,
+        .atlas-connector::after,
+        .atlas-connector i {
+          content: "";
+          position: absolute;
+          top: 50%;
+          width: 13px;
+          height: 13px;
+          border-radius: 50%;
+          background: currentColor;
+          color: rgba(104, 232, 255, 0.95);
+          box-shadow: 0 0 18px currentColor;
+          transform: translate(-50%, -50%);
+        }
+
+        .atlas-connector::after {
+          left: 100%;
+        }
+
+        .atlas-connector i {
+          left: 50%;
+          width: 8px;
+          height: 8px;
+          animation: atlasPacketRun 2.9s linear infinite;
+        }
+
+        .atlas-connector-safe {
+          background:
+            linear-gradient(90deg, transparent, rgba(185, 255, 215, 0.5), transparent),
+            repeating-linear-gradient(90deg, rgba(52, 211, 153, 0.14) 0 10px, rgba(52, 211, 153, 0.82) 10px 16px, rgba(52, 211, 153, 0.14) 16px 32px);
+        }
+
+        .atlas-connector-pr {
+          height: 9px;
+          background:
+            linear-gradient(90deg, transparent, rgba(117, 226, 255, 0.66), transparent),
+            repeating-linear-gradient(90deg, rgba(56, 189, 248, 0.18) 0 8px, rgba(56, 189, 248, 0.9) 8px 17px, rgba(168, 85, 247, 0.68) 17px 24px, rgba(56, 189, 248, 0.16) 24px 36px);
+        }
+
+        .atlas-connector-issue {
+          background:
+            linear-gradient(90deg, transparent, rgba(255, 208, 116, 0.58), transparent),
+            repeating-linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0 12px, rgba(245, 158, 11, 0.76) 12px 18px, rgba(245, 158, 11, 0.12) 18px 34px);
+        }
+
+        .atlas-connector-contributor {
+          background:
+            linear-gradient(90deg, transparent, rgba(218, 181, 255, 0.55), transparent),
+            repeating-linear-gradient(90deg, rgba(192, 132, 252, 0.12) 0 10px, rgba(192, 132, 252, 0.78) 10px 15px, rgba(192, 132, 252, 0.12) 15px 31px);
+        }
+
+        .atlas-connector.is-muted {
+          opacity: 0.1;
+          filter: saturate(0.4);
+        }
+
+        .atlas-path-bed {
+          position: absolute;
+          z-index: 4;
+          width: var(--connector-width);
+          height: 24px;
+          border-radius: 999px;
+          opacity: calc(0.12 + var(--connector-intensity) * 0.26);
+          transform: translateY(-50%) rotate(var(--connector-angle));
+          transform-origin: 0 50%;
+          pointer-events: none;
+          background:
+            linear-gradient(90deg, transparent, rgba(108, 223, 255, 0.22), transparent),
+            repeating-linear-gradient(90deg, rgba(78, 196, 224, 0.05) 0 18px, rgba(88, 211, 240, 0.22) 18px 28px, rgba(124, 73, 196, 0.14) 28px 36px);
+          box-shadow:
+            0 0 28px rgba(79, 218, 255, 0.2),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+          animation: atlasPathBedPulse 6.4s ease-in-out infinite;
+        }
+
+        .atlas-path-bed::before,
+        .atlas-path-bed i {
+          content: "";
+          position: absolute;
+          inset: 6px 16px;
+          border-radius: inherit;
+          background:
+            linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent),
+            repeating-linear-gradient(90deg, transparent 0 22px, rgba(255,255,255,0.12) 22px 24px, transparent 24px 36px);
+          opacity: 0.64;
+        }
+
+        .atlas-path-bed i {
+          inset: 10px 22px;
+          opacity: 0.36;
+          background: repeating-linear-gradient(90deg, rgba(84, 219, 255, 0.24) 0 13px, transparent 13px 26px);
+        }
+
+        .atlas-path-bed-safe {
+          background:
+            linear-gradient(90deg, transparent, rgba(128, 255, 190, 0.2), transparent),
+            repeating-linear-gradient(90deg, rgba(34, 197, 94, 0.06) 0 18px, rgba(74, 222, 128, 0.22) 18px 28px, rgba(20, 184, 166, 0.12) 28px 36px);
+        }
+
+        .atlas-path-bed-pr {
+          height: 30px;
+          opacity: calc(0.16 + var(--connector-intensity) * 0.34);
+        }
+
+        .atlas-path-bed-issue {
+          background:
+            linear-gradient(90deg, transparent, rgba(255, 194, 96, 0.2), transparent),
+            repeating-linear-gradient(90deg, rgba(245, 158, 11, 0.07) 0 18px, rgba(251, 146, 60, 0.22) 18px 28px, rgba(14, 165, 233, 0.08) 28px 36px);
+        }
+
+        .atlas-path-bed-contributor {
+          background:
+            linear-gradient(90deg, transparent, rgba(203, 166, 255, 0.22), transparent),
+            repeating-linear-gradient(90deg, rgba(168, 85, 247, 0.07) 0 18px, rgba(192, 132, 252, 0.22) 18px 28px, rgba(45, 212, 191, 0.08) 28px 36px);
+        }
+
+        .atlas-path-bed.is-muted {
+          opacity: 0.07;
+          filter: saturate(0.48);
+        }
+
+        .atlas-repo-marker {
+          position: absolute;
+          z-index: 6;
+          --repo-visual-width: clamp(36px, calc(var(--repo-width) * 3.2), 86px);
+          --repo-visual-height: clamp(48px, calc(var(--repo-height) * 1.55 + 24px), 138px);
+          --repo-sprite-x: 4%;
+          --repo-sprite-y: 48%;
+          --repo-sprite-size: 520% auto;
+          width: calc(var(--repo-visual-width) + 24px);
+          height: calc(var(--repo-visual-height) + 24px);
+          padding: 0;
+          border: 0;
+          background: transparent;
+          transform: translate(-50%, -100%) scale(var(--repo-marker-scale));
+          transform-origin: 50% 100%;
+          pointer-events: auto;
+          cursor: pointer;
+          opacity: var(--repo-marker-opacity);
+          animation: atlasRepoBreathe 3.8s ease-in-out infinite;
+          animation-delay: var(--repo-delay);
+        }
+
+        .atlas-repo-marker span {
+          position: absolute;
+          left: 50%;
+          bottom: 0;
+          width: var(--repo-visual-width);
+          height: var(--repo-visual-height);
+          border-radius: 0;
+          background-image: var(--repo-sprite-image);
+          background-position: var(--repo-sprite-x) var(--repo-sprite-y);
+          background-repeat: no-repeat;
+          background-size: var(--repo-sprite-size);
+          clip-path: none;
+          filter:
+            drop-shadow(9px 14px 0 rgba(0, 0, 0, 0.18))
+            drop-shadow(0 0 18px color-mix(in srgb, var(--repo-accent), transparent 46%))
+            contrast(1.08)
+            saturate(1.46)
+            brightness(1.2);
+          mix-blend-mode: normal;
+          transform: translateX(-50%);
+          transition: transform 140ms ease, filter 140ms ease;
+        }
+
+        .atlas-repo-marker span::before,
+        .atlas-repo-marker span::after {
+          content: "";
+          position: absolute;
+          pointer-events: none;
+        }
+
+        .atlas-repo-marker span::before {
+          inset: 8% 10% 18%;
+          border-radius: 42% 42% 34% 34%;
+          background:
+            radial-gradient(circle at 50% 20%, rgba(255,255,255,0.28), transparent 18%),
+            radial-gradient(circle at 48% 58%, color-mix(in srgb, var(--repo-accent), transparent 58%), transparent 44%),
+            linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+          mix-blend-mode: screen;
+          opacity: 0.38;
+        }
+
+        .atlas-repo-marker span::after {
+          left: 50%;
+          bottom: 4px;
+          width: 86%;
+          height: 13px;
+          border-radius: 50%;
+          background: color-mix(in srgb, var(--repo-color), transparent 46%);
+          filter: blur(10px);
+          mix-blend-mode: normal;
+          opacity: 0.82;
+          transform: translateX(-50%);
+        }
+
+        .atlas-repo-city span,
+        .atlas-repo-field span {
+          --repo-sprite-image: url(/images/atlas-reference-assets/biome-city-sprite.png);
+          --repo-sprite-y: 48%;
+        }
+
+        .atlas-repo-green span {
+          --repo-sprite-image: url(/images/atlas-reference-assets/biome-green-sprite.png);
+          --repo-sprite-y: 50%;
+        }
+
+        .atlas-repo-forge span {
+          --repo-sprite-image: url(/images/atlas-reference-assets/biome-forge-sprite.png);
+          --repo-sprite-y: 48%;
+        }
+
+        .atlas-repo-signal span {
+          --repo-sprite-image: url(/images/atlas-reference-assets/biome-crystal-sprite.png);
+          --repo-sprite-y: 46%;
+        }
+
+        .atlas-repo-water span {
+          --repo-sprite-image: url(/images/atlas-reference-assets/biome-water-sprite.png);
+          --repo-sprite-y: 34%;
+        }
+
+        .atlas-repo-kind-standard span {
+          --repo-sprite-x: 4%;
+        }
+
+        .atlas-repo-kind-safe span {
+          --repo-sprite-x: 25%;
+        }
+
+        .atlas-repo-kind-activity span {
+          --repo-sprite-x: 48%;
+        }
+
+        .atlas-repo-kind-community span {
+          --repo-sprite-x: 72%;
+        }
+
+        .atlas-repo-kind-pr span {
+          --repo-sprite-x: 72%;
+          --repo-sprite-size: 535% auto;
+        }
+
+        .atlas-repo-kind-landmark span {
+          --repo-sprite-x: 96%;
+          --repo-sprite-size: 545% auto;
+        }
+
+        .atlas-repo-kind-pr span {
+          filter:
+            drop-shadow(9px 14px 0 rgba(0, 0, 0, 0.18))
+            drop-shadow(0 0 22px rgba(80, 224, 255, 0.48))
+            contrast(1.08)
+            saturate(1.58)
+            brightness(1.24);
+        }
+
+        .atlas-repo-kind-safe span {
+          filter:
+            drop-shadow(9px 14px 0 rgba(0, 0, 0, 0.18))
+            drop-shadow(0 0 22px rgba(52, 211, 153, 0.5))
+            contrast(1.08)
+            saturate(1.58)
+            brightness(1.24);
+        }
+
+        .atlas-repo-kind-community span::before {
+          background:
+            radial-gradient(circle at 35% 30%, rgba(255,255,255,0.5) 0 2px, transparent 3px),
+            radial-gradient(circle at 62% 56%, rgba(255,255,255,0.38) 0 2px, transparent 3px),
+            repeating-linear-gradient(0deg, rgba(255,255,255,0.16) 0 2px, transparent 2px 7px);
+        }
+
+        .atlas-repo-kind-activity {
+          animation-duration: 2.3s;
+        }
+
+        .atlas-repo-marker.is-muted {
+          opacity: 0.22;
+          filter: saturate(0.5);
+        }
+
+        .atlas-repo-marker:hover,
+        .atlas-repo-marker.is-selected {
+          z-index: 8;
+          opacity: 1;
+        }
+
+        .atlas-repo-marker:hover span,
+        .atlas-repo-marker.is-selected span {
+          transform: translateX(-50%) translateY(-8px) scale(1.16);
+          filter:
+            drop-shadow(12px 18px 0 rgba(0, 0, 0, 0.2))
+            drop-shadow(0 0 30px color-mix(in srgb, var(--repo-accent), transparent 28%))
+            contrast(1.08)
+            brightness(1.32)
+            saturate(1.7);
+        }
+
+        @keyframes atlasRepoBreathe {
+          0%, 100% { transform: translate(-50%, -100%) translateY(0) scale(var(--repo-marker-scale)); }
+          50% { transform: translate(-50%, -100%) translateY(-2px) scale(var(--repo-marker-scale)); }
+        }
+
+        @keyframes atlasGroundDrift {
+          0%, 100% { translate: 0 0; filter: drop-shadow(0 26px 30px rgba(0, 0, 0, 0.34)) saturate(1.18) brightness(1.04); }
+          50% { translate: 0 -2px; filter: drop-shadow(0 28px 34px rgba(0, 0, 0, 0.38)) saturate(1.34) brightness(1.1); }
+        }
+
+        @keyframes atlasPathBedPulse {
+          0%, 100% { filter: saturate(0.92) brightness(0.96); }
+          50% { filter: saturate(1.18) brightness(1.08); }
+        }
+
+        @keyframes atlasFlowSweep {
+          0% { background-position: 180% 0; opacity: 0.18; }
+          38% { opacity: 0.54; }
+          100% { background-position: -180% 0; opacity: 0.2; }
+        }
+
+        @keyframes atlasPacketRun {
+          0% { left: 4%; opacity: 0; }
+          18% { opacity: 1; }
+          82% { opacity: 1; }
+          100% { left: 96%; opacity: 0; }
+        }
+
+        .rendered-district {
+          position: absolute;
+          z-index: 7;
+          width: 170px;
+          min-height: 86px;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          text-align: left;
+          transform: translate(-16px, -14px);
+          transform-origin: 20px 20px;
+          pointer-events: auto;
+          cursor: pointer;
+          isolation: isolate;
+        }
+
+        .rendered-district::before {
+          content: "";
+          position: absolute;
+          left: 8px;
+          top: 28px;
+          width: calc(80px * var(--region-scale, 1));
+          height: calc(44px * var(--region-scale, 1));
+          border-radius: 50%;
+          background: color-mix(in srgb, var(--district-color), transparent 48%);
+          filter: blur(18px);
+          opacity: 0.7;
+          transform: rotate(-9deg);
+          z-index: -1;
+        }
+
+        .rendered-district-art {
+          position: absolute;
+          left: 12px;
+          top: 22px;
+          width: calc(104px * var(--region-scale, 1));
+          height: calc(68px * var(--region-scale, 1));
+          transform: perspective(280px) rotateX(58deg) rotateZ(-18deg);
+          transform-origin: 45% 58%;
+          opacity: 0.42;
+          filter: drop-shadow(0 18px 18px rgba(0, 0, 0, 0.46));
+          transition: opacity 160ms ease, transform 160ms ease;
+        }
+
+        .rendered-district-art i {
+          position: absolute;
+          left: var(--sx, 50%);
+          bottom: var(--sy, 20%);
+          width: var(--sw, 9px);
+          height: var(--sh, 34px);
+          border-radius: 2px 2px 1px 1px;
+          background:
+            linear-gradient(90deg, color-mix(in srgb, var(--district-color), #111827 12%), color-mix(in srgb, var(--district-accent), white 10%));
+          box-shadow:
+            6px 8px 0 rgba(0, 0, 0, 0.22),
+            inset 2px 0 0 rgba(255, 255, 255, 0.16),
+            0 0 18px color-mix(in srgb, var(--district-accent), transparent 42%);
+          transform: translate(-50%, 0) skewY(-10deg);
+        }
+
+        .rendered-district-art i:nth-child(1) { --sx: 19%; --sy: 20%; --sh: 30px; --sw: 10px; }
+        .rendered-district-art i:nth-child(2) { --sx: 31%; --sy: 24%; --sh: 56px; --sw: 12px; }
+        .rendered-district-art i:nth-child(3) { --sx: 43%; --sy: 18%; --sh: 42px; --sw: 10px; }
+        .rendered-district-art i:nth-child(4) { --sx: 54%; --sy: 25%; --sh: 68px; --sw: 13px; }
+        .rendered-district-art i:nth-child(5) { --sx: 66%; --sy: 15%; --sh: 36px; --sw: 12px; }
+        .rendered-district-art i:nth-child(6) { --sx: 75%; --sy: 21%; --sh: 52px; --sw: 9px; }
+        .rendered-district-art i:nth-child(7) { --sx: 83%; --sy: 12%; --sh: 28px; --sw: 11px; }
+        .rendered-district-art i:nth-child(8) { --sx: 39%; --sy: 38%; --sh: 24px; --sw: 14px; }
+        .rendered-district-art i:nth-child(9) { --sx: 59%; --sy: 39%; --sh: 31px; --sw: 13px; }
+
+        .rendered-district-forge .rendered-district-art i {
+          clip-path: polygon(50% 0, 100% 100%, 0 100%);
+          background: linear-gradient(180deg, #ffd7a1, var(--district-color) 48%, #3b0a08);
+          box-shadow: 0 0 26px rgba(255, 106, 33, 0.46);
+        }
+
+        .rendered-district-green .rendered-district-art i {
+          width: var(--sw, 18px);
+          height: var(--sh, 22px);
+          border-radius: 50% 50% 42% 48%;
+          background: radial-gradient(circle at 35% 28%, rgba(255,255,255,0.24), transparent 25%), linear-gradient(145deg, var(--district-accent), color-mix(in srgb, var(--district-color), #062013 42%));
+        }
+
+        .rendered-district-signal .rendered-district-art i {
+          clip-path: polygon(50% 0, 90% 32%, 70% 100%, 18% 82%, 0 25%);
+          background: linear-gradient(170deg, rgba(255,255,255,0.88), var(--district-accent) 26%, var(--district-color) 86%);
+          box-shadow: 0 0 28px color-mix(in srgb, var(--district-accent), transparent 18%);
+        }
+
+        .rendered-district-water .rendered-district-art i {
+          height: 12px;
+          border-radius: 3px;
+          background: linear-gradient(90deg, color-mix(in srgb, var(--district-accent), white 8%), color-mix(in srgb, var(--district-color), #071827 22%));
+        }
+
+        .rendered-district-label {
+          position: relative;
+          z-index: 2;
+          display: block;
+          width: max-content;
+          max-width: 176px;
+          padding: 10px 11px 9px;
+          border: 1px solid rgba(174, 199, 230, 0.15);
+          border-radius: 8px;
+          background: linear-gradient(145deg, rgba(23, 31, 42, 0.82), rgba(13, 20, 31, 0.72));
+          box-shadow: 0 16px 38px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+          backdrop-filter: blur(12px) saturate(118%);
+          -webkit-backdrop-filter: blur(12px) saturate(118%);
+          transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+        }
+
+        .rendered-district-label strong,
+        .rendered-district-label span {
+          display: block;
+          overflow: hidden;
+          max-width: 154px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          letter-spacing: 0;
+        }
+
+        .rendered-district-label strong {
+          font-size: 12px;
+          line-height: 1.18;
+          font-weight: 780;
+          color: rgba(255, 255, 255, 0.96);
+        }
+
+        .rendered-district-label span {
+          margin-top: 4px;
+          font-size: 10px;
+          line-height: 1.25;
+          color: rgba(205, 219, 235, 0.76);
+        }
+
+        .rendered-district:hover .rendered-district-label,
+        .rendered-district.is-active .rendered-district-label {
+          transform: translateY(-2px);
+          border-color: color-mix(in srgb, var(--district-accent), rgba(255, 255, 255, 0.24) 38%);
+          background: linear-gradient(145deg, rgba(29, 39, 55, 0.92), rgba(14, 22, 36, 0.82));
+        }
+
+        .rendered-district:hover .rendered-district-art,
+        .rendered-district.is-active .rendered-district-art {
+          opacity: 0.66;
+          transform: perspective(280px) rotateX(58deg) rotateZ(-18deg) translateY(-5px) scale(1.04);
+        }
+
+        .sift-page.is-zoom-near .rendered-district-label,
+        .sift-page.is-zoom-hyper .rendered-district-label {
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4), 0 0 26px color-mix(in srgb, var(--district-color), transparent 66%), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
         @media (max-width: 1100px) {
+          .rendered-atlas-board {
+            width: max(1180px, 170vw);
+          }
+
+          .rendered-district {
+            transform: translate(-12px, -12px) scale(0.92);
+          }
+
           .search-cluster {
             width: min(720px, calc(100vw - 32px));
           }
@@ -5385,34 +6672,34 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
 
   const shape = buildingShapeFor(repo, district);
   const baseColor = new THREE.Color(district.color);
-  const bodyColor = baseColor.clone().lerp(new THREE.Color('#050708'), 0.1);
+  const bodyColor = baseColor.clone().lerp(new THREE.Color('#030510'), 0.08);
   const accentColor = new THREE.Color(district.accent);
   const isHighDetail = repo.stars >= 1000 || index % 5 === 0;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,
-    roughness: 0.48,
-    metalness: 0.22,
+    roughness: 0.42,
+    metalness: 0.28,
     emissive: baseColor,
-    emissiveIntensity: 0.026,
+    emissiveIntensity: 0.052,
   });
 
   const topMaterial = new THREE.MeshStandardMaterial({
     color: accentColor,
-    roughness: 0.36,
-    metalness: 0.32,
+    roughness: 0.28,
+    metalness: 0.44,
     emissive: accentColor,
-    emissiveIntensity: 0.08,
+    emissiveIntensity: 0.16,
   });
 
   const glassMaterial = new THREE.MeshStandardMaterial({
-    color: bodyColor,
-    roughness: 0.1,
-    metalness: 0.8,
+    color: baseColor.clone().lerp(new THREE.Color('#dbeafe'), 0.18),
+    roughness: 0.08,
+    metalness: 0.86,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.78,
     emissive: accentColor,
-    emissiveIntensity: 0.15,
+    emissiveIntensity: 0.26,
   });
 
   let body: THREE.Mesh;
@@ -6161,15 +7448,20 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
       roughness: 0.9,
       metalness: biome === 'cyber' ? 0.3 : 0.05,
       transparent: true,
-      opacity: 0,
+      opacity: 0.15,
       depthWrite: false,
     }),
   );
+  (ground.material as THREE.MeshStandardMaterial).userData.dayOpacity = 0.12;
+  (ground.material as THREE.MeshStandardMaterial).userData.nightOpacity = 0.2;
   ground.rotation.x = -Math.PI / 2;
   ground.rotation.z = seededUnit(districtIndex + 5.91) * Math.PI;
   ground.scale.set(1.16 + seededUnit(districtIndex + 8.4) * 0.22, 0.82 + seededUnit(districtIndex + 11.2) * 0.18, 1);
   ground.position.set(centerX, -0.42, centerZ);
   ground.renderOrder = -1;
+  ground.userData.role = 'landscape';
+  ground.userData.dayOpacity = 0.12;
+  ground.userData.nightOpacity = 0.2;
   scene.add(ground);
 
   // Soft biome edge shadow, kept subtle so districts feel like terrain rather than tokens.
@@ -6178,13 +7470,18 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
     new THREE.MeshBasicMaterial({
       color: '#071019',
       transparent: true,
-      opacity: 0,
+      opacity: 0.12,
       depthWrite: false,
     }),
   );
+  (fadeRing.material as THREE.MeshBasicMaterial).userData.dayOpacity = 0.08;
+  (fadeRing.material as THREE.MeshBasicMaterial).userData.nightOpacity = 0.16;
   fadeRing.rotation.x = -Math.PI / 2;
   fadeRing.scale.copy(ground.scale);
   fadeRing.position.set(centerX, -0.4, centerZ);
+  fadeRing.userData.role = 'landscape';
+  fadeRing.userData.dayOpacity = 0.08;
+  fadeRing.userData.nightOpacity = 0.16;
   scene.add(fadeRing);
 
   // 3D Environmental props per biome
@@ -6291,10 +7588,10 @@ function createGround(scene: THREE.Scene) {
 
   // Painterly atlas terrain base
   const base = ctx.createLinearGradient(0, 0, 512, 512);
-  base.addColorStop(0, '#2e4a3d');
-  base.addColorStop(0.38, '#315343');
-  base.addColorStop(0.72, '#1f342c');
-  base.addColorStop(1, '#15251f');
+  base.addColorStop(0, '#23354b');
+  base.addColorStop(0.38, '#223246');
+  base.addColorStop(0.72, '#172637');
+  base.addColorStop(1, '#0f1d2f');
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, 512, 512);
 
@@ -6304,7 +7601,7 @@ function createGround(scene: THREE.Scene) {
     const y = seededUnit(i + 4.73) * 512;
     const width = 22 + seededUnit(i + 7.19) * 72;
     const height = 5 + seededUnit(i + 9.41) * 18;
-    ctx.fillStyle = i % 3 === 0 ? '#3f6f55' : i % 3 === 1 ? '#27473f' : '#4d5938';
+    ctx.fillStyle = i % 3 === 0 ? '#314d68' : i % 3 === 1 ? '#253a52' : '#4f4538';
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate((seededUnit(i + 12.4) - 0.5) * 0.9);
@@ -6313,7 +7610,7 @@ function createGround(scene: THREE.Scene) {
     ctx.restore();
   }
   ctx.globalAlpha = 0.035;
-  ctx.strokeStyle = '#9ec7b8';
+  ctx.strokeStyle = '#86a6cf';
   ctx.lineWidth = 1;
   for (let i = 0; i < 512; i += 64) {
     ctx.beginPath();
@@ -6326,14 +7623,14 @@ function createGround(scene: THREE.Scene) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(4, 4);
+  texture.repeat.set(10, 10);
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(4000, 4000, 1, 1),
     new THREE.MeshBasicMaterial({
       map: texture,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.56,
     }),
   );
   ground.rotation.x = -Math.PI / 2;
@@ -6344,11 +7641,11 @@ function createGround(scene: THREE.Scene) {
 
   createRollingTerrain(scene);
 
-  const grid = new THREE.GridHelper(4000, 120, '#d8fff2', '#315d52');
+  const grid = new THREE.GridHelper(4000, 180, '#4b97de', '#1d3251');
   grid.userData.role = 'grid';
   const gridMaterial = grid.material as THREE.Material;
   gridMaterial.transparent = true;
-  gridMaterial.opacity = 0.008;
+  gridMaterial.opacity = 0.045;
   grid.position.y = -0.75;
   scene.add(grid);
 
@@ -6358,16 +7655,16 @@ function createGround(scene: THREE.Scene) {
     const isIce = district.key === 'frozen_kingdom';
 
     let planeColor = district.color;
-    if (isNature) planeColor = '#064e3b';
-    if (isLava) planeColor = '#450a0a';
-    if (isIce) planeColor = '#e0f2fe';
+    if (isNature) planeColor = '#1f3a2f';
+    if (isLava) planeColor = '#4a1810';
+    if (isIce) planeColor = '#b8d6f2';
 
     const plane = new THREE.Mesh(
       new THREE.CircleGeometry(54, 48),
       new THREE.MeshBasicMaterial({
         color: planeColor,
         transparent: true,
-        opacity: isNature ? 0.016 : 0.012,
+        opacity: isNature ? 0.2 : 0.16,
         depthWrite: false,
       }),
     );
@@ -6385,15 +7682,15 @@ function createGround(scene: THREE.Scene) {
 function createMountainBackdrop(scene: THREE.Scene) {
   const group = new THREE.Group();
   const mountainMaterial = new THREE.MeshStandardMaterial({
-    color: '#233347',
-    roughness: 0.86,
-    metalness: 0.02,
-    emissive: '#0d1b2b',
-    emissiveIntensity: 0.03,
+    color: '#1c2a42',
+    roughness: 0.82,
+    metalness: 0.04,
+    emissive: '#101a30',
+    emissiveIntensity: 0.07,
   });
   const snowMaterial = new THREE.MeshStandardMaterial({
-    color: '#d9e8f2',
-    roughness: 0.72,
+    color: '#e2edf9',
+    roughness: 0.62,
     metalness: 0.02,
   });
 
@@ -6418,8 +7715,6 @@ function createMountainBackdrop(scene: THREE.Scene) {
 }
 
 function createSky(scene: THREE.Scene) {
-  // The atlas backdrop carries the mountain range; the live 3D layer stays focused on repos and PR roads.
-
   // Stars
   const starGeometry = new THREE.BufferGeometry();
   const positions: number[] = [];
@@ -6433,10 +7728,10 @@ function createSky(scene: THREE.Scene) {
   const stars = new THREE.Points(
     starGeometry,
     new THREE.PointsMaterial({
-      color: '#ffffff',
-      size: 0.35,
+      color: '#dbeafe',
+      size: 0.4,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.52,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -6450,25 +7745,25 @@ function createSky(scene: THREE.Scene) {
   skyCanvas.height = 512;
   const skyCtx = skyCanvas.getContext('2d')!;
   const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 512);
-  skyGrad.addColorStop(0, '#020812');
-  skyGrad.addColorStop(0.3, '#0a1628');
-  skyGrad.addColorStop(0.6, '#101e3a');
-  skyGrad.addColorStop(1, '#0c1825');
+  skyGrad.addColorStop(0, '#030814');
+  skyGrad.addColorStop(0.28, '#0a1430');
+  skyGrad.addColorStop(0.62, '#121f44');
+  skyGrad.addColorStop(1, '#0a122a');
   skyCtx.fillStyle = skyGrad;
   skyCtx.fillRect(0, 0, 512, 512);
   // Nebula wisps
-  skyCtx.globalAlpha = 0.06;
+  skyCtx.globalAlpha = 0.08;
   for (let i = 0; i < 40; i++) {
     skyCtx.beginPath();
     skyCtx.arc(Math.random()*512, Math.random()*256, 30+Math.random()*80, 0, Math.PI*2);
-    skyCtx.fillStyle = ['#3b82f6','#8b5cf6','#06b6d4','#ec4899'][i%4];
+    skyCtx.fillStyle = ['#3b82f6','#8b5cf6','#06b6d4','#fb7185'][i%4];
     skyCtx.fill();
   }
   skyCtx.globalAlpha = 1;
   const skyTexture = new THREE.CanvasTexture(skyCanvas);
   const skyDome = new THREE.Mesh(
     new THREE.SphereGeometry(2500, 32, 16),
-    new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, transparent: true, opacity: 1, depthWrite: false }),
   );
   skyDome.userData.role = 'sky-dome';
   scene.add(skyDome);
@@ -6500,7 +7795,7 @@ function createSky(scene: THREE.Scene) {
   cloudTexture.wrapT = THREE.RepeatWrapping;
   const cloudPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(3000, 3000),
-    new THREE.MeshBasicMaterial({ map: cloudTexture, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+    new THREE.MeshBasicMaterial({ map: cloudTexture, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
   );
   cloudPlane.rotation.x = -Math.PI / 2;
   cloudPlane.position.y = 350;
@@ -6511,7 +7806,7 @@ function createSky(scene: THREE.Scene) {
   const cloud2 = cloudPlane.clone();
   cloud2.position.y = 220;
   cloud2.rotation.z = Math.PI / 3;
-  (cloud2.material as THREE.MeshBasicMaterial).opacity = 0;
+  (cloud2.material as THREE.MeshBasicMaterial).opacity = 0.2;
   cloud2.userData.role = 'clouds-low';
   scene.add(cloud2);
 }
@@ -6555,7 +7850,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const openWork = Math.max(1, getOpenWorkItems(source.repo));
     const flowStrength = clamp(Math.log10(openWork + source.repo.prs.length * 40 + 8) / 3.25, 0.22, 1);
     const pathColor = flowColorFor(source);
-    const baseOpacity = clamp(0.25 + flowStrength * 0.4, 0.3, 0.8);
+    const baseOpacity = clamp(0.28 + flowStrength * 0.46, 0.34, 0.86);
     const radius = clamp(0.08 + flowStrength * 0.15, 0.1, 0.25);
 
     const p1 = source.position.clone();
@@ -6606,7 +7901,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       const packetMaterial = new THREE.MeshBasicMaterial({
         color: packetIndex % 2 === 0 ? pathColor : source.district.color,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.96,
         depthWrite: false,
       });
       packetMaterial.userData.filteredOpacity = 0.92;
