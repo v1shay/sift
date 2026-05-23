@@ -1,17 +1,16 @@
-<div align="center">
-  
-<img width="800" height="450" alt="Adobe Express - Screen Recording 2026-05-08 at 7 23 24 PM" src="https://github.com/user-attachments/assets/bd1507ee-ed06-45cc-8522-4b15c4108815" />
-
-
----
-
-Sift is a visual interface for exploring open-source repositories with sub-5ms retrieval and 1→N indexing.
-
-It turns GitHub into a living graph of projects, languages, domains, and similarity clusters with PR-level resolution to find your next contribution easily.
-
-</div>
-
----
+<table border="0">
+  <tr>
+    <td width="200" valign="top">
+      <img width="378" height="430" alt="Untitled - May 22, 2026 at 19 48 49 (1)" src="https://github.com/user-attachments/assets/0706bcf4-94f7-4656-bbf1-78a34e4340d6" />
+    </td>
+    <td valign="top" style="padding-left: 20px;">
+      <h3>Sift</h3>
+      <p>An open-source spatial engine that turns the GitHub ecosystem into a 3D landscape of structural biomes. 
+  <br><br></p>
+      <p>Powered by a 1→N indexing pipeline with sub-5ms semantic retrieval, track PRs in real-time and explore GitHub repos by true architectural meaning.</p>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
@@ -21,13 +20,6 @@ It turns GitHub into a living graph of projects, languages, domains, and similar
 - Discover niche project clusters through semantic similarity
 - Use natural language prompts with sift companion to zoom into relevant repo spaces
 - Identify projects that match your contribution interests faster
-
-## Recent fixes
-
-- OAuth login now uses a resilient public backend URL resolution for `/api/github/auth`, preferring `BACKEND_PUBLIC_URL`, then proxy headers (`X-Forwarded-Host` / `X-Forwarded-Proto`), then request base URL.
-- Search filters now match district parents using tokenized query terms to avoid substring false positives (for example avoiding `"ai"` matching `"plain"`).
-- Import/graph repo workflows now preserve open-work counts in both `openIssues` and `openPRs`, and UI labels now show neutral “open items” where that signal is shown.
-- Safety-score posting is now batched client-side to reduce request-size related failures when many repositories are loaded.
 
 ## Architecture
 
