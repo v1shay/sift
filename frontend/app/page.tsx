@@ -201,6 +201,19 @@ type RoadObject = {
   baseOpacity: number;
 };
 
+type CameraPose = {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+};
+
+type CameraFocusTransition = {
+  repoId: string;
+  startedAt: number;
+  duration: number;
+  from: CameraPose;
+  to: CameraPose;
+};
+
 type SceneRefs = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -220,6 +233,8 @@ type SceneRefs = {
   zoom: number;
   targetZoom: number;
   siftText: THREE.Group;
+  activeFocusRepoId: string | null;
+  focusTransition: CameraFocusTransition | null;
 };
 
 const DISTRICTS: District[] = [
@@ -808,6 +823,9 @@ const CAMERA_HOME = new THREE.Vector3(0, 165, 620);
 const TARGET_HOME = new THREE.Vector3(0, 25, 50);
 const MIN_ZOOM = 0.58;
 const MAX_ZOOM = 1.42;
+const REPO_FOCUS_ZOOM = 0.9;
+const REPO_FOCUS_TRANSITION_MS = 820;
+const REPO_FOCUS_LONG_TRAVEL_DISTANCE = 980;
 const SCENE_PIXEL_RATIO = 1.15;
 const VISUAL_REPOS_PER_DISTRICT = 34;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
@@ -1396,6 +1414,31 @@ function getRepoScreenPosition(building: BuildingObject, camera: THREE.Perspecti
   };
 }
 
+function repoFocusPose(building: BuildingObject, zoom: number): CameraPose {
+  const targetLift = clamp(building.height * 0.46, 18, 76);
+  const focusDistance = clamp(92 + building.height * 0.58, 118, 210) * zoom;
+  const focusHeight = clamp(54 + building.height * 0.42, 76, 154) * Math.sqrt(zoom);
+  const focusSide = clamp(34 + building.width * 2.6, 44, 112) * zoom;
+
+  return {
+    position: building.position.clone().add(new THREE.Vector3(focusSide, focusHeight, focusDistance)),
+    target: building.position.clone().add(new THREE.Vector3(0, targetLift, 0)),
+  };
+}
+
+function repoFocusApproachPose(building: BuildingObject): CameraPose {
+  const targetLift = clamp(building.height * 0.38, 16, 64);
+  return {
+    position: building.position.clone().add(new THREE.Vector3(190, clamp(142 + building.height * 0.32, 164, 238), 360)),
+    target: building.position.clone().add(new THREE.Vector3(0, targetLift, 0)),
+  };
+}
+
+function resetFocusTransition(refs: SceneRefs) {
+  refs.activeFocusRepoId = null;
+  refs.focusTransition = null;
+}
+
 function atlasPositionForDistrict(district: District) {
   return {
     left: clamp(50 + district.x / 7.1, 6, 68),
@@ -1783,7 +1826,9 @@ export default function Home() {
         scene.add(building.group);
       });
     });
-    const hitTargets = buildings.flatMap((building) => [building.body, building.top]);
+    const hitTargets = buildings.flatMap((building) => (
+      building.group.children.filter((child) => typeof child.userData.repoId === 'string')
+    ));
 
     const roads = createRoads(scene, buildings);
     applyFilter(buildings, roads, filterRef.current);
@@ -1807,11 +1852,85 @@ export default function Home() {
       zoom: 1,
       targetZoom: 1,
       siftText,
+      activeFocusRepoId: null,
+      focusTransition: null,
     };
     sceneRef.current = refs;
     applyAppearance(refs, appearanceRef.current);
 
     const findBuilding = (repoId: string | undefined) => buildings.find((building) => building.repo.id === repoId) ?? null;
+    const siftWindow = window as typeof window & {
+      __siftCameraProbe?: () => {
+        selectedRepo: string | null;
+        hoveredRepo: string | null;
+        transitionActive: boolean;
+        camera: { x: number; y: number; z: number };
+        target: { x: number; y: number; z: number };
+        zoom: number;
+      };
+      __siftSceneProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
+    };
+
+    if (process.env.NODE_ENV !== 'production') {
+      siftWindow.__siftCameraProbe = () => ({
+        selectedRepo: selectedRef.current?.name ?? null,
+        hoveredRepo: hoverRef.current?.name ?? null,
+        transitionActive: Boolean(refs.focusTransition),
+        camera: {
+          x: Number(camera.position.x.toFixed(2)),
+          y: Number(camera.position.y.toFixed(2)),
+          z: Number(camera.position.z.toFixed(2)),
+        },
+        target: {
+          x: Number(refs.cameraTarget.x.toFixed(2)),
+          y: Number(refs.cameraTarget.y.toFixed(2)),
+          z: Number(refs.cameraTarget.z.toFixed(2)),
+        },
+        zoom: Number(refs.zoom.toFixed(3)),
+      });
+
+      siftWindow.__siftSceneProbe = () => buildings.flatMap((building) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const probeRaycaster = new THREE.Raycaster();
+        const samplePoints = [
+          new THREE.Vector3(building.position.x, building.position.y + building.height * 0.38, building.position.z),
+          new THREE.Vector3(building.position.x, building.position.y + building.height * 0.72, building.position.z),
+          new THREE.Vector3(building.position.x, building.position.y + building.height + 3, building.position.z),
+        ];
+
+        return samplePoints.map((samplePoint) => {
+          const vector = samplePoint.project(camera);
+          const x = Math.round(rect.left + (vector.x * 0.5 + 0.5) * rect.width);
+          const y = Math.round(rect.top + (-vector.y * 0.5 + 0.5) * rect.height);
+          const pointer = new THREE.Vector2(
+            ((x - rect.left) / rect.width) * 2 - 1,
+            -(((y - rect.top) / rect.height) * 2 - 1),
+          );
+          probeRaycaster.setFromCamera(pointer, camera);
+          const hitRepoId = probeRaycaster.intersectObjects(hitTargets, false)[0]?.object.userData.repoId ?? '';
+          const hitRepo = findBuilding(hitRepoId)?.repo ?? null;
+
+          return {
+            id: building.repo.id,
+            name: building.repo.name,
+            x,
+            y,
+            visible: vector.z > -1 && vector.z < 1 && x > rect.left && y > rect.top && x < rect.right && y < rect.bottom,
+            hitRepoId,
+            hitRepoName: hitRepo?.name ?? '',
+          };
+        });
+      });
+    }
+
+    const skipCinematicSweep = () => {
+      if (performance.now() - refs.startedAt < INTRO_MS) {
+        refs.startedAt = performance.now() - INTRO_MS;
+        refs.cameraPosition.copy(camera.position);
+        refs.cameraTarget.set(0, 60, 0);
+      }
+      if (!refs.enteredAt) refs.enteredAt = performance.now();
+    };
 
     const handleResize = () => {
       const width = mount.clientWidth;
@@ -1863,6 +1982,7 @@ export default function Home() {
       freeNavX = 0;
       freeNavY = 0;
       freeNavZ = 0;
+      resetFocusTransition(refs);
       refs.targetZoom = 1;
       setZoomValue(1);
       setAtlasView({ x: 0, y: 0, scale: 1 });
@@ -1885,6 +2005,7 @@ export default function Home() {
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
+        resetFocusTransition(refs);
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -1896,6 +2017,7 @@ export default function Home() {
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button === 0) { // Left click drag
         event.preventDefault();
+        skipCinematicSweep();
         isDragging = true;
         didDrag = false;
         prevMouseX = event.clientX;
@@ -1908,7 +2030,30 @@ export default function Home() {
         }
       }
     };
+
+    const repoAtClientPoint = (clientX: number, clientY: number) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      refs.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      refs.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      refs.raycaster.setFromCamera(refs.pointer, camera);
+      const intersection = refs.raycaster.intersectObjects(hitTargets, false)[0];
+      return findBuilding(intersection?.object.userData.repoId)?.repo ?? null;
+    };
+
+    const focusSceneRepo = (repo: Repo) => {
+      skipCinematicSweep();
+      resetFocusTransition(refs);
+      targetDistrictCenterRef.current = null;
+      setEntered(true);
+      setSelectedRepo(repo);
+      setFilter(repo.district);
+      similarDistrictRef.current = repo.district;
+      similarUntilRef.current = performance.now() + 3600;
+      setAtlasView(atlasViewForDistrict(districtFor(repo)));
+    };
+
     const handlePointerUp = (event: PointerEvent) => {
+      const shouldFocusRepo = isDragging && !didDrag && event.button === 0;
       if (isDragging && didDrag) {
         lastDragAt = performance.now();
       }
@@ -1920,6 +2065,11 @@ export default function Home() {
         }
       } catch {
         // Ignore release failures for synthetic or already-cancelled pointer streams.
+      }
+
+      if (shouldFocusRepo) {
+        const repo = hoverRef.current ?? repoAtClientPoint(event.clientX, event.clientY);
+        if (repo) focusSceneRepo(repo);
       }
     };
 
@@ -1938,6 +2088,7 @@ export default function Home() {
         if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
           didDrag = true;
           setSelectedRepo(null);
+          resetFocusTransition(refs);
         }
 
         setAtlasView((current) => ({
@@ -1969,10 +2120,10 @@ export default function Home() {
       if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
     };
 
-    const handleClick = () => {
+    const handleClick = (event: globalThis.MouseEvent) => {
       if (didDrag || performance.now() - lastDragAt < 140) return;
-      if (!hoverRef.current) return;
-      setSelectedRepo(hoverRef.current);
+      const repo = hoverRef.current ?? repoAtClientPoint(event.clientX, event.clientY);
+      if (repo) focusSceneRepo(repo);
     };
 
     let hoverFrame = 0;
@@ -1983,12 +2134,14 @@ export default function Home() {
       const introProgress = Math.min(1, (now - refs.startedAt) / INTRO_MS);
       const introT = easeInOutCubic(introProgress);
       const entryT = refs.enteredAt ? easeOutCubic((now - refs.enteredAt) / ENTRY_MS) : 0;
+      const selectedBuilding = selected ? findBuilding(selected.id) : null;
+      const hasInteractiveCameraRequest = Boolean(selectedBuilding || targetDistrictCenterRef.current);
 
       let desiredPosition = new THREE.Vector3();
       let desiredTarget = new THREE.Vector3();
 
       // --- 1. Cinematic Opening Sweep (Priority) ---
-      if (introProgress < 1) {
+      if (introProgress < 1 && !hasInteractiveCameraRequest) {
         const curve = new THREE.CatmullRomCurve3([
           new THREE.Vector3(-600, 350, -600), // City
           new THREE.Vector3(500, 280, -400),  // Volcano
@@ -2017,15 +2170,48 @@ export default function Home() {
       } 
       // --- 2. Interactive States ---
       else {
-        const selectedBuilding = selected ? findBuilding(selected.id) : null;
         const mouseParallax = new THREE.Vector2(0, 0); // Simplified for refactor
 
         if (selectedBuilding) {
-          const focusDistance = clamp(selectedBuilding.height * 0.8, 45, 120);
-          const focusHeight = clamp(selectedBuilding.height * 0.6, 25, 80);
-          desiredPosition = selectedBuilding.position.clone().add(new THREE.Vector3(focusDistance * 0.7, focusHeight, focusDistance));
-          desiredTarget = selectedBuilding.position.clone().add(new THREE.Vector3(0, selectedBuilding.height * 0.45, 0));
+          refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, REPO_FOCUS_ZOOM, 0.18);
+          refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.18);
+          const focusPose = repoFocusPose(selectedBuilding, refs.zoom);
+
+          if (refs.activeFocusRepoId !== selectedBuilding.repo.id) {
+            const currentPose = {
+              position: refs.cameraPosition.clone(),
+              target: refs.cameraTarget.clone(),
+            };
+            const startsTooFar =
+              refs.cameraPosition.distanceTo(focusPose.position) > REPO_FOCUS_LONG_TRAVEL_DISTANCE ||
+              introProgress < 1;
+            const fromPose = startsTooFar ? repoFocusApproachPose(selectedBuilding) : currentPose;
+            if (startsTooFar) {
+              refs.cameraPosition.copy(fromPose.position);
+              refs.cameraTarget.copy(fromPose.target);
+            }
+            refs.activeFocusRepoId = selectedBuilding.repo.id;
+            refs.focusTransition = {
+              repoId: selectedBuilding.repo.id,
+              startedAt: now,
+              duration: REPO_FOCUS_TRANSITION_MS,
+              from: fromPose,
+              to: focusPose,
+            };
+          }
+
+          if (refs.focusTransition?.repoId === selectedBuilding.repo.id) {
+            const progress = clamp((now - refs.focusTransition.startedAt) / refs.focusTransition.duration, 0, 1);
+            const eased = easeOutCubic(progress);
+            desiredPosition = refs.focusTransition.from.position.clone().lerp(refs.focusTransition.to.position, eased);
+            desiredTarget = refs.focusTransition.from.target.clone().lerp(refs.focusTransition.to.target, eased);
+            if (progress >= 1) refs.focusTransition = null;
+          } else {
+            desiredPosition = focusPose.position;
+            desiredTarget = focusPose.target;
+          }
         } else if (targetDistrictCenterRef.current) {
+          resetFocusTransition(refs);
           const targetCenter = targetDistrictCenterRef.current;
           freeNavX += (targetCenter.x - freeNavX) * 0.08;
           freeNavZ += (targetCenter.z - freeNavZ) * 0.08;
@@ -2035,19 +2221,34 @@ export default function Home() {
           desiredPosition = CAMERA_HOME.clone().add(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
           desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
         } else {
+          resetFocusTransition(refs);
           const freeOffset = new THREE.Vector3(freeNavX, freeNavY, freeNavZ);
           desiredPosition = CAMERA_HOME.clone().add(freeOffset);
           desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
         }
 
-        refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.08);
-        const offset = desiredPosition.clone().sub(desiredTarget).multiplyScalar(refs.zoom);
-        desiredPosition = desiredTarget.clone().add(offset);
+        if (!selectedBuilding) {
+          refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.08);
+          const offset = desiredPosition.clone().sub(desiredTarget).multiplyScalar(refs.zoom);
+          desiredPosition = desiredTarget.clone().add(offset);
+        }
 
         refs.cameraPosition.lerp(desiredPosition, 0.06);
         refs.cameraTarget.lerp(desiredTarget, 0.07);
         camera.position.copy(refs.cameraPosition);
         camera.lookAt(refs.cameraTarget);
+      }
+
+      hoverFrame += 1;
+      if (!isDragging && enteredRef.current && hoverFrame % 2 === 0) {
+        refs.raycaster.setFromCamera(refs.pointer, camera);
+        const intersection = refs.raycaster.intersectObjects(hitTargets, false)[0];
+        const nextHovered = findBuilding(intersection?.object.userData.repoId)?.repo ?? null;
+        if (hoverRef.current?.id !== nextHovered?.id) {
+          hoverRef.current = nextHovered;
+          setHoveredRepo(nextHovered);
+          renderer.domElement.style.cursor = nextHovered ? 'pointer' : 'grab';
+        }
       }
 
       const similarActive = now < similarUntilRef.current;
@@ -2148,6 +2349,10 @@ export default function Home() {
       });
       renderer.dispose();
       renderer.domElement.remove();
+      if (process.env.NODE_ENV !== 'production') {
+        delete siftWindow.__siftCameraProbe;
+        delete siftWindow.__siftSceneProbe;
+      }
       sceneRef.current = null;
     };
   }, [heightScaleDriver, rendererRetryToken, reposByDistrict, visualReposByDistrict]);
@@ -2202,6 +2407,7 @@ export default function Home() {
     setAtlasView({ x: 0, y: 0, scale: 1 });
     setSelectedRepo(null);
     setFilter('all');
+    if (sceneRef.current) resetFocusTransition(sceneRef.current);
     targetDistrictCenterRef.current = null;
     similarDistrictRef.current = null;
     similarUntilRef.current = 0;
@@ -2244,15 +2450,26 @@ export default function Home() {
   };
 
   const focusRepo = (repo: Repo) => {
+    const refs = sceneRef.current;
+    if (refs) {
+      if (performance.now() - refs.startedAt < INTRO_MS) {
+        refs.startedAt = performance.now() - INTRO_MS;
+      }
+      if (!refs.enteredAt) refs.enteredAt = performance.now();
+      refs.targetZoom = REPO_FOCUS_ZOOM;
+      resetFocusTransition(refs);
+    }
     setEntered(true);
     setSelectedRepo(repo);
     setFilter(repo.district);
+    targetDistrictCenterRef.current = null;
     similarDistrictRef.current = repo.district;
     similarUntilRef.current = performance.now() + 3600;
     setAtlasView(atlasViewForDistrict(districtFor(repo)));
   };
 
   const focusDistrict = (district: District) => {
+    if (sceneRef.current) resetFocusTransition(sceneRef.current);
     setEntered(true);
     setSelectedRepo(null);
     setFilter(district.key);
