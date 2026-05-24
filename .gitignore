@@ -8,6 +8,7 @@ test_anthropic.js
 !.env.example
 backend/.env
 frontend/.env.local
+*.pem
 
 # Local Python/runtime artifacts
 backend/venv/
