@@ -239,30 +239,46 @@ type SceneRefs = {
 
 const DISTRICTS: District[] = [
   // Functional districts laid out as a fixed-perspective contribution atlas.
-  { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -240, z: -300, shape: 'spires', parent: 'systems' },
-  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 80, z: -264, shape: 'megatowers', parent: 'web' },
-  { key: 'volcano_forge', label: 'Cloud Infrastructure', color: '#f97316', accent: '#ffd2a0', x: 396, z: -216, shape: 'lava_foundries', parent: 'infra' },
-  { key: 'redwood_archive', label: 'Security + Auth', color: '#4f9b67', accent: '#d6f9c9', x: -457, z: -28, shape: 'redwood_towers', parent: 'infra' },
-  { key: 'financial_district', label: 'Data Platforms', color: '#e6bd63', accent: '#fff1c2', x: -140, z: 9, shape: 'blocks', parent: 'infra' },
-  { key: 'forest_repository', label: 'Databases + Cache', color: '#3fbf84', accent: '#c9ffd9', x: 112, z: 38, shape: 'giant_trees', parent: 'infra' },
-  { key: 'crystal_fields', label: 'AI + ML', color: '#a076ff', accent: '#f4dbff', x: 300, z: 83, shape: 'crystal_spires', parent: 'ai' },
-  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#8bd3ff', accent: '#f2fbff', x: 460, z: 243, shape: 'caves', parent: 'infra' },
-  { key: 'nomad_camps', label: 'Testing + QA', color: '#d6aa70', accent: '#fff0c8', x: -467, z: 243, shape: 'tents', parent: 'devtools' },
-  { key: 'floating_island', label: 'DevOps + Delivery', color: '#62c8a4', accent: '#e1fff1', x: -147, z: 297, shape: 'floating_stations', parent: 'ai' },
-  { key: 'ruined_empire', label: 'Kernels + OS', color: '#9d5cff', accent: '#efd7ff', x: 108, z: 339, shape: 'ruins', parent: 'systems' },
-  { key: 'canyon_networks', label: 'APIs + Networking', color: '#42d8ff', accent: '#d7fbff', x: 342, z: 355, shape: 'holographic', parent: 'infra' },
-  { key: 'clockwork_empire', label: 'Rust + Runtimes', color: '#ff6b8b', accent: '#ffd0da', x: -392, z: -195, shape: 'factories', parent: 'systems' },
-  { key: 'mountain_citadel', label: 'Compilers + Languages', color: '#f43f5e', accent: '#ffd1dc', x: -32, z: -131, shape: 'citadel', parent: 'systems' },
-  { key: 'brick_boroughs', label: 'UI Libraries', color: '#60a5fa', accent: '#d7e9ff', x: -256, z: 131, shape: 'apartments', parent: 'web' },
-  { key: 'neon_alley', label: 'Web Apps + SaaS', color: '#06b6d4', accent: '#c7fbff', x: 243, z: -83, shape: 'glass', parent: 'web' },
-  { key: 'tech_suburbs', label: 'CSS + Design Systems', color: '#0ea5e9', accent: '#bfeeff', x: -345, z: 124, shape: 'suburbs', parent: 'web' },
-  { key: 'coastal_fishing', label: 'Static Sites', color: '#2563eb', accent: '#d7e7ff', x: -336, z: 377, shape: 'fishing_docks', parent: 'web' },
-  { key: 'ether_realm', label: 'Agents + LLMs', color: '#a78bfa', accent: '#efe7ff', x: 44, z: -396, shape: 'holographic', parent: 'ai' },
-  { key: 'bamboo_valley', label: 'Developer Tools', color: '#10b981', accent: '#d4fff0', x: 432, z: 41, shape: 'bamboo_pagodas', parent: 'devtools' },
-  { key: 'valley_villages', label: 'Starter Projects', color: '#34d399', accent: '#e1fff3', x: -28, z: 182, shape: 'valley_villages', parent: 'devtools' },
-  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Code Security', x: 217, z: 243, shape: 'decayed', parent: 'infra' },
-  { key: 'overgrown_ruins', label: 'Embedded + IoT', color: '#22c55e', accent: '#dbffdf', x: -515, z: 99, shape: 'overgrown', parent: 'infra' },
-  { key: 'jungle_canopy', label: 'Cloud Platforms', color: '#44b36a', accent: '#edffe6', x: -60, z: 432, shape: 'mushroom_colonies', parent: 'infra' },
+  { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -390, z: -560, shape: 'spires', parent: 'systems' },
+  { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 40, z: -595, shape: 'megatowers', parent: 'web' },
+  { key: 'volcano_forge', label: 'Cloud Infrastructure', color: '#f97316', accent: '#ffd2a0', x: 520, z: -520, shape: 'lava_foundries', parent: 'infra' },
+  { key: 'redwood_archive', label: 'Security + Auth', color: '#4f9b67', accent: '#d6f9c9', x: -720, z: -190, shape: 'redwood_towers', parent: 'infra' },
+  { key: 'financial_district', label: 'Data Platforms', color: '#e6bd63', accent: '#fff1c2', x: -310, z: -95, shape: 'blocks', parent: 'infra' },
+  { key: 'forest_repository', label: 'Databases + Cache', color: '#3fbf84', accent: '#c9ffd9', x: 60, z: -80, shape: 'giant_trees', parent: 'infra' },
+  { key: 'crystal_fields', label: 'AI + ML', color: '#a076ff', accent: '#f4dbff', x: 410, z: -130, shape: 'crystal_spires', parent: 'ai' },
+  { key: 'frozen_kingdom', label: 'Distributed Systems', color: '#8bd3ff', accent: '#f2fbff', x: 735, z: 160, shape: 'caves', parent: 'infra' },
+  { key: 'nomad_camps', label: 'Testing + QA', color: '#d6aa70', accent: '#fff0c8', x: -740, z: 230, shape: 'tents', parent: 'devtools' },
+  { key: 'floating_island', label: 'DevOps + Delivery', color: '#62c8a4', accent: '#e1fff1', x: -300, z: 380, shape: 'floating_stations', parent: 'devtools' },
+  { key: 'ruined_empire', label: 'Kernels + OS', color: '#9d5cff', accent: '#efd7ff', x: 80, z: 610, shape: 'ruins', parent: 'systems' },
+  { key: 'canyon_networks', label: 'APIs + Networking', color: '#42d8ff', accent: '#d7fbff', x: 520, z: 520, shape: 'holographic', parent: 'infra' },
+  { key: 'clockwork_empire', label: 'Rust + Runtimes', color: '#ff6b8b', accent: '#ffd0da', x: -625, z: -470, shape: 'factories', parent: 'systems' },
+  { key: 'mountain_citadel', label: 'Compilers + Languages', color: '#f43f5e', accent: '#ffd1dc', x: -80, z: -305, shape: 'citadel', parent: 'systems' },
+  { key: 'brick_boroughs', label: 'UI Libraries', color: '#60a5fa', accent: '#d7e9ff', x: -485, z: 110, shape: 'apartments', parent: 'web' },
+  { key: 'neon_alley', label: 'Web Apps + SaaS', color: '#06b6d4', accent: '#c7fbff', x: 230, z: -345, shape: 'glass', parent: 'web' },
+  { key: 'tech_suburbs', label: 'CSS + Design Systems', color: '#0ea5e9', accent: '#bfeeff', x: -610, z: 45, shape: 'suburbs', parent: 'web' },
+  { key: 'coastal_fishing', label: 'Static Sites', color: '#2563eb', accent: '#d7e7ff', x: -560, z: 610, shape: 'fishing_docks', parent: 'web' },
+  { key: 'ether_realm', label: 'Agents + LLMs', color: '#a78bfa', accent: '#efe7ff', x: 315, z: -690, shape: 'holographic', parent: 'ai' },
+  { key: 'bamboo_valley', label: 'Developer Tools', color: '#10b981', accent: '#d4fff0', x: 760, z: -130, shape: 'bamboo_pagodas', parent: 'devtools' },
+  { key: 'valley_villages', label: 'Starter Projects', color: '#34d399', accent: '#e1fff3', x: -40, z: 245, shape: 'valley_villages', parent: 'devtools' },
+  { key: 'corruption_wasteland', color: '#d946ef', accent: '#f5d0fe', label: 'Code Security', x: 345, z: 270, shape: 'decayed', parent: 'security' },
+  { key: 'overgrown_ruins', label: 'Embedded + IoT', color: '#22c55e', accent: '#dbffdf', x: -855, z: 30, shape: 'overgrown', parent: 'systems' },
+  { key: 'jungle_canopy', label: 'Cloud Platforms', color: '#44b36a', accent: '#edffe6', x: -170, z: 760, shape: 'mushroom_colonies', parent: 'infra' },
+  { key: 'vector_lab', label: 'Vector + RAG', color: '#c084fc', accent: '#fae8ff', x: 635, z: -705, shape: 'crystal_spires', parent: 'ai' },
+  { key: 'model_foundry', label: 'Models + Inference', color: '#7c3aed', accent: '#ddd6fe', x: 815, z: -420, shape: 'holographic', parent: 'ai' },
+  { key: 'data_lake', label: 'Analytics + BI', color: '#14b8a6', accent: '#ccfbf1', x: -60, z: 85, shape: 'blocks', parent: 'infra' },
+  { key: 'observability_array', label: 'Monitoring + Observability', color: '#38bdf8', accent: '#e0f2fe', x: 805, z: 420, shape: 'holographic', parent: 'infra' },
+  { key: 'identity_gate', label: 'Identity + OAuth', color: '#84cc16', accent: '#ecfccb', x: -845, z: -405, shape: 'redwood_towers', parent: 'security' },
+  { key: 'privacy_vault', label: 'Crypto + Privacy', color: '#22d3ee', accent: '#cffafe', x: -885, z: -705, shape: 'caves', parent: 'security' },
+  { key: 'mobile_harbor', label: 'Mobile Apps', color: '#0f766e', accent: '#99f6e4', x: -845, z: 520, shape: 'fishing_docks', parent: 'mobile' },
+  { key: 'game_arcade', label: 'Games + Graphics', color: '#f59e0b', accent: '#fef3c7', x: 860, z: 690, shape: 'crystal_spires', parent: 'media' },
+  { key: 'media_studio', label: 'Audio + Video', color: '#ec4899', accent: '#fce7f3', x: 470, z: 805, shape: 'glass', parent: 'media' },
+  { key: 'docs_academy', label: 'Docs + Learning', color: '#facc15', accent: '#fef9c3', x: -350, z: 830, shape: 'valley_villages', parent: 'learning' },
+  { key: 'package_ports', label: 'Packages + Registries', color: '#fb7185', accent: '#ffe4e6', x: 205, z: 830, shape: 'apartments', parent: 'devtools' },
+  { key: 'shell_workshop', label: 'CLI + Shell', color: '#2dd4bf', accent: '#ccfbf1', x: 790, z: 40, shape: 'factories', parent: 'devtools' },
+  { key: 'browser_lab', label: 'Browser + Automation', color: '#3b82f6', accent: '#dbeafe', x: -235, z: -805, shape: 'glass', parent: 'web' },
+  { key: 'robotics_yard', label: 'Robotics + Hardware', color: '#65a30d', accent: '#d9f99d', x: -1020, z: 275, shape: 'overgrown', parent: 'systems' },
+  { key: 'science_quarry', label: 'Science + Simulation', color: '#a16207', accent: '#fde68a', x: 1000, z: 245, shape: 'caves', parent: 'systems' },
+  { key: 'protocol_marshes', label: 'Protocols + P2P', color: '#0891b2', accent: '#cffafe', x: 1020, z: -235, shape: 'holographic', parent: 'infra' },
 ];
 
 const SAFETY_GREEN_THRESHOLD = 75;
@@ -415,28 +431,48 @@ function inferDistrictFromMetadata(stars: number, languageValue?: string | null,
   const language = (languageValue || '').toLowerCase();
   const topics = rawTopics.map((topic) => topic.toLowerCase());
   const text = `${name} ${description} ${topics.join(' ')}`.toLowerCase();
+  const hasTopic = (needles: string[]) => topics.some((topic) => needles.some((needle) => topic.includes(needle)));
+  const hasText = (needles: string[]) => needles.some((needle) => text.includes(needle));
 
-  if (stars > 80000) return 'skyline_core';
-  if (stars > 25000) return 'vertical_arcology';
+  if (hasTopic(['oauth', 'openid', 'sso', 'identity', 'auth', 'casbin', 'jwt']) || hasText(['authentication', 'authorization', 'oauth', 'openid'])) return 'identity_gate';
+  if (hasTopic(['cryptography', 'crypto', 'privacy', 'encryption', 'zero-knowledge', 'zk']) || hasText(['cryptography', 'privacy', 'encryption'])) return 'privacy_vault';
+  if (hasTopic(['security', 'vulnerability', 'malware', 'pentest', 'hacking', 'ctf']) || hasText(['security', 'vulnerability', 'threat'])) return 'corruption_wasteland';
+  if (hasTopic(['rag', 'vector', 'embedding', 'semantic-search', 'retrieval']) || hasText(['vector database', 'semantic search', 'retrieval augmented'])) return 'vector_lab';
+  if (hasTopic(['llm', 'agent', 'agents', 'openai', 'anthropic', 'inference', 'model']) || hasText(['large language model', 'inference', 'agent'])) return 'model_foundry';
+  if (hasTopic(['machine-learning', 'deep-learning', 'ml', 'ai', 'pytorch', 'tensorflow']) || hasText(['machine learning', 'deep learning'])) return 'crystal_fields';
+  if (hasTopic(['observability', 'monitoring', 'metrics', 'tracing', 'logging', 'prometheus', 'grafana'])) return 'observability_array';
+  if (hasTopic(['api', 'networking', 'proxy', 'gateway', 'protocol', 'p2p', 'websocket', 'grpc']) || hasText(['peer-to-peer', 'network protocol'])) return hasTopic(['p2p', 'protocol']) ? 'protocol_marshes' : 'canyon_networks';
+  if (hasTopic(['analytics', 'data-science', 'business-intelligence', 'bi', 'data-engineering', 'etl', 'warehouse']) || hasText(['analytics', 'business intelligence'])) return 'data_lake';
+  if (hasTopic(['database', 'sql', 'postgres', 'mysql', 'sqlite', 'nosql', 'redis', 'cache', 'queue'])) return 'forest_repository';
+  if (hasTopic(['kubernetes', 'docker', 'terraform', 'devops', 'ci-cd', 'deployment', 'infrastructure'])) return 'volcano_forge';
+  if (hasTopic(['cloud', 'serverless', 'platform', 'hosting'])) return 'jungle_canopy';
+  if (hasTopic(['android', 'ios', 'mobile', 'flutter', 'react-native', 'swiftui']) || ['swift', 'kotlin', 'dart'].includes(language)) return 'mobile_harbor';
+  if (hasTopic(['game', 'game-engine', 'graphics', 'rendering', 'opengl', 'vulkan', 'webgl'])) return 'game_arcade';
+  if (hasTopic(['audio', 'video', 'media', 'streaming', 'image', 'ffmpeg', 'computer-vision'])) return 'media_studio';
+  if (hasTopic(['docs', 'documentation', 'tutorial', 'course', 'learning', 'awesome', 'book', 'roadmap', 'interview'])) return 'docs_academy';
+  if (hasTopic(['package-manager', 'registry', 'packages', 'homebrew', 'npm', 'pip', 'dependency'])) return 'package_ports';
+  if (hasTopic(['cli', 'shell', 'terminal', 'command-line', 'zsh', 'bash'])) return 'shell_workshop';
+  if (hasTopic(['browser', 'automation', 'playwright', 'puppeteer', 'selenium', 'extension'])) return 'browser_lab';
+  if (hasTopic(['robotics', 'hardware', 'embedded', 'iot', 'arduino', 'esp32', 'raspberry-pi']) || hasText(['robotics', 'embedded'])) return hasTopic(['robotics', 'hardware']) ? 'robotics_yard' : 'overgrown_ruins';
+  if (hasTopic(['science', 'simulation', 'physics', 'math', 'bioinformatics', 'astronomy'])) return 'science_quarry';
   if (topics.some((topic) => ['finance', 'fintech', 'payment'].includes(topic))) return 'financial_district';
-  if (topics.some((topic) => ['ml', 'ai', 'deep-learning', 'llm', 'agent'].includes(topic)) || text.includes('machine learning')) return 'neon_alley';
   if (language === 'rust') return 'clockwork_empire';
   if (language === 'c' || language === 'c++' || language === 'cpp') return 'mountain_citadel';
-  if (language === 'go' || topics.some((topic) => ['cloud', 'kubernetes'].includes(topic))) return 'floating_island';
-  if (['typescript', 'javascript'].includes(language) || topics.some((topic) => ['frontend', 'react', 'vue', 'svelte'].includes(topic))) return 'brick_boroughs';
+  if (language === 'go') return 'floating_island';
+  if (hasTopic(['css', 'tailwind', 'design-system', 'storybook'])) return 'tech_suburbs';
+  if (hasTopic(['react', 'vue', 'svelte', 'frontend', 'components', 'ui'])) return 'brick_boroughs';
+  if (['typescript', 'javascript'].includes(language)) return 'neon_alley';
   if (language === 'python') return 'ether_realm';
-  if (topics.some((topic) => ['crypto', 'blockchain', 'web3'].includes(topic))) return 'crystal_fields';
-  if (topics.some((topic) => ['game', 'graphics', 'rendering'].includes(topic))) return 'bamboo_valley';
-  if (topics.some((topic) => ['security', 'cryptography', 'auth'].includes(topic))) return 'redwood_archive';
-  if (topics.some((topic) => ['database', 'sql', 'nosql', 'redis', 'cache', 'queue'].includes(topic))) return 'canyon_networks';
-  if (topics.some((topic) => ['compiler', 'parser', 'interpreter'].includes(topic))) return 'frozen_kingdom';
-  if (topics.some((topic) => ['docker', 'devops', 'ci-cd', 'infra'].includes(topic))) return 'volcano_forge';
-  if (topics.some((topic) => ['linux', 'kernel', 'operating-system'].includes(topic))) return 'ruined_empire';
+  if (hasTopic(['blockchain', 'web3', 'ethereum', 'solidity'])) return 'crystal_fields';
+  if (hasTopic(['compiler', 'parser', 'interpreter', 'language'])) return 'frozen_kingdom';
+  if (hasTopic(['linux', 'kernel', 'operating-system', 'os'])) return 'ruined_empire';
+  if (stars > 120000) return 'skyline_core';
+  if (stars > 45000) return 'vertical_arcology';
   if (stars < 50) return 'valley_villages';
   if (stars < 250) return 'nomad_camps';
   if (stars < 1000) return 'coastal_fishing';
 
-  const infraBiomes = ['overgrown_ruins', 'forest_repository', 'jungle_canopy', 'corruption_wasteland'];
+  const infraBiomes = ['overgrown_ruins', 'forest_repository', 'jungle_canopy', 'bamboo_valley', 'package_ports', 'science_quarry'];
   const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return infraBiomes[hash % infraBiomes.length];
 }
@@ -780,11 +816,23 @@ const REPOS: Repo[] = [
   },
 ];
 
-const GRAPH_REPO_LIMIT = 1200;
+const GRAPH_REPO_LIMIT = 5000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
+const LOADING_STAGES = [
+  'Opening graph socket',
+  'Talking to SQLite',
+  'Fetching repository nodes',
+  'Joining topics and owners',
+  'Classifying ecosystem districts',
+  'Scoring contribution safety',
+  'Laying terrain chunks',
+  'Warming WebGL materials',
+  'Plotting PR traffic',
+  'Finalizing camera sweep',
+];
 
-const INTRO_MS = 7500; // Accelerated sweep
+const INTRO_MS = 2400;
 const ENTRY_MS = 1000;
 
 function createSiftText(scene: THREE.Scene) {
@@ -819,15 +867,15 @@ function createSiftText(scene: THREE.Scene) {
   scene.add(group);
   return group;
 }
-const CAMERA_HOME = new THREE.Vector3(0, 165, 620);
-const TARGET_HOME = new THREE.Vector3(0, 25, 50);
+const CAMERA_HOME = new THREE.Vector3(0, 285, 1080);
+const TARGET_HOME = new THREE.Vector3(0, 35, 20);
 const MIN_ZOOM = 0.58;
 const MAX_ZOOM = 1.42;
 const REPO_FOCUS_ZOOM = 0.9;
 const REPO_FOCUS_TRANSITION_MS = 820;
 const REPO_FOCUS_LONG_TRAVEL_DISTANCE = 980;
 const SCENE_PIXEL_RATIO = 1.15;
-const VISUAL_REPOS_PER_DISTRICT = 34;
+const VISUAL_REPOS_PER_DISTRICT = 38;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -1226,9 +1274,10 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   const angle = index * 2.399963 + seededUnit(seed) * 0.55;
   
   // Restore original radius logic for better spacing/breathing room
-  const radius = 6.5 + Math.sqrt(index + 1) * 8.5 + seededUnit(seed + 2) * 5.2;
-  const x = district.x + Math.cos(angle) * radius * 1.25;
-  const z = district.z + Math.sin(angle) * radius * 0.95 + Math.cos(index * 1.13) * 2.5;
+  const radius = 13 + Math.sqrt(index + 1) * 12.8 + seededUnit(seed + 2) * 10.5;
+  const laneOffset = Math.floor(index / 11) * 3.8;
+  const x = district.x + Math.cos(angle) * (radius + laneOffset) * 1.42;
+  const z = district.z + Math.sin(angle) * (radius + laneOffset) * 1.14 + Math.cos(index * 1.13) * 5.5;
 
   let scaleDriver = scale.stars;
   if (heightScaleDriver === 'activity') {
@@ -1441,16 +1490,16 @@ function resetFocusTransition(refs: SceneRefs) {
 
 function atlasPositionForDistrict(district: District) {
   return {
-    left: clamp(50 + district.x / 7.1, 6, 68),
-    top: clamp(48 + district.z / 7.4, 12, 86),
+    left: clamp(50 + district.x / 19, 5, 76),
+    top: clamp(48 + district.z / 20, 10, 88),
   };
 }
 
 function atlasViewForDistrict(district: District) {
   return {
-    x: clamp(-district.x * 0.92, -420, 420),
-    y: clamp(-district.z * 0.56, -320, 320),
-    scale: 1.18,
+    x: clamp(-district.x * 0.52, -620, 620),
+    y: clamp(-district.z * 0.36, -460, 460),
+    scale: 1.1,
   };
 }
 
@@ -1474,6 +1523,9 @@ function atlasStructureCount(repoCount: number) {
 export default function Home() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
+  const [loadingStageIndex, setLoadingStageIndex] = useState(0);
+  const [loadingProgress, setLoadingProgress] = useState(6);
+  const [loadingDetail, setLoadingDetail] = useState('Preparing graph request');
   const [loadedRepos, setLoadedRepos] = useState<Repo[]>([]);
   const [repoImport, setRepoImport] = useState('');
   const [importingRepo, setImportingRepo] = useState(false);
@@ -1489,23 +1541,41 @@ export default function Home() {
 
       for (let attempt = 1; attempt <= GRAPH_FETCH_ATTEMPTS; attempt += 1) {
         try {
+          setLoadingStageIndex(0);
+          setLoadingProgress(8);
+          setLoadingDetail(`Attempt ${attempt}: opening graph endpoint`);
           const response = await fetch(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`Graph request failed with ${response.status}`);
 
+          setLoadingStageIndex(2);
+          setLoadingProgress(34);
+          setLoadingDetail('Parsing graph payload from backend');
           const data = await response.json() as GraphFullResponse;
+          setLoadingStageIndex(4);
+          setLoadingProgress(58);
+          setLoadingDetail(`Classifying ${(data.nodes ?? []).length.toLocaleString()} graph nodes`);
           const mappedRepos = (data.nodes ?? [])
             .filter(isGraphRepositoryNode)
             .map(buildRepoFromGraphNode);
 
           if (!mappedRepos.length) throw new Error('Graph response contained no repositories');
           if (!cancelled) {
+            setLoadingStageIndex(7);
+            setLoadingProgress(84);
+            setLoadingDetail(`Hydrating ${mappedRepos.length.toLocaleString()} repositories`);
             setRepos(mappedRepos);
+            setLoadingStageIndex(9);
+            setLoadingProgress(100);
+            setLoadingDetail('Handing off to WebGL renderer');
             setLoadingRepos(false);
           }
           return;
         } catch (error) {
           lastError = error;
           if (attempt < GRAPH_FETCH_ATTEMPTS) {
+            setLoadingStageIndex(1);
+            setLoadingProgress(18);
+            setLoadingDetail(`Retrying graph endpoint in ${(GRAPH_FETCH_RETRY_DELAY_MS * attempt / 1000).toFixed(1)}s`);
             await wait(GRAPH_FETCH_RETRY_DELAY_MS * attempt);
           }
         }
@@ -1513,6 +1583,9 @@ export default function Home() {
 
       console.error('[SIFT graph] Failed to fetch local graph; using demo repositories:', lastError);
       if (!cancelled) {
+        setLoadingStageIndex(4);
+        setLoadingProgress(72);
+        setLoadingDetail('Backend unavailable; falling back to bundled demo graph');
         setRepos(REPOS.map((repo) => enrichRepoSafety(repo)));
         setImportStatus('Backend graph unavailable; showing demo repos.');
         setLoadingRepos(false);
@@ -1525,6 +1598,17 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!loadingRepos) return undefined;
+    const started = performance.now();
+    const interval = window.setInterval(() => {
+      const elapsed = performance.now() - started;
+      setLoadingStageIndex((current) => Math.min(LOADING_STAGES.length - 1, Math.max(current, Math.floor(elapsed / 1200) % LOADING_STAGES.length)));
+      setLoadingProgress((current) => Math.min(92, current + 2 + Math.round(seededUnit(elapsed * 0.01) * 3)));
+    }, 900);
+    return () => window.clearInterval(interval);
+  }, [loadingRepos]);
 
   useEffect(() => {
     try {
@@ -1597,6 +1681,7 @@ export default function Home() {
   const hoverRef = useRef<Repo | null>(null);
   const similarDistrictRef = useRef<DistrictKey | null>(null);
   const similarUntilRef = useRef(0);
+  const introHasRunRef = useRef(false);
 
   const [entered, setEntered] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -1634,6 +1719,12 @@ export default function Home() {
       repos: effectiveRepos.filter((repo) => repo.district === district.key),
     }));
   }, [effectiveRepos]);
+  const sceneReposByDistrict = useMemo(() => {
+    return DISTRICTS.map((district) => ({
+      district,
+      repos: allRepos.filter((repo) => repo.district === district.key),
+    }));
+  }, [allRepos]);
   const featuredDistricts = useMemo(() => {
     return reposByDistrict
       .filter(({ district, repos }) => FEATURED_DISTRICT_KEYS.has(district.key) && repos.length > 0)
@@ -1645,7 +1736,7 @@ export default function Home() {
       }));
   }, [reposByDistrict]);
   const visualReposByDistrict = useMemo(() => {
-    return reposByDistrict.map(({ district, repos }) => {
+    return sceneReposByDistrict.map(({ district, repos }) => {
       const mustShowIds = new Set(
         [selectedRepo, ...loadedRepos]
           .filter((repo): repo is Repo => Boolean(repo) && repo.district === district.key)
@@ -1657,7 +1748,8 @@ export default function Home() {
       const visible = ranked.filter((repo, index) => index < VISUAL_REPOS_PER_DISTRICT || mustShowIds.has(repo.id));
       return { district, repos: visible };
     });
-  }, [loadedRepos, reposByDistrict, selectedRepo]);
+  }, [loadedRepos, sceneReposByDistrict, selectedRepo]);
+  const sceneReady = !loadingRepos && allRepos.length > 0;
   const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
   const loadedTodayRepos = useMemo(() => {
@@ -1769,6 +1861,7 @@ export default function Home() {
 
   useEffect(() => {
     const mount = mountRef.current;
+    if (!sceneReady) return undefined;
     if (!mount) return undefined;
 
     const scene = new THREE.Scene();
@@ -1776,7 +1869,9 @@ export default function Home() {
     scene.fog = new THREE.FogExp2('#0c1514', 0.002);
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
-    camera.position.set(-600, 350, -600); // Path start
+    const now = performance.now();
+    const introStart = introHasRunRef.current ? now - INTRO_MS : now;
+    camera.position.set(-620, 250, -420);
 
     setWebglError('');
 
@@ -1845,7 +1940,7 @@ export default function Home() {
       buildings,
       roads,
       frame: 0,
-      startedAt: performance.now(),
+      startedAt: introStart,
       enteredAt: null,
       cameraPosition: camera.position.clone(),
       cameraTarget: new THREE.Vector3(-12, 5, -1),
@@ -1966,9 +2061,9 @@ export default function Home() {
     const panForward = new THREE.Vector3();
 
     const clampFreeNavigation = () => {
-      freeNavX = clamp(freeNavX, -450, 450);
-      freeNavY = clamp(freeNavY, -250, 600);
-      freeNavZ = clamp(freeNavZ, -450, 450);
+      freeNavX = clamp(freeNavX, -950, 950);
+      freeNavY = clamp(freeNavY, -260, 760);
+      freeNavZ = clamp(freeNavZ, -950, 950);
     };
 
     const returnToCityOverview = () => {
@@ -2005,6 +2100,9 @@ export default function Home() {
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
+        setFilter('all');
+        similarDistrictRef.current = null;
+        similarUntilRef.current = 0;
         resetFocusTransition(refs);
       }
     };
@@ -2088,6 +2186,9 @@ export default function Home() {
         if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
           didDrag = true;
           setSelectedRepo(null);
+          setFilter('all');
+          similarDistrictRef.current = null;
+          similarUntilRef.current = 0;
           resetFocusTransition(refs);
         }
 
@@ -2143,16 +2244,17 @@ export default function Home() {
       // --- 1. Cinematic Opening Sweep (Priority) ---
       if (introProgress < 1 && !hasInteractiveCameraRequest) {
         const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(-600, 350, -600), // City
-          new THREE.Vector3(500, 280, -400),  // Volcano
-          new THREE.Vector3(700, 450, 700),   // Snow
-          new THREE.Vector3(-700, 520, 800),  // Forest
-          new THREE.Vector3(0, 2800, 4200),   // Universe Peak
+          new THREE.Vector3(-620, 250, -420),
+          new THREE.Vector3(-260, 190, 190),
+          new THREE.Vector3(240, 180, -170),
+          new THREE.Vector3(560, 230, 320),
+          CAMERA_HOME.clone(),
         ]);
         
         const pos = curve.getPointAt(introT);
         camera.position.copy(pos);
-        camera.lookAt(0, 60, 0);
+        const sweepTarget = TARGET_HOME.clone().lerp(new THREE.Vector3(0, 70, 0), 1 - introT);
+        camera.lookAt(sweepTarget);
 
         // Reveal SIFT letters cinematicaly
         if (introProgress > 0.55) {
@@ -2166,7 +2268,7 @@ export default function Home() {
         }
         
         refs.cameraPosition.copy(pos);
-        refs.cameraTarget.set(0, 60, 0);
+        refs.cameraTarget.copy(sweepTarget);
       } 
       // --- 2. Interactive States ---
       else {
@@ -2237,6 +2339,10 @@ export default function Home() {
         refs.cameraTarget.lerp(desiredTarget, 0.07);
         camera.position.copy(refs.cameraPosition);
         camera.lookAt(refs.cameraTarget);
+      }
+
+      if (introProgress >= 1 && !introHasRunRef.current) {
+        introHasRunRef.current = true;
       }
 
       hoverFrame += 1;
@@ -2355,7 +2461,7 @@ export default function Home() {
       }
       sceneRef.current = null;
     };
-  }, [heightScaleDriver, rendererRetryToken, reposByDistrict, visualReposByDistrict]);
+  }, [heightScaleDriver, rendererRetryToken, sceneReady, visualReposByDistrict]);
 
   useEffect(() => {
     if (!entered) return undefined;
@@ -2411,6 +2517,21 @@ export default function Home() {
     targetDistrictCenterRef.current = null;
     similarDistrictRef.current = null;
     similarUntilRef.current = 0;
+  };
+
+  const handleCloseRepoPanel = () => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setSelectedRepo(null);
+    setFilter('all');
+    setAtlasView({ x: 0, y: 0, scale: 1 });
+    targetDistrictCenterRef.current = null;
+    similarDistrictRef.current = null;
+    similarUntilRef.current = 0;
+    if (sceneRef.current) {
+      resetFocusTransition(sceneRef.current);
+      sceneRef.current.targetZoom = 1;
+    }
+    setZoomValue(1);
   };
 
   const openTutorial = () => {
@@ -2546,6 +2667,9 @@ export default function Home() {
     similarUntilRef.current = performance.now() + 6000;
   };
 
+  const loadingStage = LOADING_STAGES[loadingStageIndex] ?? LOADING_STAGES[0];
+  const visibleLoadingProgress = clamp(loadingProgress, 0, 100);
+
   return (
     <main
       className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''}`}
@@ -2562,7 +2686,19 @@ export default function Home() {
           <div className="sift-loading-content">
             <h1 className="sift-loading-title">SIFT</h1>
             <div className="sift-spinner-8bit"></div>
-            <p className="sift-loading-text">Loading universe...</p>
+            <p className="sift-loading-text">{loadingStage}</p>
+            <div className="sift-loading-progress" aria-label={`Loading progress ${visibleLoadingProgress}%`}>
+              <span style={{ width: `${visibleLoadingProgress}%` }} />
+            </div>
+            <ol className="sift-loading-log" aria-label="Loading status">
+              {LOADING_STAGES.slice(0, Math.min(LOADING_STAGES.length, loadingStageIndex + 3)).map((stage, index) => (
+                <li key={stage} className={index < loadingStageIndex ? 'is-complete' : index === loadingStageIndex ? 'is-active' : ''}>
+                  <span>{index < loadingStageIndex ? 'ok' : index === loadingStageIndex ? 'run' : 'next'}</span>
+                  {stage}
+                </li>
+              ))}
+            </ol>
+            <small className="sift-loading-detail">{loadingDetail}</small>
           </div>
         </div>
       )}
@@ -2939,7 +3075,7 @@ export default function Home() {
       >
         {selectedRepo ? (
           <>
-            <button className="panel-close" type="button" onClick={() => setSelectedRepo(null)} aria-label="Close repository panel">
+            <button className="panel-close" type="button" onClick={handleCloseRepoPanel} aria-label="Close repository panel">
               ×
             </button>
             <div className="panel-kicker">{districtFor(selectedRepo).label} district</div>
@@ -5488,7 +5624,12 @@ export default function Home() {
           position: absolute;
           inset: 0;
           z-index: 1000;
-          background: #02040a;
+          background:
+            linear-gradient(rgba(57, 211, 83, 0.035) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(57, 211, 83, 0.025) 1px, transparent 1px),
+            radial-gradient(circle at 50% 36%, rgba(34, 197, 94, 0.12), transparent 34%),
+            #02040a;
+          background-size: 28px 28px, 28px 28px, auto, auto;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -5501,7 +5642,12 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 24px;
+          gap: 18px;
+          width: min(520px, calc(100vw - 40px));
+          padding: 32px;
+          border: 1px solid rgba(57, 211, 83, 0.24);
+          background: rgba(2, 6, 12, 0.74);
+          box-shadow: 0 0 0 1px rgba(57, 211, 83, 0.08), 0 28px 90px rgba(0,0,0,0.45);
         }
 
         .sift-loading-title {
@@ -5532,11 +5678,80 @@ export default function Home() {
           text-transform: uppercase;
           letter-spacing: 2px;
           animation: blink8bit 1.5s steps(2) infinite;
+          margin: 0;
+          min-height: 20px;
         }
 
         @keyframes blink8bit {
           0%, 100% { opacity: 1; }
           50% { opacity: 0; }
+        }
+
+        .sift-loading-progress {
+          width: 100%;
+          height: 14px;
+          border: 2px solid rgba(57, 211, 83, 0.54);
+          padding: 2px;
+          background: rgba(57, 211, 83, 0.05);
+        }
+
+        .sift-loading-progress span {
+          display: block;
+          height: 100%;
+          background: linear-gradient(90deg, #238636, #39d353, #b7ffbf);
+          transition: width 360ms steps(6);
+          box-shadow: 0 0 18px rgba(57, 211, 83, 0.5);
+        }
+
+        .sift-loading-log {
+          width: 100%;
+          display: grid;
+          gap: 8px;
+          margin: 0;
+          padding: 0;
+          list-style: none;
+          text-align: left;
+          color: rgba(214, 255, 221, 0.74);
+          font-size: 12px;
+          line-height: 1.25;
+        }
+
+        .sift-loading-log li {
+          display: grid;
+          grid-template-columns: 44px 1fr;
+          gap: 10px;
+          align-items: center;
+          min-width: 0;
+        }
+
+        .sift-loading-log span {
+          color: #02040a;
+          background: rgba(57, 211, 83, 0.72);
+          text-align: center;
+          padding: 2px 0;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .sift-loading-log li.is-active {
+          color: #f0fff2;
+        }
+
+        .sift-loading-log li.is-active span {
+          background: #39d353;
+        }
+
+        .sift-loading-log li.is-complete {
+          color: rgba(214, 255, 221, 0.5);
+        }
+
+        .sift-loading-detail {
+          width: 100%;
+          color: rgba(214, 255, 221, 0.62);
+          text-align: left;
+          font-size: 11px;
+          line-height: 1.35;
+          min-height: 16px;
         }
       `}</style>
     </main>
@@ -6478,7 +6693,7 @@ function paintVariedLandscapeBase(ctx: CanvasRenderingContext2D, size: number) {
 }
 
 function paintBiomeTextureBlends(ctx: CanvasRenderingContext2D, size: number) {
-  const worldSpan = 720;
+  const worldSpan = 2100;
   DISTRICTS.forEach((district, index) => {
     const biome = biomeTypeForDistrict(district);
     const patchSize = 448;
@@ -6511,7 +6726,7 @@ function paintBiomeTextureBlends(ctx: CanvasRenderingContext2D, size: number) {
 }
 
 function paintSoftBiomeWashes(ctx: CanvasRenderingContext2D, size: number) {
-  const worldSpan = 720;
+  const worldSpan = 2100;
   DISTRICTS.forEach((district, index) => {
     const biome = biomeTypeForDistrict(district);
     const tint = BIOME_LANDSCAPE_TINTS[biome] ?? BIOME_LANDSCAPE_TINTS.concrete;
@@ -6634,14 +6849,14 @@ function generateWorldFloorTexture() {
 function biomeTypeForDistrict(district: District): string {
   const k = district.key;
   if (k === 'volcano_forge') return 'volcano';
-  if (k === 'frozen_kingdom') return 'snow';
-  if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins', 'redwood_archive'].includes(k)) return 'forest';
-  if (['crystal_fields', 'ether_realm'].includes(k)) return 'crystal';
+  if (['frozen_kingdom', 'privacy_vault'].includes(k)) return 'snow';
+  if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins', 'redwood_archive', 'identity_gate', 'robotics_yard'].includes(k)) return 'forest';
+  if (['crystal_fields', 'ether_realm', 'vector_lab', 'model_foundry', 'game_arcade'].includes(k)) return 'crystal';
   if (k === 'floating_island') return 'floating';
-  if (['nomad_camps', 'valley_villages', 'coastal_fishing'].includes(k)) return 'desert';
-  if (['neon_alley', 'tech_suburbs', 'canyon_networks', 'corruption_wasteland'].includes(k)) return 'holographic';
-  if (k === 'vertical_arcology') return 'arcology';
-  if (k === 'skyline_core') return 'city';
+  if (['nomad_camps', 'valley_villages', 'coastal_fishing', 'docs_academy', 'science_quarry'].includes(k)) return 'desert';
+  if (['neon_alley', 'tech_suburbs', 'canyon_networks', 'corruption_wasteland', 'observability_array', 'browser_lab', 'protocol_marshes'].includes(k)) return 'holographic';
+  if (['vertical_arcology', 'package_ports'].includes(k)) return 'arcology';
+  if (['skyline_core', 'data_lake', 'financial_district', 'media_studio', 'shell_workshop'].includes(k)) return 'city';
   return 'city';
 }
 
@@ -6795,7 +7010,7 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
 }
     const TERRAIN_BASE_Y = -1.5;
 
-const TERRAIN_PLAY_EXTENT = 2800;
+const TERRAIN_PLAY_EXTENT = 3600;
 
 function noise2D(x: number, z: number) {
   const i = Math.floor(x);
@@ -6841,7 +7056,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
     const dist = Math.sqrt(dx * dx + dz * dz);
     
     if (biome === 'volcano') {
-      const radius = 160;
+      const radius = 230;
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Massive Caldera: high rim, depressed center
@@ -6854,7 +7069,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         if (channel > 0.88) height -= 4 * t;
       }
     } else if (biome === 'snow') {
-      const radius = 180;
+      const radius = 245;
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Glacial shelves: stepped terraces
@@ -6864,7 +7079,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         if (Math.sin(dist * 0.12) > 0.94) height += 18 * t;
       }
     } else if (biome === 'city') {
-      const radius = 140;
+      const radius = 205;
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Urban Plateaus: flat raised areas
@@ -6873,7 +7088,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         height += plateau + grid;
       }
     } else if (biome === 'crystal') {
-      const radius = 150;
+      const radius = 220;
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Fractured Crater: jagged spikes and depressions
@@ -6882,7 +7097,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         height += (spikes - crater) * t;
       }
     } else if (biome === 'forest') {
-      const radius = 170;
+      const radius = 235;
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Organic uneven topology: knolls and roots
@@ -6891,14 +7106,14 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         height += (roots + knolls) * t;
       }
     } else if (biome === 'floating') {
-      const radius = 120;
+      const radius = 190;
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Depressions in terrain below floating islands
         height -= Math.pow(t, 1.5) * 12;
       }
     } else {
-      const radius = 100;
+      const radius = 170;
       if (dist < radius) {
         const t = 1 - dist / radius;
         height += Math.pow(t, 1.8) * 12;
