@@ -780,11 +780,11 @@ const REPOS: Repo[] = [
   },
 ];
 
-const GRAPH_REPO_LIMIT = 1200;
+const GRAPH_REPO_LIMIT = 5000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 
-const INTRO_MS = 7500; // Accelerated sweep
+const INTRO_MS = 2400;
 const ENTRY_MS = 1000;
 
 function createSiftText(scene: THREE.Scene) {
@@ -827,7 +827,7 @@ const REPO_FOCUS_ZOOM = 0.9;
 const REPO_FOCUS_TRANSITION_MS = 820;
 const REPO_FOCUS_LONG_TRAVEL_DISTANCE = 980;
 const SCENE_PIXEL_RATIO = 1.15;
-const VISUAL_REPOS_PER_DISTRICT = 34;
+const VISUAL_REPOS_PER_DISTRICT = 52;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -1597,6 +1597,7 @@ export default function Home() {
   const hoverRef = useRef<Repo | null>(null);
   const similarDistrictRef = useRef<DistrictKey | null>(null);
   const similarUntilRef = useRef(0);
+  const introHasRunRef = useRef(false);
 
   const [entered, setEntered] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -1634,6 +1635,12 @@ export default function Home() {
       repos: effectiveRepos.filter((repo) => repo.district === district.key),
     }));
   }, [effectiveRepos]);
+  const sceneReposByDistrict = useMemo(() => {
+    return DISTRICTS.map((district) => ({
+      district,
+      repos: allRepos.filter((repo) => repo.district === district.key),
+    }));
+  }, [allRepos]);
   const featuredDistricts = useMemo(() => {
     return reposByDistrict
       .filter(({ district, repos }) => FEATURED_DISTRICT_KEYS.has(district.key) && repos.length > 0)
@@ -1645,7 +1652,7 @@ export default function Home() {
       }));
   }, [reposByDistrict]);
   const visualReposByDistrict = useMemo(() => {
-    return reposByDistrict.map(({ district, repos }) => {
+    return sceneReposByDistrict.map(({ district, repos }) => {
       const mustShowIds = new Set(
         [selectedRepo, ...loadedRepos]
           .filter((repo): repo is Repo => Boolean(repo) && repo.district === district.key)
@@ -1657,7 +1664,8 @@ export default function Home() {
       const visible = ranked.filter((repo, index) => index < VISUAL_REPOS_PER_DISTRICT || mustShowIds.has(repo.id));
       return { district, repos: visible };
     });
-  }, [loadedRepos, reposByDistrict, selectedRepo]);
+  }, [loadedRepos, sceneReposByDistrict, selectedRepo]);
+  const sceneReady = !loadingRepos && allRepos.length > 0;
   const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
   const loadedTodayRepos = useMemo(() => {
@@ -1769,6 +1777,7 @@ export default function Home() {
 
   useEffect(() => {
     const mount = mountRef.current;
+    if (!sceneReady) return undefined;
     if (!mount) return undefined;
 
     const scene = new THREE.Scene();
@@ -1776,7 +1785,9 @@ export default function Home() {
     scene.fog = new THREE.FogExp2('#0c1514', 0.002);
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
-    camera.position.set(-600, 350, -600); // Path start
+    const now = performance.now();
+    const introStart = introHasRunRef.current ? now - INTRO_MS : now;
+    camera.position.set(-620, 250, -420);
 
     setWebglError('');
 
@@ -1845,7 +1856,7 @@ export default function Home() {
       buildings,
       roads,
       frame: 0,
-      startedAt: performance.now(),
+      startedAt: introStart,
       enteredAt: null,
       cameraPosition: camera.position.clone(),
       cameraTarget: new THREE.Vector3(-12, 5, -1),
@@ -2005,6 +2016,9 @@ export default function Home() {
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
+        setFilter('all');
+        similarDistrictRef.current = null;
+        similarUntilRef.current = 0;
         resetFocusTransition(refs);
       }
     };
@@ -2088,6 +2102,9 @@ export default function Home() {
         if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
           didDrag = true;
           setSelectedRepo(null);
+          setFilter('all');
+          similarDistrictRef.current = null;
+          similarUntilRef.current = 0;
           resetFocusTransition(refs);
         }
 
@@ -2143,16 +2160,17 @@ export default function Home() {
       // --- 1. Cinematic Opening Sweep (Priority) ---
       if (introProgress < 1 && !hasInteractiveCameraRequest) {
         const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(-600, 350, -600), // City
-          new THREE.Vector3(500, 280, -400),  // Volcano
-          new THREE.Vector3(700, 450, 700),   // Snow
-          new THREE.Vector3(-700, 520, 800),  // Forest
-          new THREE.Vector3(0, 2800, 4200),   // Universe Peak
+          new THREE.Vector3(-620, 250, -420),
+          new THREE.Vector3(-260, 190, 190),
+          new THREE.Vector3(240, 180, -170),
+          new THREE.Vector3(560, 230, 320),
+          CAMERA_HOME.clone(),
         ]);
         
         const pos = curve.getPointAt(introT);
         camera.position.copy(pos);
-        camera.lookAt(0, 60, 0);
+        const sweepTarget = TARGET_HOME.clone().lerp(new THREE.Vector3(0, 70, 0), 1 - introT);
+        camera.lookAt(sweepTarget);
 
         // Reveal SIFT letters cinematicaly
         if (introProgress > 0.55) {
@@ -2166,7 +2184,7 @@ export default function Home() {
         }
         
         refs.cameraPosition.copy(pos);
-        refs.cameraTarget.set(0, 60, 0);
+        refs.cameraTarget.copy(sweepTarget);
       } 
       // --- 2. Interactive States ---
       else {
@@ -2237,6 +2255,10 @@ export default function Home() {
         refs.cameraTarget.lerp(desiredTarget, 0.07);
         camera.position.copy(refs.cameraPosition);
         camera.lookAt(refs.cameraTarget);
+      }
+
+      if (introProgress >= 1 && !introHasRunRef.current) {
+        introHasRunRef.current = true;
       }
 
       hoverFrame += 1;
@@ -2355,7 +2377,7 @@ export default function Home() {
       }
       sceneRef.current = null;
     };
-  }, [heightScaleDriver, rendererRetryToken, reposByDistrict, visualReposByDistrict]);
+  }, [heightScaleDriver, rendererRetryToken, sceneReady, visualReposByDistrict]);
 
   useEffect(() => {
     if (!entered) return undefined;
@@ -2411,6 +2433,21 @@ export default function Home() {
     targetDistrictCenterRef.current = null;
     similarDistrictRef.current = null;
     similarUntilRef.current = 0;
+  };
+
+  const handleCloseRepoPanel = () => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setSelectedRepo(null);
+    setFilter('all');
+    setAtlasView({ x: 0, y: 0, scale: 1 });
+    targetDistrictCenterRef.current = null;
+    similarDistrictRef.current = null;
+    similarUntilRef.current = 0;
+    if (sceneRef.current) {
+      resetFocusTransition(sceneRef.current);
+      sceneRef.current.targetZoom = 1;
+    }
+    setZoomValue(1);
   };
 
   const openTutorial = () => {
@@ -2939,7 +2976,7 @@ export default function Home() {
       >
         {selectedRepo ? (
           <>
-            <button className="panel-close" type="button" onClick={() => setSelectedRepo(null)} aria-label="Close repository panel">
+            <button className="panel-close" type="button" onClick={handleCloseRepoPanel} aria-label="Close repository panel">
               ×
             </button>
             <div className="panel-kicker">{districtFor(selectedRepo).label} district</div>
