@@ -204,7 +204,10 @@ def get_or_create_owner(db: Session, owner_data: dict):
         return None
 
     owner = db.query(User).filter(User.github_id == owner_data["databaseId"]).first()
+    if not owner:
+        owner = db.query(User).filter(User.login == owner_data["login"]).first()
     if owner:
+        owner.github_id = owner_data["databaseId"]
         owner.login = owner_data["login"]
         owner.avatar_url = owner_data.get("avatarUrl")
         owner.url = owner_data.get("url")
