@@ -837,6 +837,7 @@ const LOADING_STAGES = [
 const INTRO_MS = 2400;
 const ENTRY_MS = 1000;
 let graphRepoCache: { repos: Repo[]; timestamp: number } | null = null;
+const spriteTextureCache = new Map<string, THREE.CanvasTexture>();
 
 function createSiftText(scene: THREE.Scene) {
   const group = new THREE.Group();
@@ -1225,6 +1226,10 @@ function searchRepos(query: string, repos: Repo[] = REPOS) {
 }
 
 function makeSpriteTexture(title: string, subtitle: string, color: string, width = 420, height = 150) {
+  const cacheKey = `${title}|${subtitle}|${color}|${width}|${height}`;
+  const cached = spriteTextureCache.get(cacheKey);
+  if (cached) return cached;
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -1258,6 +1263,7 @@ function makeSpriteTexture(title: string, subtitle: string, color: string, width
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
+  spriteTextureCache.set(cacheKey, texture);
   return texture;
 }
 
@@ -3014,7 +3020,7 @@ export default function Home() {
 
         <div className="cinema-readout">
           <span>contribution atlas</span>
-          <strong>fixed perspective · drag board · live repo districts</strong>
+          <strong>wide perspective · drag orbit · live repo districts</strong>
         </div>
       </section>
 
@@ -7533,15 +7539,25 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       clamp(radius * 3.7, 0.18, 0.42),
     );
     const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
-    for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
-      const packetMaterial = new THREE.MeshBasicMaterial({
-        color: packetIndex % 2 === 0 ? pathColor : source.district.color,
+    const packetMaterials = [
+      new THREE.MeshBasicMaterial({
+        color: pathColor,
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
-      });
-      packetMaterial.userData.filteredOpacity = 0.92;
-      const packet = new THREE.Mesh(packetGeometry, packetMaterial);
+      }),
+      new THREE.MeshBasicMaterial({
+        color: source.district.color,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      }),
+    ];
+    packetMaterials.forEach((material) => {
+      material.userData.filteredOpacity = 0.92;
+    });
+    for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
+      const packet = new THREE.Mesh(packetGeometry, packetMaterials[packetIndex % packetMaterials.length]);
       packet.userData.role = 'pr-flow-packet';
       scene.add(packet);
       cars.push(packet);
