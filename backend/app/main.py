@@ -239,6 +239,60 @@ class PullRequestFlowRequest(BaseModel):
 class SafetyScoreRequest(BaseModel):
     repos: List[Dict[str, Any]] = Field(default_factory=list, max_length=5000)
 
+
+class ImportRepositoryRequest(BaseModel):
+    owner: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+    repo: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9_.-]+$")
+    wantsContributions: bool = True
+
+
+def parse_github_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def normalize_topics(raw_topics: Any) -> List[str]:
+    if not isinstance(raw_topics, list):
+        return []
+    normalized = []
+    seen = set()
+    for topic in raw_topics[:24]:
+        name = str(topic).strip().lower()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return normalized
+
+
+def imported_repo_is_beginner_friendly(topics: Sequence[str], open_issues: int, wants_contributions: bool) -> bool:
+    beginner_topics = {"good-first-issue", "good-first-issues", "help-wanted", "documentation", "beginner-friendly"}
+    return wants_contributions or any(topic in beginner_topics for topic in topics) or open_issues > 0
+
+
+async def fetch_github_json(client: httpx.AsyncClient, url: str) -> Any:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "SIFT-repository-import",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    response = await client.get(url, headers=headers)
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="GitHub repository not found")
+    if response.status_code == 403:
+        raise HTTPException(status_code=429, detail="GitHub rate limit reached while importing repository")
+    if not response.is_success:
+        raise HTTPException(status_code=502, detail=f"GitHub returned {response.status_code}")
+    return response.json()
+
+
 @app.post("/api/py/graph-search")
 async def graph_search(req: SearchRequest):
     try:
@@ -350,6 +404,114 @@ def get_full_graph(
                 "clusterCount": len([node for node in nodes if node.get("nodeType") == "cluster"]),
             }
         }
+    finally:
+        db.close()
+
+
+@app.post("/api/py/repos/import")
+async def import_repository(req: ImportRepositoryRequest):
+    owner_name = req.owner.strip()
+    repo_name = req.repo.strip()
+    full_name = f"{owner_name}/{repo_name}"
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        repo_payload = await fetch_github_json(client, f"https://api.github.com/repos/{owner_name}/{repo_name}")
+        pulls_payload = await fetch_github_json(
+            client,
+            f"https://api.github.com/repos/{owner_name}/{repo_name}/pulls?state=open&per_page=12",
+        )
+
+    if not isinstance(repo_payload, dict):
+        raise HTTPException(status_code=502, detail="GitHub repository payload was invalid")
+
+    owner_payload = repo_payload.get("owner") if isinstance(repo_payload.get("owner"), dict) else {}
+    topics = normalize_topics(repo_payload.get("topics"))
+    open_issues = int(repo_payload.get("open_issues_count") or 0)
+    watchers = int(repo_payload.get("watchers_count") or repo_payload.get("subscribers_count") or 0)
+    github_id = repo_payload.get("id")
+    if not isinstance(github_id, int):
+        raise HTTPException(status_code=502, detail="GitHub repository was missing a numeric id")
+
+    db = SessionLocal()
+    try:
+        owner_github_id = owner_payload.get("id")
+        if not isinstance(owner_github_id, int):
+            owner_github_id = -github_id
+        owner_login_value = str(owner_payload.get("login") or owner_name)
+        owner = db.query(User).filter(User.github_id == owner_github_id).one_or_none()
+        if not owner:
+            owner = db.query(User).filter(User.login == owner_login_value).one_or_none()
+        if not owner:
+            owner = User(
+                github_id=owner_github_id,
+                login=owner_login_value,
+                avatar_url=owner_payload.get("avatar_url"),
+                url=owner_payload.get("html_url") or f"https://github.com/{owner_login_value}",
+            )
+            db.add(owner)
+            db.flush()
+        else:
+            owner.login = owner_login_value
+            owner.avatar_url = owner_payload.get("avatar_url") or owner.avatar_url
+            owner.url = owner_payload.get("html_url") or owner.url
+
+        project = db.query(Project).filter(Project.github_id == github_id).one_or_none()
+        if not project:
+            project = db.query(Project).filter(Project.full_name == repo_payload.get("full_name", full_name)).one_or_none()
+        if not project:
+            project = Project(github_id=github_id)
+            db.add(project)
+
+        project.name = str(repo_payload.get("name") or repo_name)
+        project.full_name = str(repo_payload.get("full_name") or full_name)
+        project.description = repo_payload.get("description")
+        project.url = str(repo_payload.get("html_url") or f"https://github.com/{project.full_name}")
+        project.homepage = repo_payload.get("homepage") or None
+        project.language = repo_payload.get("language") or "Unknown"
+        project.stars = int(repo_payload.get("stargazers_count") or 0)
+        project.forks = int(repo_payload.get("forks_count") or 0)
+        project.open_issues = open_issues
+        project.watchers = watchers
+        license_payload = repo_payload.get("license") if isinstance(repo_payload.get("license"), dict) else {}
+        project.license_spdx = license_payload.get("spdx_id") or None
+        project.is_beginner_friendly = imported_repo_is_beginner_friendly(topics, open_issues, req.wantsContributions)
+        project.created_at = parse_github_datetime(repo_payload.get("created_at"))
+        project.updated_at = parse_github_datetime(repo_payload.get("updated_at"))
+        project.pushed_at = parse_github_datetime(repo_payload.get("pushed_at"))
+        project.owner_id = owner.id
+
+        topic_rows = []
+        for topic_name in topics:
+            topic = db.query(Topic).filter(Topic.name == topic_name).one_or_none()
+            if not topic:
+                topic = Topic(name=topic_name)
+                db.add(topic)
+                db.flush()
+            topic_rows.append(topic)
+        project.topics = topic_rows
+
+        db.commit()
+        db.refresh(project)
+        project = (
+            db.query(Project)
+            .options(joinedload(Project.topics), joinedload(Project.owner), joinedload(Project.contributors))
+            .filter(Project.id == project.id)
+            .one()
+        )
+        node = repo_node(project)
+        open_pull_requests = pulls_payload if isinstance(pulls_payload, list) else []
+        node["openPRs"] = len(open_pull_requests)
+        node["recentPullRequests"] = [
+            {
+                "number": item.get("number"),
+                "title": item.get("title"),
+                "state": item.get("state", "open"),
+                "draft": item.get("draft", False),
+            }
+            for item in open_pull_requests[:6]
+            if isinstance(item, dict)
+        ]
+        return {"repo": node, "meta": {"created": True, "fullName": project.full_name}}
     finally:
         db.close()
 
