@@ -114,28 +114,6 @@ type Repo = {
   importSource?: 'github';
 };
 
-type GitHubRepoPayload = {
-  id?: number;
-  name: string;
-  full_name?: string;
-  owner?: { login?: string };
-  description?: string | null;
-  stargazers_count?: number;
-  forks_count?: number;
-  open_issues_count?: number;
-  language?: string | null;
-  topics?: string[];
-  pushed_at?: string | null;
-  archived?: boolean;
-  license?: { spdx_id?: string | null } | null;
-};
-
-type GitHubPullPayload = {
-  number?: number;
-  title?: string;
-  draft?: boolean;
-};
-
 type GraphRepositoryNode = {
   id?: string;
   name?: string;
@@ -161,10 +139,19 @@ type GraphRepositoryNode = {
   safetyReasons?: SafetyReason[];
   safetyBreakdown?: SafetyReason[];
   safetyUnknowns?: string[];
+  recentPullRequests?: BackendPullRequest[];
 };
 
 type GraphFullResponse = {
   nodes?: GraphRepositoryNode[];
+};
+
+type ImportRepositoryResponse = {
+  repo: GraphRepositoryNode;
+  meta?: {
+    fullName?: string;
+    created?: boolean;
+  };
 };
 
 type RepoBuildingMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
@@ -487,82 +474,22 @@ function parseGithubRepoLocator(value: string) {
   return { owner, repo: repo.replace(/[#?].*$/, '') };
 }
 
-function buildPullRequestsFromGithub(pulls: GitHubPullPayload[]): PullRequest[] {
-  return pulls.slice(0, 6).map((pull, index) => ({
-    number: pull.number ?? index + 1,
-    title: pull.title || 'Open pull request',
-    priority: pull.draft ? 'quiet' : index < 2 ? 'hot' : 'normal',
-  }));
-}
-
-async function fetchGithubOpenPullRequests(owner: string, repo: string) {
-  try {
-    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=12`);
-    if (!response.ok) return [];
-    return await response.json() as GitHubPullPayload[];
-  } catch {
-    return [];
-  }
-}
-
-function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boolean, openPulls: GitHubPullPayload[] = []): Repo {
-  const owner = payload.owner?.login || (payload.full_name?.split('/')[0] ?? 'github');
-  const name = payload.name;
-  const topics = payload.topics ?? [];
-  const stars = payload.stargazers_count ?? 0;
-  const openIssues = payload.open_issues_count ?? 0;
-  const pullRequests = buildPullRequestsFromGithub(openPulls);
-  const openPRs = pullRequests.length;
-  const pushedAt = payload.pushed_at ? new Date(payload.pushed_at).getTime() : 0;
-  const daysSincePush = pushedAt ? Math.max(1, Math.round((Date.now() - pushedAt) / 86400000)) : 90;
-  const commitsPerWeek = clamp(Math.round(35 / Math.sqrt(daysSincePush)), 1, 28);
-  const hasStarterSignals = topics.some((topic) => ['good-first-issue', 'good-first-issues', 'help-wanted', 'documentation'].includes(topic.toLowerCase()));
-
-  return enrichRepoSafety({
-    id: `${owner}/${name}`.toLowerCase(),
-    name,
-    owner,
-    district: inferDistrictFromMetadata(stars, payload.language, topics, name, payload.description ?? ''),
-    language: payload.language || 'Unknown',
-    description: payload.description || 'GitHub repository imported into SIFT.',
-    stars,
-    forks: payload.forks_count ?? 0,
-    openIssues,
-    openPRs,
-    commitsPerWeek,
-    contributors: clamp(Math.round(Math.sqrt(Math.max(1, stars)) * 4), 8, 1200),
-    goodFirstIssues: hasStarterSignals ? Math.max(3, Math.min(24, Math.round(openIssues * 0.18))) : 0,
-    safetyScore: 80,
-    verifiedMaintainers: !payload.archived,
-    branchProtection: stars >= 100,
-    signedReleases: false,
-    responseHours: (() => {
-      let hours = 72;
-      if (commitsPerWeek > 30) hours = 4;
-      else if (commitsPerWeek > 15) hours = 12;
-      else if (commitsPerWeek > 5) hours = 24;
-      else if (commitsPerWeek > 0) hours = 48;
-      if (openIssues > 500) hours *= 1.5;
-      return Math.max(1, Math.round(hours));
-    })(),
-    topics,
-    prs: pullRequests,
-    contributionGuide: wantsContributions,
-    issueTemplates: hasStarterSignals,
-    smallScopedIssues: hasStarterSignals || openIssues > 0 || openPRs > 0,
-    license: payload.license?.spdx_id || undefined,
-    hasTests: undefined,
-    manageableLocalDev: stars < 60000,
-    loadedAt: new Date().toISOString(),
-    wantsContributions,
-    importSource: 'github',
-  });
-}
-
 function wait(ms: number) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function isTypingTarget(target: EventTarget | null = document.activeElement) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select' ||
+    target.isContentEditable ||
+    target.closest('[data-keyboard-capture="true"]') !== null
+  );
 }
 
 function isGraphRepositoryNode(node: GraphRepositoryNode) {
@@ -621,6 +548,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
   const stars = node.stars ?? 0;
   const openIssues = node.openIssues ?? node.openPRs ?? 0;
   const openPRs = node.openPRs ?? openIssues;
+  const recentPullRequests = node.recentPullRequests ?? [];
   const contributors = Math.max(node.contributorsCount ?? 0, Math.round(Math.sqrt(Math.max(1, stars)) * 2));
   const hasStarterSignals = Boolean(node.isBeginnerFriendly) || topics.some((topic) => ['good-first-issue', 'good-first-issues', 'help-wanted', 'documentation'].includes(topic.toLowerCase()));
   const safetyProfile = safetyProfileFromGraphNode(node);
@@ -656,7 +584,13 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
       return Math.max(1, Math.round(hours));
     })(),
     topics,
-    prs: [],
+    prs: recentPullRequests.length
+      ? recentPullRequests.map((pull, index) => ({
+        number: pull.number ?? index + 1,
+        title: pull.title || 'Open pull request',
+        priority: index < 2 ? 'hot' : 'normal',
+      }))
+      : [],
     issueTemplates: hasStarterSignals,
     smallScopedIssues: hasStarterSignals || openIssues > 0,
     license: node.license || undefined,
@@ -819,7 +753,6 @@ const REPOS: Repo[] = [
 const GRAPH_REPO_LIMIT = 5000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
-const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
 const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
 const LOADING_STAGES = [
   'Opening graph socket',
@@ -836,7 +769,6 @@ const LOADING_STAGES = [
 
 const INTRO_MS = 2400;
 const ENTRY_MS = 1000;
-let graphRepoCache: { repos: Repo[]; timestamp: number } | null = null;
 const spriteTextureCache = new Map<string, THREE.CanvasTexture>();
 
 function createSiftText(scene: THREE.Scene) {
@@ -862,8 +794,8 @@ function createSiftText(scene: THREE.Scene) {
     const tex = new THREE.CanvasTexture(canvas);
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false });
     const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(120, 120, 1);
-    sprite.position.set(-200 + i * 140, 1200, -800);
+    sprite.scale.set(70, 70, 1);
+    sprite.position.set(-165 + i * 110, 165, -135);
     sprite.userData.baseX = sprite.position.x;
     sprite.userData.baseY = sprite.position.y;
     group.add(sprite);
@@ -880,12 +812,12 @@ const REPO_FOCUS_TRANSITION_MS = 820;
 const REPO_FOCUS_LONG_TRAVEL_DISTANCE = 980;
 const SCENE_PIXEL_RATIO = 1.1;
 const SCENE_LOW_POWER_PIXEL_RATIO = 0.82;
-const CAMERA_OVERVIEW_ZOOM = 1.08;
+const CAMERA_OVERVIEW_ZOOM = 1;
 const CAMERA_DRAG_YAW_SPEED = 0.0042;
 const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
 const CAMERA_KEY_PAN_SPEED = 18;
 const CAMERA_MAX_YAW = Math.PI * 0.62;
-const VISUAL_REPOS_PER_DISTRICT = 38;
+const VISUAL_REPOS_PER_DISTRICT = 24;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -902,8 +834,8 @@ const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
 ]);
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
-const MAX_PR_FLOW_ROADS = 132;
-const MAX_PR_FLOW_PACKETS = 420;
+const MAX_PR_FLOW_ROADS = 56;
+const MAX_PR_FLOW_PACKETS = 150;
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -1553,24 +1485,14 @@ export default function Home() {
   const [importStatus, setImportStatus] = useState('Paste owner/repo or a GitHub URL.');
   const [wantsContributions, setWantsContributions] = useState(true);
   const [webglError, setWebglError] = useState('');
+  const [graphRefreshToken, setGraphRefreshToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadGraph = async () => {
       let lastError: unknown = null;
-      const cached = graphRepoCache && Date.now() - graphRepoCache.timestamp < GRAPH_CACHE_TTL_MS
-        ? graphRepoCache.repos
-        : null;
-
-      if (cached?.length) {
-        setLoadingStageIndex(9);
-        setLoadingProgress(100);
-        setLoadingDetail(`Restored ${cached.length.toLocaleString()} repositories from memory cache`);
-        setRepos(cached);
-        setLoadingRepos(false);
-        return;
-      }
+      setLoadingRepos(true);
 
       for (let attempt = 1; attempt <= GRAPH_FETCH_ATTEMPTS; attempt += 1) {
         try {
@@ -1596,7 +1518,6 @@ export default function Home() {
             setLoadingStageIndex(7);
             setLoadingProgress(84);
             setLoadingDetail(`Hydrating ${mappedRepos.length.toLocaleString()} repositories`);
-            graphRepoCache = { repos: mappedRepos, timestamp: Date.now() };
             setRepos(mappedRepos);
             setLoadingStageIndex(9);
             setLoadingProgress(100);
@@ -1631,7 +1552,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [graphRefreshToken]);
 
   useEffect(() => {
     if (!loadingRepos) return undefined;
@@ -1643,26 +1564,6 @@ export default function Home() {
     }, 900);
     return () => window.clearInterval(interval);
   }, [loadingRepos]);
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem('sift.loadedRepos');
-      if (saved) {
-        const parsed = JSON.parse(saved) as Repo[];
-        setLoadedRepos(parsed.map((repo) => enrichRepoSafety(repo)));
-      }
-    } catch (error) {
-      console.warn('[SIFT imports] Could not read saved repositories:', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('sift.loadedRepos', JSON.stringify(loadedRepos.slice(0, 20)));
-    } catch (error) {
-      console.warn('[SIFT imports] Could not save repositories:', error);
-    }
-  }, [loadedRepos]);
 
   useEffect(() => {
     const backendRepos = [...repos]
@@ -1987,8 +1888,8 @@ export default function Home() {
       enteredAt: null,
       cameraPosition: camera.position.clone(),
       cameraTarget: TARGET_HOME.clone(),
-      zoom: 1.08,
-      targetZoom: 1.08,
+      zoom: CAMERA_OVERVIEW_ZOOM,
+      targetZoom: CAMERA_OVERVIEW_ZOOM,
       siftText,
       activeFocusRepoId: null,
       focusTransition: null,
@@ -2107,6 +2008,13 @@ export default function Home() {
     let prevMouseX = 0;
     let prevMouseY = 0;
     const keysPressed: Record<string, boolean> = {};
+    const movementKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+
+    const clearMovementKeys = () => {
+      movementKeys.forEach((key) => {
+        keysPressed[key] = false;
+      });
+    };
 
     const clampFreeNavigation = () => {
       freeNavX = clamp(freeNavX, -950, 950);
@@ -2149,16 +2057,21 @@ export default function Home() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
+      if (isTypingTarget() || isTypingTarget(e.target)) {
+        if (movementKeys.includes(key)) clearMovementKeys();
+        return;
+      }
       keysPressed[key] = true;
 
       if (key === 'escape') {
         e.preventDefault();
         keysPressed[key] = false;
+        clearMovementKeys();
         returnToCityOverview();
         return;
       }
 
-      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      if (movementKeys.includes(key)) {
         e.preventDefault();
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
@@ -2171,8 +2084,23 @@ export default function Home() {
     const handleKeyUp = (e: KeyboardEvent) => {
       keysPressed[e.key.toLowerCase()] = false;
     };
+    const handleFocusIn = () => {
+      if (isTypingTarget()) clearMovementKeys();
+    };
+    const handleWindowBlur = () => {
+      clearMovementKeys();
+    };
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('.city-ui, .network-dock, .repo-panel, .tutorial-overlay')) {
+        clearMovementKeys();
+      }
+    };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('pointerdown', handleDocumentPointerDown, true);
 
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button === 0) { // Left click drag
@@ -2303,7 +2231,9 @@ export default function Home() {
         droppedFrameCount = Math.max(0, droppedFrameCount - 1);
       }
 
-      if (!selectedBuilding && enteredRef.current) {
+      if (isTypingTarget()) clearMovementKeys();
+
+      if (!selectedBuilding && enteredRef.current && !isTypingTarget()) {
         const forwardIntent = Number(Boolean(keysPressed.w || keysPressed.arrowup)) - Number(Boolean(keysPressed.s || keysPressed.arrowdown));
         const rightIntent = Number(Boolean(keysPressed.d || keysPressed.arrowright)) - Number(Boolean(keysPressed.a || keysPressed.arrowleft));
         if (forwardIntent || rightIntent) {
@@ -2340,8 +2270,8 @@ export default function Home() {
           refs.siftText.children.forEach((child, i) => {
             const sprite = child as THREE.Sprite;
             sprite.material.opacity = textT;
-            sprite.position.y = sprite.userData.baseY + Math.sin(now * 0.001 + i) * 35 * textT;
-            sprite.scale.setScalar(120 + 60 * textT);
+            sprite.position.y = sprite.userData.baseY + Math.sin(now * 0.001 + i) * 10 * textT;
+            sprite.scale.setScalar(70 + 24 * textT);
           });
         }
         
@@ -2428,6 +2358,7 @@ export default function Home() {
       }
 
       hoverFrame += 1;
+      const updateBuildingEffects = hoverFrame % 3 === 0 || Boolean(selectedRef.current || hoverRef.current);
       if (!isDragging && enteredRef.current && hoverFrame % 2 === 0) {
         refs.raycaster.setFromCamera(refs.pointer, camera);
         const intersection = refs.raycaster.intersectObjects(hitTargets, false)[0];
@@ -2444,6 +2375,7 @@ export default function Home() {
         const isHovered = hoverRef.current?.id === building.repo.id;
         const isSelected = selectedRef.current?.id === building.repo.id;
         const isSimilar = similarActive && (similarDistrictRef.current === building.repo.district || similarDistrictRef.current === building.district.parent);
+        if (!updateBuildingEffects && !isHovered && !isSelected && !isSimilar) continue;
         const pulse = 0.5 + Math.sin(elapsed * 2.5 + building.phase * 8) * 0.5;
         building.body.material.emissiveIntensity = isSelected ? 0.12 : isHovered ? 0.08 : isSimilar ? 0.06 + pulse * 0.025 : 0.018;
         building.top.material.emissiveIntensity = isSelected || isHovered ? 0.32 : isSimilar ? 0.18 : 0.08;
@@ -2519,6 +2451,9 @@ export default function Home() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('pointercancel', handlePointerUp);
@@ -2697,15 +2632,31 @@ export default function Home() {
     setImportingRepo(true);
     setImportStatus(`Loading ${locator.owner}/${locator.repo}...`);
     try {
-      const response = await fetch(`https://api.github.com/repos/${locator.owner}/${locator.repo}`);
-      if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
-      const payload = await response.json() as GitHubRepoPayload;
-      const openPulls = await fetchGithubOpenPullRequests(locator.owner, locator.repo);
-      const imported = buildRepoFromGithub(payload, wantsContributions, openPulls);
-      setLoadedRepos((current) => [imported, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
+      const response = await fetch('/api/py/repos/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: locator.owner,
+          repo: locator.repo,
+          wantsContributions,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as Partial<ImportRepositoryResponse> & { detail?: string };
+      if (!response.ok || !payload.repo) {
+        throw new Error(payload.detail || `Repository import failed with ${response.status}`);
+      }
+      const imported = buildRepoFromGraphNode(payload.repo);
+      const importedWithSession: Repo = {
+        ...imported,
+        loadedAt: new Date().toISOString(),
+        wantsContributions,
+        importSource: 'github',
+      };
+      setLoadedRepos((current) => [importedWithSession, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
-      setImportStatus(`${imported.owner}/${imported.name} loaded into ${districtFor(imported).label}.`);
-      focusRepo(imported);
+      setImportStatus(`${imported.owner}/${imported.name} loaded into ${districtFor(imported).label}. Shared graph refresh queued.`);
+      setGraphRefreshToken((current) => current + 1);
+      focusRepo(importedWithSession);
     } catch (error) {
       console.error('[SIFT imports] GitHub import failed:', error);
       const fallbackId = `${locator.owner}/${locator.repo}`.toLowerCase();
@@ -2723,7 +2674,7 @@ export default function Home() {
         setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} loaded from the SIFT graph.`);
         focusRepo(importedFromGraph);
       } else {
-        setImportStatus('Could not load that public GitHub repo.');
+        setImportStatus(error instanceof Error ? error.message : 'Could not load that public GitHub repo.');
       }
     } finally {
       setImportingRepo(false);
@@ -5808,7 +5759,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   const baseColor = new THREE.Color(district.color);
   const bodyColor = baseColor.clone().lerp(new THREE.Color('#020617'), 0.25);
   const accentColor = new THREE.Color(district.accent);
-  const isHighDetail = repo.stars >= 1200 || index % 6 === 0;
+  const isHighDetail = Boolean(repo.loadedAt) || index < 8 || repo.stars >= 50000;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,
@@ -5852,9 +5803,9 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   group.add(basePlate);
 
   // Layered Tower Body
-  const layerCount = 3;
+  const layerCount = isHighDetail ? 3 : 1;
   for (let i = 0; i < layerCount; i++) {
-    const t = i / (layerCount - 1);
+    const t = layerCount === 1 ? 0 : i / (layerCount - 1);
     const layerHeight = (visualHeight * 0.8) / layerCount;
     const taper = 1 - t * 0.25;
     const lWidth = bodyWidth * taper;
@@ -5879,7 +5830,9 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   // Roof / Top Landmark
   let top: THREE.Mesh;
   const topY = Z.buildings + visualHeight * 0.8 + 1.5;
-  if (biome === 'city') {
+  if (!isHighDetail) {
+    top = new THREE.Mesh(new THREE.BoxGeometry(bodyWidth * 0.38, 0.55, bodyDepth * 0.38), topMaterial);
+  } else if (biome === 'city') {
     top = new THREE.Mesh(new THREE.CylinderGeometry(0.1, bodyWidth * 0.3, 4, 4), topMaterial);
   } else if (biome === 'forest') {
     top = new THREE.Mesh(new THREE.DodecahedronGeometry(bodyWidth * 0.65, 1), topMaterial);
@@ -5896,7 +5849,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   group.add(top);
 
   // Instanced Windows (City/Arcology only)
-  const showWindows = repo.stars >= 50 && (biome === 'city' || biome === 'arcology');
+  const showWindows = isHighDetail && repo.stars >= 50 && (biome === 'city' || biome === 'arcology');
   let windows: THREE.InstancedMesh;
   if (showWindows) {
     const windowGeometry = new THREE.PlaneGeometry(0.25, 0.18);

@@ -131,3 +131,74 @@ def test_safety_score_endpoint_accepts_batched_payloads():
     profiles = response.json()["profiles"]
     assert set(profiles) == {"one", "two"}
     assert all("score" in profile for profile in profiles.values())
+
+
+def test_import_repository_persists_and_appears_in_graph(tmp_path, monkeypatch):
+    session_factory = make_session_factory(tmp_path)
+    monkeypatch.setattr("app.main.SessionLocal", session_factory)
+
+    async def fake_fetch_github_json(client, url):
+        if url.endswith("/pulls?state=open&per_page=12"):
+            return [
+                {"number": 7, "title": "Add SIFT import support", "state": "open", "draft": False},
+                {"number": 8, "title": "Tune repo loading", "state": "open", "draft": False},
+            ]
+        return {
+            "id": 444111,
+            "name": "sift-loaded-repo",
+            "full_name": "codex-smoke/sift-loaded-repo",
+            "description": "A repo imported into the shared SIFT graph.",
+            "html_url": "https://github.com/codex-smoke/sift-loaded-repo",
+            "homepage": None,
+            "language": "TypeScript",
+            "stargazers_count": 4321,
+            "forks_count": 210,
+            "open_issues_count": 17,
+            "watchers_count": 44,
+            "topics": ["developer-tools", "visualization", "good-first-issue"],
+            "license": {"spdx_id": "MIT"},
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-05-01T00:00:00Z",
+            "pushed_at": "2026-05-20T00:00:00Z",
+            "owner": {
+                "id": 333222,
+                "login": "codex-smoke",
+                "avatar_url": "https://example.com/avatar.png",
+                "html_url": "https://github.com/codex-smoke",
+            },
+        }
+
+    monkeypatch.setattr("app.main.fetch_github_json", fake_fetch_github_json)
+
+    response = client.post(
+        "/api/py/repos/import",
+        json={"owner": "codex-smoke", "repo": "sift-loaded-repo", "wantsContributions": True},
+    )
+
+    assert response.status_code == 200
+    imported = response.json()["repo"]
+    assert imported["fullName"] == "codex-smoke/sift-loaded-repo"
+    assert imported["openIssues"] == 17
+    assert imported["openPRs"] == 2
+    assert [pull["number"] for pull in imported["recentPullRequests"]] == [7, 8]
+
+    graph_response = client.get("/api/py/graph-full?groupBy=domain&limit=20")
+    assert graph_response.status_code == 200
+    graph_repo = next(
+        node for node in graph_response.json()["nodes"]
+        if node.get("fullName") == "codex-smoke/sift-loaded-repo"
+    )
+    assert graph_repo["language"] == "TypeScript"
+    assert "developer-tools" in graph_repo["topics"]
+
+    duplicate_response = client.post(
+        "/api/py/repos/import",
+        json={"owner": "codex-smoke", "repo": "sift-loaded-repo", "wantsContributions": True},
+    )
+    assert duplicate_response.status_code == 200
+
+    db = session_factory()
+    try:
+        assert db.query(Project).filter(Project.full_name == "codex-smoke/sift-loaded-repo").count() == 1
+    finally:
+        db.close()
