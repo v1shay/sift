@@ -512,7 +512,7 @@ function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boo
   const stars = payload.stargazers_count ?? 0;
   const openIssues = payload.open_issues_count ?? 0;
   const pullRequests = buildPullRequestsFromGithub(openPulls);
-  const openPRs = Math.max(openIssues, pullRequests.length);
+  const openPRs = pullRequests.length;
   const pushedAt = payload.pushed_at ? new Date(payload.pushed_at).getTime() : 0;
   const daysSincePush = pushedAt ? Math.max(1, Math.round((Date.now() - pushedAt) / 86400000)) : 90;
   const commitsPerWeek = clamp(Math.round(35 / Math.sqrt(daysSincePush)), 1, 28);
@@ -819,6 +819,8 @@ const REPOS: Repo[] = [
 const GRAPH_REPO_LIMIT = 5000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
+const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
+const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
 const LOADING_STAGES = [
   'Opening graph socket',
   'Talking to SQLite',
@@ -834,6 +836,8 @@ const LOADING_STAGES = [
 
 const INTRO_MS = 2400;
 const ENTRY_MS = 1000;
+let graphRepoCache: { repos: Repo[]; timestamp: number } | null = null;
+const spriteTextureCache = new Map<string, THREE.CanvasTexture>();
 
 function createSiftText(scene: THREE.Scene) {
   const group = new THREE.Group();
@@ -867,14 +871,20 @@ function createSiftText(scene: THREE.Scene) {
   scene.add(group);
   return group;
 }
-const CAMERA_HOME = new THREE.Vector3(0, 285, 1080);
-const TARGET_HOME = new THREE.Vector3(0, 35, 20);
-const MIN_ZOOM = 0.58;
-const MAX_ZOOM = 1.42;
+const CAMERA_HOME = new THREE.Vector3(0, 390, 1460);
+const TARGET_HOME = new THREE.Vector3(0, 42, 20);
+const MIN_ZOOM = 0.48;
+const MAX_ZOOM = 1.68;
 const REPO_FOCUS_ZOOM = 0.9;
 const REPO_FOCUS_TRANSITION_MS = 820;
 const REPO_FOCUS_LONG_TRAVEL_DISTANCE = 980;
-const SCENE_PIXEL_RATIO = 1.15;
+const SCENE_PIXEL_RATIO = 1.1;
+const SCENE_LOW_POWER_PIXEL_RATIO = 0.82;
+const CAMERA_OVERVIEW_ZOOM = 1.08;
+const CAMERA_DRAG_YAW_SPEED = 0.0042;
+const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
+const CAMERA_KEY_PAN_SPEED = 18;
+const CAMERA_MAX_YAW = Math.PI * 0.62;
 const VISUAL_REPOS_PER_DISTRICT = 38;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
@@ -1216,6 +1226,10 @@ function searchRepos(query: string, repos: Repo[] = REPOS) {
 }
 
 function makeSpriteTexture(title: string, subtitle: string, color: string, width = 420, height = 150) {
+  const cacheKey = `${title}|${subtitle}|${color}|${width}|${height}`;
+  const cached = spriteTextureCache.get(cacheKey);
+  if (cached) return cached;
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -1249,6 +1263,7 @@ function makeSpriteTexture(title: string, subtitle: string, color: string, width
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
+  spriteTextureCache.set(cacheKey, texture);
   return texture;
 }
 
@@ -1359,7 +1374,13 @@ function createSiftRenderer() {
 }
 
 function scenePixelRatio() {
-  return Math.min(window.devicePixelRatio || 1, SCENE_PIXEL_RATIO);
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const likelyLowPower =
+    memory !== undefined && memory < 4 ||
+    Boolean(navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4) ||
+    /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const maxRatio = likelyLowPower ? SCENE_LOW_POWER_PIXEL_RATIO : SCENE_PIXEL_RATIO;
+  return Math.min(window.devicePixelRatio || 1, maxRatio);
 }
 
 function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity: number) {
@@ -1538,6 +1559,18 @@ export default function Home() {
 
     const loadGraph = async () => {
       let lastError: unknown = null;
+      const cached = graphRepoCache && Date.now() - graphRepoCache.timestamp < GRAPH_CACHE_TTL_MS
+        ? graphRepoCache.repos
+        : null;
+
+      if (cached?.length) {
+        setLoadingStageIndex(9);
+        setLoadingProgress(100);
+        setLoadingDetail(`Restored ${cached.length.toLocaleString()} repositories from memory cache`);
+        setRepos(cached);
+        setLoadingRepos(false);
+        return;
+      }
 
       for (let attempt = 1; attempt <= GRAPH_FETCH_ATTEMPTS; attempt += 1) {
         try {
@@ -1563,6 +1596,7 @@ export default function Home() {
             setLoadingStageIndex(7);
             setLoadingProgress(84);
             setLoadingDetail(`Hydrating ${mappedRepos.length.toLocaleString()} repositories`);
+            graphRepoCache = { repos: mappedRepos, timestamp: Date.now() };
             setRepos(mappedRepos);
             setLoadingStageIndex(9);
             setLoadingProgress(100);
@@ -1687,7 +1721,7 @@ export default function Home() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [appearance, setAppearance] = useState<Appearance>('day');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
-  const [zoomValue, setZoomValue] = useState(1);
+  const [zoomValue, setZoomValue] = useState(CAMERA_OVERVIEW_ZOOM);
   const [atlasView, setAtlasView] = useState({ x: 0, y: 0, scale: 1 });
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const targetDistrictCenterRef = useRef<{ x: number; z: number } | null>(null);
@@ -1870,8 +1904,17 @@ export default function Home() {
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
     const now = performance.now();
-    const introStart = introHasRunRef.current ? now - INTRO_MS : now;
-    camera.position.set(-620, 250, -420);
+    const hasSeenIntro = (() => {
+      try {
+        return window.localStorage.getItem(INTRO_SEEN_STORAGE_KEY) === 'true';
+      } catch {
+        return false;
+      }
+    })();
+    const shouldRunIntro = !introHasRunRef.current && !hasSeenIntro;
+    const introStart = shouldRunIntro ? now : now - INTRO_MS;
+    if (!shouldRunIntro) introHasRunRef.current = true;
+    camera.position.copy(shouldRunIntro ? new THREE.Vector3(-760, 210, -540) : CAMERA_HOME);
 
     setWebglError('');
 
@@ -1943,9 +1986,9 @@ export default function Home() {
       startedAt: introStart,
       enteredAt: null,
       cameraPosition: camera.position.clone(),
-      cameraTarget: new THREE.Vector3(-12, 5, -1),
-      zoom: 1,
-      targetZoom: 1,
+      cameraTarget: TARGET_HOME.clone(),
+      zoom: 1.08,
+      targetZoom: 1.08,
       siftText,
       activeFocusRepoId: null,
       focusTransition: null,
@@ -2033,12 +2076,15 @@ export default function Home() {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
-      renderer.setPixelRatio(scenePixelRatio());
+      currentPixelRatio = scenePixelRatio();
+      renderer.setPixelRatio(currentPixelRatio);
     };
 
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const nextZoom = clamp(refs.targetZoom + Math.sign(event.deltaY) * 0.08, MIN_ZOOM, MAX_ZOOM);
+      skipCinematicSweep();
+      const wheelIntent = Math.sign(event.deltaY) * Math.min(0.16, Math.abs(event.deltaY) / 720);
+      const nextZoom = clamp(refs.targetZoom + wheelIntent, MIN_ZOOM, MAX_ZOOM);
       refs.targetZoom = nextZoom;
       setZoomValue(Number(nextZoom.toFixed(2)));
       setAtlasView((current) => ({
@@ -2051,19 +2097,33 @@ export default function Home() {
     let freeNavX = 0;
     let freeNavY = 0; // Camera height adjustments (top-down vs face-on)
     let freeNavZ = 0;
+    let orbitYaw = 0;
+    let lastFrameAt = performance.now();
+    let droppedFrameCount = 0;
+    let currentPixelRatio = scenePixelRatio();
     let isDragging = false;
     let didDrag = false;
     let lastDragAt = 0;
     let prevMouseX = 0;
     let prevMouseY = 0;
     const keysPressed: Record<string, boolean> = {};
-    const panRight = new THREE.Vector3();
-    const panForward = new THREE.Vector3();
 
     const clampFreeNavigation = () => {
       freeNavX = clamp(freeNavX, -950, 950);
       freeNavY = clamp(freeNavY, -260, 760);
       freeNavZ = clamp(freeNavZ, -950, 950);
+      orbitYaw = clamp(orbitYaw, -CAMERA_MAX_YAW, CAMERA_MAX_YAW);
+    };
+
+    const overviewPose = (targetOffset: THREE.Vector3) => {
+      const target = TARGET_HOME.clone().add(new THREE.Vector3(targetOffset.x, 0, targetOffset.z));
+      const baseOffset = CAMERA_HOME.clone().sub(TARGET_HOME);
+      baseOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
+      baseOffset.y += targetOffset.y;
+      return {
+        position: target.clone().add(baseOffset),
+        target,
+      };
     };
 
     const returnToCityOverview = () => {
@@ -2077,9 +2137,10 @@ export default function Home() {
       freeNavX = 0;
       freeNavY = 0;
       freeNavZ = 0;
+      orbitYaw = 0;
       resetFocusTransition(refs);
-      refs.targetZoom = 1;
-      setZoomValue(1);
+      refs.targetZoom = CAMERA_OVERVIEW_ZOOM;
+      setZoomValue(CAMERA_OVERVIEW_ZOOM);
       setAtlasView({ x: 0, y: 0, scale: 1 });
       refs.pointer.set(9, 9);
       renderer.domElement.style.cursor = 'grab';
@@ -2098,6 +2159,7 @@ export default function Home() {
       }
 
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        e.preventDefault();
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
         setFilter('all');
@@ -2198,17 +2260,8 @@ export default function Home() {
           y: clamp(current.y + deltaY * 0.86, -320, 320),
         }));
 
-        // Pan the fixed-perspective board based on delta movement.
-        const panScale = 0.32 * refs.zoom;
-        panRight.setFromMatrixColumn(camera.matrixWorld, 0);
-        panRight.y = 0;
-        panRight.normalize();
-        camera.getWorldDirection(panForward);
-        panForward.y = 0;
-        panForward.normalize();
-
-        freeNavX += (-deltaX * panScale * panRight.x) + (-deltaY * panScale * panForward.x);
-        freeNavZ += (-deltaX * panScale * panRight.z) + (-deltaY * panScale * panForward.z);
+        orbitYaw += deltaX * CAMERA_DRAG_YAW_SPEED;
+        freeNavY += deltaY * CAMERA_DRAG_HEIGHT_SPEED;
         clampFreeNavigation();
       }
     };
@@ -2230,6 +2283,8 @@ export default function Home() {
     let hoverFrame = 0;
     const animate = () => {
       const now = performance.now();
+      const frameDelta = now - lastFrameAt;
+      lastFrameAt = now;
       const selected = selectedRef.current;
       const elapsed = (now - refs.startedAt) / 1000;
       const introProgress = Math.min(1, (now - refs.startedAt) / INTRO_MS);
@@ -2237,6 +2292,29 @@ export default function Home() {
       const entryT = refs.enteredAt ? easeOutCubic((now - refs.enteredAt) / ENTRY_MS) : 0;
       const selectedBuilding = selected ? findBuilding(selected.id) : null;
       const hasInteractiveCameraRequest = Boolean(selectedBuilding || targetDistrictCenterRef.current);
+
+      if (frameDelta > 34) {
+        droppedFrameCount += 1;
+        if (droppedFrameCount === 18 && currentPixelRatio > SCENE_LOW_POWER_PIXEL_RATIO) {
+          currentPixelRatio = SCENE_LOW_POWER_PIXEL_RATIO;
+          renderer.setPixelRatio(currentPixelRatio);
+        }
+      } else {
+        droppedFrameCount = Math.max(0, droppedFrameCount - 1);
+      }
+
+      if (!selectedBuilding && enteredRef.current) {
+        const forwardIntent = Number(Boolean(keysPressed.w || keysPressed.arrowup)) - Number(Boolean(keysPressed.s || keysPressed.arrowdown));
+        const rightIntent = Number(Boolean(keysPressed.d || keysPressed.arrowright)) - Number(Boolean(keysPressed.a || keysPressed.arrowleft));
+        if (forwardIntent || rightIntent) {
+          const step = CAMERA_KEY_PAN_SPEED * Math.min(2.4, frameDelta / 16.67) * refs.zoom;
+          const forward = new THREE.Vector3(Math.sin(orbitYaw), 0, Math.cos(orbitYaw)).normalize();
+          const right = new THREE.Vector3(Math.cos(orbitYaw), 0, -Math.sin(orbitYaw)).normalize();
+          freeNavX += (forward.x * forwardIntent + right.x * rightIntent) * step;
+          freeNavZ += (forward.z * forwardIntent + right.z * rightIntent) * step;
+          clampFreeNavigation();
+        }
+      }
 
       let desiredPosition = new THREE.Vector3();
       let desiredTarget = new THREE.Vector3();
@@ -2272,8 +2350,6 @@ export default function Home() {
       } 
       // --- 2. Interactive States ---
       else {
-        const mouseParallax = new THREE.Vector2(0, 0); // Simplified for refactor
-
         if (selectedBuilding) {
           refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, REPO_FOCUS_ZOOM, 0.18);
           refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.18);
@@ -2320,13 +2396,14 @@ export default function Home() {
           freeNavY += (0 - freeNavY) * 0.08;
           refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.78, 0.08);
           
-          desiredPosition = CAMERA_HOME.clone().add(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
-          desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
+          const pose = overviewPose(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
+          desiredPosition = pose.position;
+          desiredTarget = pose.target;
         } else {
           resetFocusTransition(refs);
-          const freeOffset = new THREE.Vector3(freeNavX, freeNavY, freeNavZ);
-          desiredPosition = CAMERA_HOME.clone().add(freeOffset);
-          desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
+          const pose = overviewPose(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
+          desiredPosition = pose.position;
+          desiredTarget = pose.target;
         }
 
         if (!selectedBuilding) {
@@ -2343,6 +2420,11 @@ export default function Home() {
 
       if (introProgress >= 1 && !introHasRunRef.current) {
         introHasRunRef.current = true;
+        try {
+          window.localStorage.setItem(INTRO_SEEN_STORAGE_KEY, 'true');
+        } catch {
+          // localStorage can be unavailable in private or embedded contexts.
+        }
       }
 
       hoverFrame += 1;
@@ -2509,7 +2591,7 @@ export default function Home() {
   const handleZoomOut = () => setZoom((sceneRef.current?.targetZoom ?? zoomValue) + 0.14);
   const handleZoomReset = () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    setZoom(1);
+    setZoom(CAMERA_OVERVIEW_ZOOM);
     setAtlasView({ x: 0, y: 0, scale: 1 });
     setSelectedRepo(null);
     setFilter('all');
@@ -2529,9 +2611,9 @@ export default function Home() {
     similarUntilRef.current = 0;
     if (sceneRef.current) {
       resetFocusTransition(sceneRef.current);
-      sceneRef.current.targetZoom = 1;
+      sceneRef.current.targetZoom = CAMERA_OVERVIEW_ZOOM;
     }
-    setZoomValue(1);
+    setZoomValue(CAMERA_OVERVIEW_ZOOM);
   };
 
   const openTutorial = () => {
@@ -2690,15 +2772,7 @@ export default function Home() {
             <div className="sift-loading-progress" aria-label={`Loading progress ${visibleLoadingProgress}%`}>
               <span style={{ width: `${visibleLoadingProgress}%` }} />
             </div>
-            <ol className="sift-loading-log" aria-label="Loading status">
-              {LOADING_STAGES.slice(0, Math.min(LOADING_STAGES.length, loadingStageIndex + 3)).map((stage, index) => (
-                <li key={stage} className={index < loadingStageIndex ? 'is-complete' : index === loadingStageIndex ? 'is-active' : ''}>
-                  <span>{index < loadingStageIndex ? 'ok' : index === loadingStageIndex ? 'run' : 'next'}</span>
-                  {stage}
-                </li>
-              ))}
-            </ol>
-            <small className="sift-loading-detail">{loadingDetail}</small>
+            <small key={loadingDetail} className="sift-loading-detail">{loadingDetail}</small>
           </div>
         </div>
       )}
@@ -2946,7 +3020,7 @@ export default function Home() {
 
         <div className="cinema-readout">
           <span>contribution atlas</span>
-          <strong>fixed perspective · drag board · live repo districts</strong>
+          <strong>wide perspective · drag orbit · live repo districts</strong>
         </div>
       </section>
 
@@ -5703,55 +5777,19 @@ export default function Home() {
           box-shadow: 0 0 18px rgba(57, 211, 83, 0.5);
         }
 
-        .sift-loading-log {
-          width: 100%;
-          display: grid;
-          gap: 8px;
-          margin: 0;
-          padding: 0;
-          list-style: none;
-          text-align: left;
-          color: rgba(214, 255, 221, 0.74);
-          font-size: 12px;
-          line-height: 1.25;
-        }
-
-        .sift-loading-log li {
-          display: grid;
-          grid-template-columns: 44px 1fr;
-          gap: 10px;
-          align-items: center;
-          min-width: 0;
-        }
-
-        .sift-loading-log span {
-          color: #02040a;
-          background: rgba(57, 211, 83, 0.72);
-          text-align: center;
-          padding: 2px 0;
-          font-weight: 900;
-          text-transform: uppercase;
-        }
-
-        .sift-loading-log li.is-active {
-          color: #f0fff2;
-        }
-
-        .sift-loading-log li.is-active span {
-          background: #39d353;
-        }
-
-        .sift-loading-log li.is-complete {
-          color: rgba(214, 255, 221, 0.5);
-        }
-
         .sift-loading-detail {
           width: 100%;
           color: rgba(214, 255, 221, 0.62);
-          text-align: left;
-          font-size: 11px;
+          text-align: center;
+          font-size: 12px;
           line-height: 1.35;
           min-height: 16px;
+          animation: loadingDetailPop 420ms steps(4);
+        }
+
+        @keyframes loadingDetailPop {
+          0% { opacity: 0; transform: translateY(8px); }
+          100% { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </main>
@@ -7501,15 +7539,25 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       clamp(radius * 3.7, 0.18, 0.42),
     );
     const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
-    for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
-      const packetMaterial = new THREE.MeshBasicMaterial({
-        color: packetIndex % 2 === 0 ? pathColor : source.district.color,
+    const packetMaterials = [
+      new THREE.MeshBasicMaterial({
+        color: pathColor,
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
-      });
-      packetMaterial.userData.filteredOpacity = 0.92;
-      const packet = new THREE.Mesh(packetGeometry, packetMaterial);
+      }),
+      new THREE.MeshBasicMaterial({
+        color: source.district.color,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      }),
+    ];
+    packetMaterials.forEach((material) => {
+      material.userData.filteredOpacity = 0.92;
+    });
+    for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
+      const packet = new THREE.Mesh(packetGeometry, packetMaterials[packetIndex % packetMaterials.length]);
       packet.userData.role = 'pr-flow-packet';
       scene.add(packet);
       cars.push(packet);

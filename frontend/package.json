@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "rm -rf .next && concurrently \"next dev\" \"cd ../backend && python3 -m uvicorn app.main:app --reload --port 8000\"",
+    "dev": "cd .. && OPEN_BROWSER=0 ./run.sh",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

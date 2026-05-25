@@ -53,7 +53,7 @@ sift/
 git clone https://github.com/v1shay/sift.git
 cd sift
 npm install
-npm run dev
+./run.sh
 ```
 
 ## Backend
@@ -61,7 +61,7 @@ npm run dev
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+PYTHONPATH=. uvicorn app.main:app --reload
 ```
 <div align="center">
 <img width="1000" height="600" alt="ChatGPT Image May 23, 2026, 05_59_09 PM" src="https://github.com/user-attachments/assets/a59bc514-0ca0-41d5-aa89-2bf15ce57e97" />
