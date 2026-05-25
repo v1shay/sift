@@ -819,6 +819,8 @@ const REPOS: Repo[] = [
 const GRAPH_REPO_LIMIT = 5000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
+const GRAPH_CACHE_TTL_MS = 5 * 60 * 1000;
+const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
 const LOADING_STAGES = [
   'Opening graph socket',
   'Talking to SQLite',
@@ -834,6 +836,7 @@ const LOADING_STAGES = [
 
 const INTRO_MS = 2400;
 const ENTRY_MS = 1000;
+let graphRepoCache: { repos: Repo[]; timestamp: number } | null = null;
 
 function createSiftText(scene: THREE.Scene) {
   const group = new THREE.Group();
@@ -1538,6 +1541,18 @@ export default function Home() {
 
     const loadGraph = async () => {
       let lastError: unknown = null;
+      const cached = graphRepoCache && Date.now() - graphRepoCache.timestamp < GRAPH_CACHE_TTL_MS
+        ? graphRepoCache.repos
+        : null;
+
+      if (cached?.length) {
+        setLoadingStageIndex(9);
+        setLoadingProgress(100);
+        setLoadingDetail(`Restored ${cached.length.toLocaleString()} repositories from memory cache`);
+        setRepos(cached);
+        setLoadingRepos(false);
+        return;
+      }
 
       for (let attempt = 1; attempt <= GRAPH_FETCH_ATTEMPTS; attempt += 1) {
         try {
@@ -1563,6 +1578,7 @@ export default function Home() {
             setLoadingStageIndex(7);
             setLoadingProgress(84);
             setLoadingDetail(`Hydrating ${mappedRepos.length.toLocaleString()} repositories`);
+            graphRepoCache = { repos: mappedRepos, timestamp: Date.now() };
             setRepos(mappedRepos);
             setLoadingStageIndex(9);
             setLoadingProgress(100);
@@ -1870,8 +1886,17 @@ export default function Home() {
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
     const now = performance.now();
-    const introStart = introHasRunRef.current ? now - INTRO_MS : now;
-    camera.position.set(-620, 250, -420);
+    const hasSeenIntro = (() => {
+      try {
+        return window.localStorage.getItem(INTRO_SEEN_STORAGE_KEY) === 'true';
+      } catch {
+        return false;
+      }
+    })();
+    const shouldRunIntro = !introHasRunRef.current && !hasSeenIntro;
+    const introStart = shouldRunIntro ? now : now - INTRO_MS;
+    if (!shouldRunIntro) introHasRunRef.current = true;
+    camera.position.copy(shouldRunIntro ? new THREE.Vector3(-760, 210, -540) : CAMERA_HOME);
 
     setWebglError('');
 
@@ -2343,6 +2368,11 @@ export default function Home() {
 
       if (introProgress >= 1 && !introHasRunRef.current) {
         introHasRunRef.current = true;
+        try {
+          window.localStorage.setItem(INTRO_SEEN_STORAGE_KEY, 'true');
+        } catch {
+          // localStorage can be unavailable in private or embedded contexts.
+        }
       }
 
       hoverFrame += 1;
@@ -2690,15 +2720,7 @@ export default function Home() {
             <div className="sift-loading-progress" aria-label={`Loading progress ${visibleLoadingProgress}%`}>
               <span style={{ width: `${visibleLoadingProgress}%` }} />
             </div>
-            <ol className="sift-loading-log" aria-label="Loading status">
-              {LOADING_STAGES.slice(0, Math.min(LOADING_STAGES.length, loadingStageIndex + 3)).map((stage, index) => (
-                <li key={stage} className={index < loadingStageIndex ? 'is-complete' : index === loadingStageIndex ? 'is-active' : ''}>
-                  <span>{index < loadingStageIndex ? 'ok' : index === loadingStageIndex ? 'run' : 'next'}</span>
-                  {stage}
-                </li>
-              ))}
-            </ol>
-            <small className="sift-loading-detail">{loadingDetail}</small>
+            <small key={loadingDetail} className="sift-loading-detail">{loadingDetail}</small>
           </div>
         </div>
       )}
@@ -5703,55 +5725,19 @@ export default function Home() {
           box-shadow: 0 0 18px rgba(57, 211, 83, 0.5);
         }
 
-        .sift-loading-log {
-          width: 100%;
-          display: grid;
-          gap: 8px;
-          margin: 0;
-          padding: 0;
-          list-style: none;
-          text-align: left;
-          color: rgba(214, 255, 221, 0.74);
-          font-size: 12px;
-          line-height: 1.25;
-        }
-
-        .sift-loading-log li {
-          display: grid;
-          grid-template-columns: 44px 1fr;
-          gap: 10px;
-          align-items: center;
-          min-width: 0;
-        }
-
-        .sift-loading-log span {
-          color: #02040a;
-          background: rgba(57, 211, 83, 0.72);
-          text-align: center;
-          padding: 2px 0;
-          font-weight: 900;
-          text-transform: uppercase;
-        }
-
-        .sift-loading-log li.is-active {
-          color: #f0fff2;
-        }
-
-        .sift-loading-log li.is-active span {
-          background: #39d353;
-        }
-
-        .sift-loading-log li.is-complete {
-          color: rgba(214, 255, 221, 0.5);
-        }
-
         .sift-loading-detail {
           width: 100%;
           color: rgba(214, 255, 221, 0.62);
-          text-align: left;
-          font-size: 11px;
+          text-align: center;
+          font-size: 12px;
           line-height: 1.35;
           min-height: 16px;
+          animation: loadingDetailPop 420ms steps(4);
+        }
+
+        @keyframes loadingDetailPop {
+          0% { opacity: 0; transform: translateY(8px); }
+          100% { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </main>
