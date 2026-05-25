@@ -870,14 +870,20 @@ function createSiftText(scene: THREE.Scene) {
   scene.add(group);
   return group;
 }
-const CAMERA_HOME = new THREE.Vector3(0, 285, 1080);
-const TARGET_HOME = new THREE.Vector3(0, 35, 20);
-const MIN_ZOOM = 0.58;
-const MAX_ZOOM = 1.42;
+const CAMERA_HOME = new THREE.Vector3(0, 390, 1460);
+const TARGET_HOME = new THREE.Vector3(0, 42, 20);
+const MIN_ZOOM = 0.48;
+const MAX_ZOOM = 1.68;
 const REPO_FOCUS_ZOOM = 0.9;
 const REPO_FOCUS_TRANSITION_MS = 820;
 const REPO_FOCUS_LONG_TRAVEL_DISTANCE = 980;
-const SCENE_PIXEL_RATIO = 1.15;
+const SCENE_PIXEL_RATIO = 1.1;
+const SCENE_LOW_POWER_PIXEL_RATIO = 0.82;
+const CAMERA_OVERVIEW_ZOOM = 1.08;
+const CAMERA_DRAG_YAW_SPEED = 0.0042;
+const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
+const CAMERA_KEY_PAN_SPEED = 18;
+const CAMERA_MAX_YAW = Math.PI * 0.62;
 const VISUAL_REPOS_PER_DISTRICT = 38;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
@@ -1362,7 +1368,13 @@ function createSiftRenderer() {
 }
 
 function scenePixelRatio() {
-  return Math.min(window.devicePixelRatio || 1, SCENE_PIXEL_RATIO);
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const likelyLowPower =
+    memory !== undefined && memory < 4 ||
+    Boolean(navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4) ||
+    /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const maxRatio = likelyLowPower ? SCENE_LOW_POWER_PIXEL_RATIO : SCENE_PIXEL_RATIO;
+  return Math.min(window.devicePixelRatio || 1, maxRatio);
 }
 
 function setMaterialOpacity(material: THREE.Material | THREE.Material[], opacity: number) {
@@ -1703,7 +1715,7 @@ export default function Home() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [appearance, setAppearance] = useState<Appearance>('day');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
-  const [zoomValue, setZoomValue] = useState(1);
+  const [zoomValue, setZoomValue] = useState(CAMERA_OVERVIEW_ZOOM);
   const [atlasView, setAtlasView] = useState({ x: 0, y: 0, scale: 1 });
   const [sectionsOpen, setSectionsOpen] = useState(false);
   const targetDistrictCenterRef = useRef<{ x: number; z: number } | null>(null);
@@ -1968,9 +1980,9 @@ export default function Home() {
       startedAt: introStart,
       enteredAt: null,
       cameraPosition: camera.position.clone(),
-      cameraTarget: new THREE.Vector3(-12, 5, -1),
-      zoom: 1,
-      targetZoom: 1,
+      cameraTarget: TARGET_HOME.clone(),
+      zoom: 1.08,
+      targetZoom: 1.08,
       siftText,
       activeFocusRepoId: null,
       focusTransition: null,
@@ -2058,12 +2070,15 @@ export default function Home() {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
-      renderer.setPixelRatio(scenePixelRatio());
+      currentPixelRatio = scenePixelRatio();
+      renderer.setPixelRatio(currentPixelRatio);
     };
 
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const nextZoom = clamp(refs.targetZoom + Math.sign(event.deltaY) * 0.08, MIN_ZOOM, MAX_ZOOM);
+      skipCinematicSweep();
+      const wheelIntent = Math.sign(event.deltaY) * Math.min(0.16, Math.abs(event.deltaY) / 720);
+      const nextZoom = clamp(refs.targetZoom + wheelIntent, MIN_ZOOM, MAX_ZOOM);
       refs.targetZoom = nextZoom;
       setZoomValue(Number(nextZoom.toFixed(2)));
       setAtlasView((current) => ({
@@ -2076,19 +2091,33 @@ export default function Home() {
     let freeNavX = 0;
     let freeNavY = 0; // Camera height adjustments (top-down vs face-on)
     let freeNavZ = 0;
+    let orbitYaw = 0;
+    let lastFrameAt = performance.now();
+    let droppedFrameCount = 0;
+    let currentPixelRatio = scenePixelRatio();
     let isDragging = false;
     let didDrag = false;
     let lastDragAt = 0;
     let prevMouseX = 0;
     let prevMouseY = 0;
     const keysPressed: Record<string, boolean> = {};
-    const panRight = new THREE.Vector3();
-    const panForward = new THREE.Vector3();
 
     const clampFreeNavigation = () => {
       freeNavX = clamp(freeNavX, -950, 950);
       freeNavY = clamp(freeNavY, -260, 760);
       freeNavZ = clamp(freeNavZ, -950, 950);
+      orbitYaw = clamp(orbitYaw, -CAMERA_MAX_YAW, CAMERA_MAX_YAW);
+    };
+
+    const overviewPose = (targetOffset: THREE.Vector3) => {
+      const target = TARGET_HOME.clone().add(new THREE.Vector3(targetOffset.x, 0, targetOffset.z));
+      const baseOffset = CAMERA_HOME.clone().sub(TARGET_HOME);
+      baseOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
+      baseOffset.y += targetOffset.y;
+      return {
+        position: target.clone().add(baseOffset),
+        target,
+      };
     };
 
     const returnToCityOverview = () => {
@@ -2102,9 +2131,10 @@ export default function Home() {
       freeNavX = 0;
       freeNavY = 0;
       freeNavZ = 0;
+      orbitYaw = 0;
       resetFocusTransition(refs);
-      refs.targetZoom = 1;
-      setZoomValue(1);
+      refs.targetZoom = CAMERA_OVERVIEW_ZOOM;
+      setZoomValue(CAMERA_OVERVIEW_ZOOM);
       setAtlasView({ x: 0, y: 0, scale: 1 });
       refs.pointer.set(9, 9);
       renderer.domElement.style.cursor = 'grab';
@@ -2123,6 +2153,7 @@ export default function Home() {
       }
 
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        e.preventDefault();
         // Clear selection on keyboard input so the camera returns to free navigation control
         setSelectedRepo(null);
         setFilter('all');
@@ -2223,17 +2254,8 @@ export default function Home() {
           y: clamp(current.y + deltaY * 0.86, -320, 320),
         }));
 
-        // Pan the fixed-perspective board based on delta movement.
-        const panScale = 0.32 * refs.zoom;
-        panRight.setFromMatrixColumn(camera.matrixWorld, 0);
-        panRight.y = 0;
-        panRight.normalize();
-        camera.getWorldDirection(panForward);
-        panForward.y = 0;
-        panForward.normalize();
-
-        freeNavX += (-deltaX * panScale * panRight.x) + (-deltaY * panScale * panForward.x);
-        freeNavZ += (-deltaX * panScale * panRight.z) + (-deltaY * panScale * panForward.z);
+        orbitYaw += deltaX * CAMERA_DRAG_YAW_SPEED;
+        freeNavY += deltaY * CAMERA_DRAG_HEIGHT_SPEED;
         clampFreeNavigation();
       }
     };
@@ -2255,6 +2277,8 @@ export default function Home() {
     let hoverFrame = 0;
     const animate = () => {
       const now = performance.now();
+      const frameDelta = now - lastFrameAt;
+      lastFrameAt = now;
       const selected = selectedRef.current;
       const elapsed = (now - refs.startedAt) / 1000;
       const introProgress = Math.min(1, (now - refs.startedAt) / INTRO_MS);
@@ -2262,6 +2286,29 @@ export default function Home() {
       const entryT = refs.enteredAt ? easeOutCubic((now - refs.enteredAt) / ENTRY_MS) : 0;
       const selectedBuilding = selected ? findBuilding(selected.id) : null;
       const hasInteractiveCameraRequest = Boolean(selectedBuilding || targetDistrictCenterRef.current);
+
+      if (frameDelta > 34) {
+        droppedFrameCount += 1;
+        if (droppedFrameCount === 18 && currentPixelRatio > SCENE_LOW_POWER_PIXEL_RATIO) {
+          currentPixelRatio = SCENE_LOW_POWER_PIXEL_RATIO;
+          renderer.setPixelRatio(currentPixelRatio);
+        }
+      } else {
+        droppedFrameCount = Math.max(0, droppedFrameCount - 1);
+      }
+
+      if (!selectedBuilding && enteredRef.current) {
+        const forwardIntent = Number(Boolean(keysPressed.w || keysPressed.arrowup)) - Number(Boolean(keysPressed.s || keysPressed.arrowdown));
+        const rightIntent = Number(Boolean(keysPressed.d || keysPressed.arrowright)) - Number(Boolean(keysPressed.a || keysPressed.arrowleft));
+        if (forwardIntent || rightIntent) {
+          const step = CAMERA_KEY_PAN_SPEED * Math.min(2.4, frameDelta / 16.67) * refs.zoom;
+          const forward = new THREE.Vector3(Math.sin(orbitYaw), 0, Math.cos(orbitYaw)).normalize();
+          const right = new THREE.Vector3(Math.cos(orbitYaw), 0, -Math.sin(orbitYaw)).normalize();
+          freeNavX += (forward.x * forwardIntent + right.x * rightIntent) * step;
+          freeNavZ += (forward.z * forwardIntent + right.z * rightIntent) * step;
+          clampFreeNavigation();
+        }
+      }
 
       let desiredPosition = new THREE.Vector3();
       let desiredTarget = new THREE.Vector3();
@@ -2297,8 +2344,6 @@ export default function Home() {
       } 
       // --- 2. Interactive States ---
       else {
-        const mouseParallax = new THREE.Vector2(0, 0); // Simplified for refactor
-
         if (selectedBuilding) {
           refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, REPO_FOCUS_ZOOM, 0.18);
           refs.zoom = THREE.MathUtils.lerp(refs.zoom, refs.targetZoom, 0.18);
@@ -2345,13 +2390,14 @@ export default function Home() {
           freeNavY += (0 - freeNavY) * 0.08;
           refs.targetZoom = THREE.MathUtils.lerp(refs.targetZoom, 0.78, 0.08);
           
-          desiredPosition = CAMERA_HOME.clone().add(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
-          desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
+          const pose = overviewPose(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
+          desiredPosition = pose.position;
+          desiredTarget = pose.target;
         } else {
           resetFocusTransition(refs);
-          const freeOffset = new THREE.Vector3(freeNavX, freeNavY, freeNavZ);
-          desiredPosition = CAMERA_HOME.clone().add(freeOffset);
-          desiredTarget = TARGET_HOME.clone().add(new THREE.Vector3(freeNavX, 0, freeNavZ));
+          const pose = overviewPose(new THREE.Vector3(freeNavX, freeNavY, freeNavZ));
+          desiredPosition = pose.position;
+          desiredTarget = pose.target;
         }
 
         if (!selectedBuilding) {
@@ -2539,7 +2585,7 @@ export default function Home() {
   const handleZoomOut = () => setZoom((sceneRef.current?.targetZoom ?? zoomValue) + 0.14);
   const handleZoomReset = () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    setZoom(1);
+    setZoom(CAMERA_OVERVIEW_ZOOM);
     setAtlasView({ x: 0, y: 0, scale: 1 });
     setSelectedRepo(null);
     setFilter('all');
@@ -2559,9 +2605,9 @@ export default function Home() {
     similarUntilRef.current = 0;
     if (sceneRef.current) {
       resetFocusTransition(sceneRef.current);
-      sceneRef.current.targetZoom = 1;
+      sceneRef.current.targetZoom = CAMERA_OVERVIEW_ZOOM;
     }
-    setZoomValue(1);
+    setZoomValue(CAMERA_OVERVIEW_ZOOM);
   };
 
   const openTutorial = () => {
