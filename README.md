@@ -51,7 +51,7 @@ sift/
 git clone https://github.com/v1shay/sift.git
 cd sift
 npm install
-npm run dev
+./run.sh
 ```
 
 ## Backend
@@ -59,5 +59,5 @@ npm run dev
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+PYTHONPATH=. uvicorn app.main:app --reload
 ```

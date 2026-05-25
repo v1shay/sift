@@ -512,7 +512,7 @@ function buildRepoFromGithub(payload: GitHubRepoPayload, wantsContributions: boo
   const stars = payload.stargazers_count ?? 0;
   const openIssues = payload.open_issues_count ?? 0;
   const pullRequests = buildPullRequestsFromGithub(openPulls);
-  const openPRs = Math.max(openIssues, pullRequests.length);
+  const openPRs = pullRequests.length;
   const pushedAt = payload.pushed_at ? new Date(payload.pushed_at).getTime() : 0;
   const daysSincePush = pushedAt ? Math.max(1, Math.round((Date.now() - pushedAt) / 86400000)) : 90;
   const commitsPerWeek = clamp(Math.round(35 / Math.sqrt(daysSincePush)), 1, 28);
