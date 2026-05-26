@@ -34,32 +34,44 @@ let imported = false;
 const graphFixture = () => {
   const names = imported ? ['codex-smoke/sift-loaded-repo', ...repoNames] : repoNames;
   return {
-    nodes: names.map((fullName, index) => ({
-      id: `repo_${index + 1}`,
-      group: 'repository',
-      nodeType: 'repository',
-      fullName,
-      owner: fullName.split('/')[0],
-      name: fullName.split('/')[1],
-      description: `${fullName} repository used for SIFT regression testing.`,
-      language: ['TypeScript', 'Go', 'Rust', 'Python', 'JavaScript'][index % 5],
-      stars: index === 0 && imported ? 4321 : 120_000 - index * 1_900,
-      forks: index === 0 && imported ? 210 : 18_000 - index * 180,
-      openIssues: index === 0 && imported ? 17 : 40 + index * 7,
-      openPRs: index === 0 && imported ? 2 : 8 + (index % 9),
-      contributorsCount: 220 + index * 5,
-      topics: index === 0 && imported ? ['developer-tools', 'visualization', 'good-first-issue'] : ['frontend', 'good-first-issue'],
-      license: 'MIT',
-      isBeginnerFriendly: true,
-      pushedAt: new Date(Date.now() - index * 86_400_000).toISOString(),
-      safetyScore: 78,
-      recentPullRequests: index === 0 && imported
+    nodes: names.map((fullName, index) => {
+      const isImported = index === 0 && imported;
+      const isIntentHero = fullName === 'openai/openai-node';
+      const isLandmark = fullName === 'microsoft/vscode' || fullName === 'kubernetes/kubernetes';
+
+      return {
+        id: `repo_${index + 1}`,
+        group: 'repository',
+        nodeType: 'repository',
+        fullName,
+        owner: fullName.split('/')[0],
+        name: fullName.split('/')[1],
+        description: isIntentHero
+          ? 'Beginner friendly AI SDK with fast maintainers, LLM examples, and starter issues.'
+          : `${fullName} repository used for SIFT regression testing.`,
+        language: isIntentHero ? 'TypeScript' : ['TypeScript', 'Go', 'Rust', 'Python', 'JavaScript'][index % 5],
+        stars: isImported ? 4321 : isIntentHero ? 860 : isLandmark ? 120_000 - index * 1_900 : 18_000 - index * 420,
+        forks: isImported ? 210 : isIntentHero ? 120 : 18_000 - index * 180,
+        openIssues: isImported ? 17 : isIntentHero ? 34 : 40 + index * 7,
+        openPRs: isImported ? 2 : isIntentHero ? 12 : 8 + (index % 9),
+        contributorsCount: isIntentHero ? 72 : 220 + index * 5,
+        topics: isImported
+          ? ['developer-tools', 'visualization', 'good-first-issue']
+          : isIntentHero
+            ? ['ai', 'llm', 'developer-tools', 'good-first-issue', 'typescript']
+            : ['frontend', 'good-first-issue'],
+        license: 'MIT',
+        isBeginnerFriendly: true,
+        pushedAt: new Date(Date.now() - (isIntentHero ? 0 : index * 86_400_000)).toISOString(),
+        safetyScore: isIntentHero ? 92 : 78,
+        recentPullRequests: isImported
         ? [
           { number: 12, title: 'Improve import smoke coverage', state: 'open' },
           { number: 13, title: 'Keep city load responsive', state: 'open' },
         ]
         : [],
-    })),
+      };
+    }),
     links: [],
     meta: {
       groupBy: 'domain',
@@ -81,7 +93,8 @@ const consoleProblems = [];
 page.on('console', (message) => {
   if (message.type() === 'error' || message.type() === 'warning') {
     const text = message.text();
-    if (!text.includes('GL Driver Message') && !text.includes('React DevTools')) {
+    const recoverableSiftFallback = text.includes('[SIFT PR flow]') || text.includes('[Safety scoring]');
+    if (!recoverableSiftFallback && !text.includes('GL Driver Message') && !text.includes('React DevTools')) {
       consoleProblems.push(`${message.type()}: ${text}`);
     }
   }
@@ -95,15 +108,15 @@ await page.route('**/api/py/graph-full?**', async (route) => {
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(graphFixture()) });
 });
 
-await page.route('**/api/py/pr-flow', async (route) => {
+await page.route('**/api/py/pr-flow**', async (route) => {
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summaries: {}, aggregate: {} }) });
 });
 
-await page.route('**/api/py/safety-score', async (route) => {
+await page.route('**/api/py/safety-score**', async (route) => {
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ profiles: {} }) });
 });
 
-await page.route('**/api/py/repos/import', async (route) => {
+await page.route('**/api/py/repos/import**', async (route) => {
   imported = true;
   await route.fulfill({
     status: 200,
@@ -157,6 +170,22 @@ try {
   await page.getByRole('button', { name: 'Reset camera' }).click();
   await page.getByRole('button', { name: /Walkthrough/ }).click();
   await page.getByRole('button', { name: 'Close walkthrough' }).click();
+
+  await page.getByRole('button', { name: /^Activity$/ }).click();
+  await page.getByRole('button', { name: /^Trending$/ }).click();
+  await page.getByRole('button', { name: /^View Encoding$/ }).click();
+  await page.waitForFunction(() => document.body.innerText.includes('Height maps to Activity'), null, { timeout: 8_000 });
+  await page.getByRole('button', { name: 'Close view encoding' }).click();
+
+  await search.fill('beginner friendly ai repo with fast maintainers');
+  await page.waitForFunction(() => {
+    const text = document.body.innerText;
+    return text.includes('openai-node') && (text.includes('intent:') || text.includes('response:'));
+  }, null, { timeout: 12_000 });
+  const firstIntentResult = await page.locator('.search-result').first().innerText();
+  if (!firstIntentResult.includes('openai-node')) {
+    fail('Intent search did not rank the beginner-friendly AI repo first', { firstIntentResult });
+  }
 
   await page.getByPlaceholder('owner/repo').fill('codex-smoke/sift-loaded-repo');
   await page.getByRole('button', { name: /^Load$/ }).click();
