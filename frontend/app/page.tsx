@@ -750,7 +750,7 @@ const REPOS: Repo[] = [
   },
 ];
 
-const GRAPH_REPO_LIMIT = 5000;
+const GRAPH_REPO_LIMIT = 12000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
@@ -817,7 +817,8 @@ const CAMERA_DRAG_YAW_SPEED = 0.0042;
 const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
 const CAMERA_KEY_PAN_SPEED = 18;
 const CAMERA_MAX_YAW = Math.PI * 0.62;
-const VISUAL_REPOS_PER_DISTRICT = 24;
+const VISUAL_REPOS_PER_DISTRICT_MIN = 18;
+const VISUAL_REPOS_PER_DISTRICT_MAX = 44;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -1473,6 +1474,63 @@ function atlasStructureCount(repoCount: number) {
   return clamp(Math.ceil(Math.log2(repoCount + 2)) + 1, 4, 9);
 }
 
+function visualRepoLimitForDistrict(district: District, repoCount: number, totalRepos: number) {
+  const edgeDistance = Math.sqrt(district.x * district.x + district.z * district.z);
+  const edgeBonus = edgeDistance > 900 ? 9 : edgeDistance > 650 ? 6 : 2;
+  const densityBonus = Math.log2(repoCount + 1) * 2.4;
+  const universeBonus = Math.log10(totalRepos + 1) * 2.1;
+  return Math.round(clamp(
+    VISUAL_REPOS_PER_DISTRICT_MIN + edgeBonus + densityBonus + universeBonus,
+    VISUAL_REPOS_PER_DISTRICT_MIN,
+    VISUAL_REPOS_PER_DISTRICT_MAX,
+  ));
+}
+
+function visualStarBand(repo: Repo) {
+  if (repo.stars >= 10000) return '10k+';
+  if (repo.stars >= 1000) return '1k-10k';
+  if (repo.stars >= 100) return '100-1k';
+  if (repo.stars >= 25) return '25-100';
+  if (repo.stars >= 5) return '5-25';
+  return '0-5';
+}
+
+function visualRepoScore(repo: Repo) {
+  return repo.stars + getOpenWorkItems(repo) * 18 + repo.contributors * 0.8 + repo.goodFirstIssues * 35;
+}
+
+function pickVisualRepos(repos: Repo[], limit: number, mustShowIds: Set<string>) {
+  const selected = new Map<string, Repo>();
+  repos.filter((repo) => mustShowIds.has(repo.id)).forEach((repo) => selected.set(repo.id, repo));
+
+  const buckets = new Map<string, Repo[]>();
+  repos.forEach((repo) => {
+    if (selected.has(repo.id)) return;
+    const key = visualStarBand(repo);
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(repo);
+    buckets.set(key, bucket);
+  });
+
+  buckets.forEach((bucket) => bucket.sort((a, b) => visualRepoScore(b) - visualRepoScore(a)));
+  const bucketKeys = ['0-5', '5-25', '25-100', '100-1k', '1k-10k', '10k+'].filter((key) => buckets.has(key));
+
+  while (selected.size < limit && bucketKeys.length) {
+    for (let index = 0; index < bucketKeys.length && selected.size < limit; index += 1) {
+      const key = bucketKeys[index];
+      const bucket = buckets.get(key);
+      const next = bucket?.shift();
+      if (next) selected.set(next.id, next);
+      if (!bucket?.length) {
+        bucketKeys.splice(index, 1);
+        index -= 1;
+      }
+    }
+  }
+
+  return Array.from(selected.values()).slice(0, limit);
+}
+
 export default function Home() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
@@ -1499,7 +1557,7 @@ export default function Home() {
           setLoadingStageIndex(0);
           setLoadingProgress(8);
           setLoadingDetail(`Attempt ${attempt}: opening graph endpoint`);
-          const response = await fetch(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}`, { cache: 'no-store' });
+          const response = await fetch(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`Graph request failed with ${response.status}`);
 
           setLoadingStageIndex(2);
@@ -1677,13 +1735,11 @@ export default function Home() {
           .filter((repo): repo is Repo => Boolean(repo) && repo.district === district.key)
           .map((repo) => repo.id),
       );
-      const ranked = [...repos].sort(
-        (a, b) => (b.stars + getOpenWorkItems(b) * 18 + b.contributors * 0.8) - (a.stars + getOpenWorkItems(a) * 18 + a.contributors * 0.8),
-      );
-      const visible = ranked.filter((repo, index) => index < VISUAL_REPOS_PER_DISTRICT || mustShowIds.has(repo.id));
+      const visualLimit = visualRepoLimitForDistrict(district, repos.length, allRepos.length);
+      const visible = pickVisualRepos(repos, visualLimit, mustShowIds);
       return { district, repos: visible };
     });
-  }, [loadedRepos, sceneReposByDistrict, selectedRepo]);
+  }, [allRepos.length, loadedRepos, sceneReposByDistrict, selectedRepo]);
   const sceneReady = !loadingRepos && allRepos.length > 0;
   const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);

@@ -378,7 +378,7 @@ async def graph_search(req: SearchRequest):
 def get_full_graph(
     group_by: str = Query("domain", alias="groupBy", pattern="^(domain|language|topic|org|stars|raw)$"),
     sort_by: str = Query("coverage", alias="sortBy", pattern="^(coverage|stars|forks|issues|updated|name)$"),
-    limit: int = Query(250, ge=1, le=5000),
+    limit: int = Query(250, ge=1, le=15000),
     min_stars: int = Query(0, alias="minStars", ge=0),
     language: Optional[str] = None,
     topic: Optional[str] = None,
