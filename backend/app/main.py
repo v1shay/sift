@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from urllib.parse import urlencode
 
 import httpx
-from math import sqrt
+from math import log10, sqrt
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -62,6 +62,21 @@ def star_bucket(stars: Optional[int]) -> str:
     return "Under 1k stars"
 
 
+def coverage_star_bucket(stars: Optional[int]) -> str:
+    value = stars or 0
+    if value >= 10000:
+        return "10k+"
+    if value >= 1000:
+        return "1k-10k"
+    if value >= 100:
+        return "100-1k"
+    if value >= 25:
+        return "25-100"
+    if value >= 5:
+        return "5-25"
+    return "0-5"
+
+
 def detect_domain(project: Project) -> str:
     text = " ".join(
         [
@@ -100,7 +115,7 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "stars": project.stars or 0,
         "forks": project.forks or 0,
         "openIssues": project.open_issues or 0,
-        "openPRs": project.open_issues or 0,
+        "openPRs": 0,
         "contributorsCount": len(project.contributors or []),
         "owner": owner_login(project),
         "topics": topics,
@@ -179,6 +194,9 @@ def apply_project_filters(
 
 
 def sort_projects(projects: List[Project], sort_by: str) -> List[Project]:
+    if sort_by == "coverage":
+        return coverage_rank_projects(projects)
+
     sorters = {
         "stars": lambda project: project.stars or 0,
         "forks": lambda project: project.forks or 0,
@@ -188,6 +206,54 @@ def sort_projects(projects: List[Project], sort_by: str) -> List[Project]:
     }
     key = sorters.get(sort_by, sorters["stars"])
     return sorted(projects, key=key, reverse=sort_by != "name")
+
+
+def project_coverage_score(project: Project) -> float:
+    updated = project.pushed_at or project.updated_at or project.created_at or datetime.min
+    updated_score = updated.timestamp() / 86_400 if updated != datetime.min else 0
+    return (
+        log10((project.stars or 0) + 1) * 20
+        + log10((project.forks or 0) + 1) * 6
+        + log10((project.open_issues or 0) + 1) * 4
+        + updated_score * 0.01
+    )
+
+
+def coverage_rank_projects(projects: List[Project]) -> List[Project]:
+    buckets: Dict[Tuple[str, str, str], List[Project]] = defaultdict(list)
+    for project in projects:
+        key = (
+            detect_domain(project),
+            coverage_star_bucket(project.stars),
+            (project.language or "Unknown").lower(),
+        )
+        buckets[key].append(project)
+
+    for bucket_projects in buckets.values():
+        bucket_projects.sort(key=project_coverage_score, reverse=True)
+
+    ranked: List[Project] = []
+    ordered_keys = sorted(
+        buckets,
+        key=lambda key: (
+            len(buckets[key]),
+            key[0],
+            key[1],
+            key[2],
+        ),
+    )
+
+    while ordered_keys:
+        next_keys = []
+        for key in ordered_keys:
+            bucket_projects = buckets[key]
+            if bucket_projects:
+                ranked.append(bucket_projects.pop(0))
+            if bucket_projects:
+                next_keys.append(key)
+        ordered_keys = next_keys
+
+    return ranked
 
 
 def group_projects(projects: List[Project], group_by: str) -> Dict[str, List[Project]]:
@@ -311,7 +377,7 @@ async def graph_search(req: SearchRequest):
 @app.get("/api/py/graph-full")
 def get_full_graph(
     group_by: str = Query("domain", alias="groupBy", pattern="^(domain|language|topic|org|stars|raw)$"),
-    sort_by: str = Query("stars", alias="sortBy", pattern="^(stars|forks|issues|updated|name)$"),
+    sort_by: str = Query("coverage", alias="sortBy", pattern="^(coverage|stars|forks|issues|updated|name)$"),
     limit: int = Query(250, ge=1, le=5000),
     min_stars: int = Query(0, alias="minStars", ge=0),
     language: Optional[str] = None,
