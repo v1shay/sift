@@ -48,6 +48,7 @@ const repoNames = [
   'nginx/nginx',
   'vitest-dev/vitest',
   'playwright-community/playwright',
+  ...Array.from({ length: 120 }, (_, index) => `codex-marker/repo-${String(index + 1).padStart(3, '0')}`),
 ];
 
 const graphFixture = {
@@ -59,8 +60,8 @@ const graphFixture = {
     name: fullName.split('/')[1],
     description: `${fullName} repository used for camera focus smoke testing.`,
     language: ['TypeScript', 'Go', 'Rust', 'Python', 'JavaScript'][index % 5],
-    stars: 120_000 - index * 1_900,
-    forks: 18_000 - index * 180,
+    stars: Math.max(3, 120_000 - index * 1_900),
+    forks: Math.max(1, 18_000 - index * 180),
     openIssues: 40 + index * 7,
     openPRs: 8 + (index % 9),
     contributorsCount: 220 + index * 5,
@@ -108,6 +109,25 @@ const findClickableBuilding = async (page) => page.evaluate(() => {
     if (!safeViewport) return false;
 
     const hit = document.elementFromPoint(building.x, building.y);
+    return hit?.tagName.toLowerCase() === 'canvas';
+  }) ?? null;
+});
+
+const findClickableMarker = async (page) => page.evaluate(() => {
+  const probe = window.__siftMarkerProbe;
+  if (typeof probe !== 'function') return null;
+
+  return probe().find((marker) => {
+    const safeViewport =
+      marker.visible &&
+      marker.hitRepoId === marker.id &&
+      marker.x > 80 &&
+      marker.y > 70 &&
+      marker.x < window.innerWidth - 80 &&
+      marker.y < window.innerHeight - 120;
+    if (!safeViewport) return false;
+
+    const hit = document.elementFromPoint(marker.x, marker.y);
     return hit?.tagName.toLowerCase() === 'canvas';
   }) ?? null;
 });
@@ -189,10 +209,13 @@ try {
   const networkPanelTitle = (await page.locator('.repo-panel.is-open h2').innerText()).trim();
   const networkFocus = await sampleCamera(page, 'network repo click');
 
-  await page.evaluate(() => {
-    document.querySelector('button[aria-label="Reset camera"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  });
-  await page.waitForTimeout(4_200);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(
+    () => !document.querySelector('.sift-loading-screen') && document.querySelector('.three-stage canvas') && window.__siftMarkerProbe,
+    null,
+    { timeout: 60_000 },
+  );
+  await page.waitForTimeout(1_200);
 
   let clickableBuilding = await findClickableBuilding(page);
   if (!clickableBuilding) {
@@ -209,6 +232,18 @@ try {
   const buildingPanelTitle = (await page.locator('.repo-panel.is-open h2').innerText()).trim();
   if (!buildingPanelTitle) fail('3D building click opened an unnamed repo panel', { clickableBuilding });
   const buildingFocus = await sampleCamera(page, '3D building click');
+
+  await page.evaluate(() => {
+    document.querySelector('button[aria-label="Reset camera"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(4_200);
+
+  const clickableMarker = await findClickableMarker(page);
+  if (!clickableMarker) fail('No clickable lightweight repo marker found for camera smoke test');
+  await page.mouse.click(clickableMarker.x, clickableMarker.y);
+  await waitForOpenPanel(page, 'lightweight marker click', { clickableMarker });
+  const markerPanelTitle = (await page.locator('.repo-panel.is-open h2').innerText()).trim();
+  if (!markerPanelTitle) fail('Lightweight marker click opened an unnamed repo panel', { clickableMarker });
 
   const relevantMessages = consoleMessages.filter((message) => (
     !message.includes('[webpack.cache.PackFileCacheStrategy]') &&
@@ -229,6 +264,8 @@ try {
     buildingPanelTitle,
     buildingMaxHeight: Number(buildingFocus.maxHeight.toFixed(2)),
     buildingMaxMagnitude: Number(buildingFocus.maxMagnitude.toFixed(2)),
+    clickedMarker: clickableMarker.hitRepoName,
+    markerPanelTitle,
   }, null, 2));
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

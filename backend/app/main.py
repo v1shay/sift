@@ -125,6 +125,7 @@ def repo_node(project: Project, muted: bool = False, compact: bool = False) -> D
     topics = [topic.name for topic in project.topics[:8]]
     node = {
         "id": f"repo_{project.id}",
+        "backendId": project.id,
         "name": project.name,
         "fullName": project.full_name,
         "description": project.description or "",

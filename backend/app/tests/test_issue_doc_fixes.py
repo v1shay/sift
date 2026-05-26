@@ -191,6 +191,15 @@ def test_import_repository_persists_and_appears_in_graph(tmp_path, monkeypatch):
     assert graph_repo["language"] == "TypeScript"
     assert "developer-tools" in graph_repo["topics"]
 
+    compact_graph_response = client.get("/api/py/graph-full?limit=20&sortBy=coverage&links=false&compact=true")
+    assert compact_graph_response.status_code == 200
+    compact_graph_repo = next(
+        node for node in compact_graph_response.json()["nodes"]
+        if node.get("fullName") == "codex-smoke/sift-loaded-repo"
+    )
+    assert compact_graph_repo["backendId"] == graph_repo["backendId"]
+    assert compact_graph_repo["fullName"] == "codex-smoke/sift-loaded-repo"
+
     duplicate_response = client.post(
         "/api/py/repos/import",
         json={"owner": "codex-smoke", "repo": "sift-loaded-repo", "wantsContributions": True},

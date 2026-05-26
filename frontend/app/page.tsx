@@ -156,6 +156,7 @@ type ImportRepositoryResponse = {
 
 type RepoBuildingMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 type RepoWindowsMesh = THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+type RepoMarkerMesh = THREE.InstancedMesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>;
 
 type BuildingObject = {
   repo: Repo;
@@ -1917,6 +1918,7 @@ export default function Home() {
     const siftText = createSiftText(scene);
 
     const buildings: BuildingObject[] = [];
+    const sceneRepoById = new Map(sceneReposByDistrict.flatMap(({ repos }) => repos.map((repo) => [repo.id, repo])));
     visualReposByDistrict.forEach(({ repos }) => {
       repos.forEach((repo, index) => {
         const building = createBuilding(repo, index, repos, heightScaleDriver);
@@ -1927,13 +1929,14 @@ export default function Home() {
         scene.add(building.group);
       });
     });
-    const hitTargets = buildings.flatMap((building) => (
+    const hitTargets: THREE.Object3D[] = buildings.flatMap((building) => (
       building.group.children.filter((child) => typeof child.userData.repoId === 'string')
     ));
 
     const roads = createRoads(scene, buildings);
     applyFilter(buildings, roads, filterRef.current);
-    createInstancedRepoField(scene, sceneReposByDistrict, new Set(buildings.map((building) => building.repo.id)));
+    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, new Set(buildings.map((building) => building.repo.id)));
+    if (markerField) hitTargets.push(markerField);
 
     const refs: SceneRefs = {
       renderer,
@@ -1961,6 +1964,21 @@ export default function Home() {
     applyAppearance(refs, appearanceRef.current);
 
     const findBuilding = (repoId: string | undefined) => buildings.find((building) => building.repo.id === repoId) ?? null;
+    const repoFromIntersection = (intersection: THREE.Intersection<THREE.Object3D> | undefined) => {
+      if (!intersection) return null;
+
+      const repoId = intersection.object.userData.repoId;
+      if (typeof repoId === 'string') return findBuilding(repoId)?.repo ?? sceneRepoById.get(repoId) ?? null;
+
+      const repoIds = intersection.object.userData.repoIds;
+      const instanceId = intersection.instanceId;
+      if (Array.isArray(repoIds) && typeof instanceId === 'number') {
+        const markerRepoId = repoIds[instanceId];
+        return typeof markerRepoId === 'string' ? sceneRepoById.get(markerRepoId) ?? null : null;
+      }
+
+      return null;
+    };
     const siftWindow = window as typeof window & {
       __siftCameraProbe?: () => {
         selectedRepo: string | null;
@@ -1971,6 +1989,7 @@ export default function Home() {
         zoom: number;
       };
       __siftSceneProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
+      __siftMarkerProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
     };
 
     if (process.env.NODE_ENV !== 'production') {
@@ -2009,7 +2028,8 @@ export default function Home() {
             -(((y - rect.top) / rect.height) * 2 - 1),
           );
           probeRaycaster.setFromCamera(pointer, camera);
-          const hitRepoId = probeRaycaster.intersectObjects(hitTargets, false)[0]?.object.userData.repoId ?? '';
+          const hit = probeRaycaster.intersectObjects(hitTargets, false)[0];
+          const hitRepoId = typeof hit?.object.userData.repoId === 'string' ? hit.object.userData.repoId : '';
           const hitRepo = findBuilding(hitRepoId)?.repo ?? null;
 
           return {
@@ -2023,6 +2043,40 @@ export default function Home() {
           };
         });
       });
+
+      siftWindow.__siftMarkerProbe = () => {
+        if (!markerField) return [];
+        const rect = renderer.domElement.getBoundingClientRect();
+        const probeRaycaster = new THREE.Raycaster();
+        const repoIds = markerField.userData.repoIds;
+        if (!Array.isArray(repoIds)) return [];
+
+        const sampleMatrix = new THREE.Matrix4();
+        const samplePoint = new THREE.Vector3();
+        return repoIds.slice(0, 1500).map((repoId, instanceId) => {
+          markerField.getMatrixAt(instanceId, sampleMatrix);
+          samplePoint.setFromMatrixPosition(sampleMatrix);
+          const vector = samplePoint.clone().project(camera);
+          const x = Math.round(rect.left + (vector.x * 0.5 + 0.5) * rect.width);
+          const y = Math.round(rect.top + (-vector.y * 0.5 + 0.5) * rect.height);
+          const pointer = new THREE.Vector2(
+            ((x - rect.left) / rect.width) * 2 - 1,
+            -(((y - rect.top) / rect.height) * 2 - 1),
+          );
+          probeRaycaster.setFromCamera(pointer, camera);
+          const hitRepo = repoFromIntersection(probeRaycaster.intersectObjects(hitTargets, false)[0]);
+
+          return {
+            id: typeof repoId === 'string' ? repoId : '',
+            name: typeof repoId === 'string' ? sceneRepoById.get(repoId)?.name ?? '' : '',
+            x,
+            y,
+            visible: vector.z > -1 && vector.z < 1 && x > rect.left && y > rect.top && x < rect.right && y < rect.bottom,
+            hitRepoId: hitRepo?.id ?? '',
+            hitRepoName: hitRepo?.name ?? '',
+          };
+        });
+      };
     }
 
     const skipCinematicSweep = () => {
@@ -2191,13 +2245,14 @@ export default function Home() {
       refs.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       refs.raycaster.setFromCamera(refs.pointer, camera);
       const intersection = refs.raycaster.intersectObjects(hitTargets, false)[0];
-      return findBuilding(intersection?.object.userData.repoId)?.repo ?? null;
+      return repoFromIntersection(intersection);
     };
 
     const focusSceneRepo = (repo: Repo) => {
       skipCinematicSweep();
       resetFocusTransition(refs);
-      targetDistrictCenterRef.current = null;
+      const selectedBuilding = findBuilding(repo.id);
+      targetDistrictCenterRef.current = selectedBuilding ? null : { x: districtFor(repo).x, z: districtFor(repo).z };
       setEntered(true);
       setSelectedRepo(repo);
       setFilter(repo.district);
@@ -2428,7 +2483,7 @@ export default function Home() {
       if (!isDragging && enteredRef.current && hoverFrame % 2 === 0) {
         refs.raycaster.setFromCamera(refs.pointer, camera);
         const intersection = refs.raycaster.intersectObjects(hitTargets, false)[0];
-        const nextHovered = findBuilding(intersection?.object.userData.repoId)?.repo ?? null;
+        const nextHovered = repoFromIntersection(intersection);
         if (hoverRef.current?.id !== nextHovered?.id) {
           hoverRef.current = nextHovered;
           setHoveredRepo(nextHovered);
@@ -2541,6 +2596,7 @@ export default function Home() {
       if (process.env.NODE_ENV !== 'production') {
         delete siftWindow.__siftCameraProbe;
         delete siftWindow.__siftSceneProbe;
+        delete siftWindow.__siftMarkerProbe;
       }
       sceneRef.current = null;
     };
@@ -5842,7 +5898,7 @@ function createInstancedRepoField(
   scene: THREE.Scene,
   reposByDistrict: Array<{ district: District; repos: Repo[] }>,
   detailedRepoIds: Set<string>,
-) {
+): RepoMarkerMesh | null {
   const markerEntries: Array<{ repo: Repo; district: District; repos: Repo[]; index: number }> = [];
   reposByDistrict.forEach(({ district, repos }) => {
     for (let index = 0; index < repos.length && markerEntries.length < MAX_INSTANCED_REPO_MARKERS; index += 1) {
@@ -5863,6 +5919,7 @@ function createInstancedRepoField(
   const markers = new THREE.InstancedMesh(geometry, material, markerEntries.length);
   markers.instanceMatrix.setUsage(THREE.StaticDrawUsage);
   markers.userData.role = 'repo-marker-field';
+  markers.userData.repoIds = markerEntries.map(({ repo }) => repo.id);
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
