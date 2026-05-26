@@ -113,14 +113,12 @@ LANGUAGE_SHARDS = [
 
 
 def build_backfill_queries() -> list[str]:
-    queries = [f"{shard} {BASE_QUALIFIERS}" for shard in STAR_SHARDS]
+    queries = []
 
     for topic in TOPIC_SHARDS:
-        queries.append(f"topic:{topic} {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
         queries.append(f"topic:{topic} stars:0..100 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
 
     for language in LANGUAGE_SHARDS:
-        queries.append(f"language:{language} stars:50..2000 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
         queries.append(f"language:{language} stars:0..50 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
 
     queries.extend([
@@ -129,6 +127,15 @@ def build_backfill_queries() -> list[str]:
         f"created:>2025-01-01 stars:0..200 {BASE_QUALIFIERS} sort:updated-desc",
         f"created:>2026-01-01 stars:0..200 {BASE_QUALIFIERS} sort:updated-desc",
     ])
+
+    queries.extend(f"{shard} {BASE_QUALIFIERS}" for shard in STAR_SHARDS)
+
+    for topic in TOPIC_SHARDS:
+        queries.append(f"topic:{topic} {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
+
+    for language in LANGUAGE_SHARDS:
+        queries.append(f"language:{language} stars:50..2000 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
+
     return queries
 
 
