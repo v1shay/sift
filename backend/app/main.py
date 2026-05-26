@@ -115,7 +115,7 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "stars": project.stars or 0,
         "forks": project.forks or 0,
         "openIssues": project.open_issues or 0,
-        "openPRs": 0,
+        "openPRs": project.open_issues or 0,
         "contributorsCount": len(project.contributors or []),
         "owner": owner_login(project),
         "topics": topics,
