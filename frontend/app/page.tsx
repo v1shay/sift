@@ -817,8 +817,8 @@ const CAMERA_DRAG_YAW_SPEED = 0.0042;
 const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
 const CAMERA_KEY_PAN_SPEED = 18;
 const CAMERA_MAX_YAW = Math.PI * 0.62;
-const VISUAL_REPOS_PER_DISTRICT_MIN = 18;
-const VISUAL_REPOS_PER_DISTRICT_MAX = 44;
+const VISUAL_REPOS_PER_DISTRICT_MIN = 42;
+const VISUAL_REPOS_PER_DISTRICT_MAX = 118;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -1476,9 +1476,9 @@ function atlasStructureCount(repoCount: number) {
 
 function visualRepoLimitForDistrict(district: District, repoCount: number, totalRepos: number) {
   const edgeDistance = Math.sqrt(district.x * district.x + district.z * district.z);
-  const edgeBonus = edgeDistance > 900 ? 9 : edgeDistance > 650 ? 6 : 2;
-  const densityBonus = Math.log2(repoCount + 1) * 2.4;
-  const universeBonus = Math.log10(totalRepos + 1) * 2.1;
+  const edgeBonus = edgeDistance > 900 ? 20 : edgeDistance > 650 ? 14 : 6;
+  const densityBonus = Math.log2(repoCount + 1) * 4.4;
+  const universeBonus = Math.log10(totalRepos + 1) * 4.8;
   return Math.round(clamp(
     VISUAL_REPOS_PER_DISTRICT_MIN + edgeBonus + densityBonus + universeBonus,
     VISUAL_REPOS_PER_DISTRICT_MIN,
@@ -1557,7 +1557,7 @@ export default function Home() {
           setLoadingStageIndex(0);
           setLoadingProgress(8);
           setLoadingDetail(`Attempt ${attempt}: opening graph endpoint`);
-          const response = await fetch(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage`, { cache: 'no-store' });
+          const response = await fetch(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage&links=false&compact=true`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`Graph request failed with ${response.status}`);
 
           setLoadingStageIndex(2);
@@ -1795,6 +1795,10 @@ export default function Home() {
   }, [hoveredRepo]);
 
   useEffect(() => {
+    if (allRepos.length > 5000) {
+      setSafetyProfiles({});
+      return undefined;
+    }
     if (allRepos.length === 0) return;
     let cancelled = false;
     const chunks = Array.from({ length: Math.max(1, Math.ceil(allRepos.length / SAFETY_SCORE_BATCH_SIZE)) }, (_, index) => {
@@ -5815,7 +5819,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   const baseColor = new THREE.Color(district.color);
   const bodyColor = baseColor.clone().lerp(new THREE.Color('#020617'), 0.25);
   const accentColor = new THREE.Color(district.accent);
-  const isHighDetail = Boolean(repo.loadedAt) || index < 8 || repo.stars >= 50000;
+  const isHighDetail = Boolean(repo.loadedAt) || index < 4 || repo.stars >= 100000;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,

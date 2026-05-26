@@ -99,10 +99,31 @@ def owner_login(project: Project) -> str:
     return project.full_name.split("/", 1)[0] if "/" in project.full_name else "Unknown"
 
 
-def repo_node(project: Project, muted: bool = False) -> Dict:
-    safety_profile = score_project_safety(project)
+def estimated_contributors_count(project: Project) -> int:
+    return max(1, round(sqrt(max(project.stars or 0, 1)) * 2))
+
+
+def compact_safety_score(project: Project) -> int:
+    score = 62
+    if project.license_spdx:
+        score += 6
+    if project.description and len(project.description) > 24:
+        score += 6
+    if project.pushed_at or project.updated_at:
+        score += 6
+    if project.open_issues and project.open_issues > 0:
+        score += 4
+    if any(topic.name in {"good-first-issue", "good-first-issues", "help-wanted", "documentation"} for topic in project.topics):
+        score += 8
+    if project.stars and project.stars >= 25:
+        score += 4
+    return min(96, score)
+
+
+def repo_node(project: Project, muted: bool = False, compact: bool = False) -> Dict:
+    safety_profile = None if compact else score_project_safety(project)
     topics = [topic.name for topic in project.topics[:8]]
-    return {
+    node = {
         "id": f"repo_{project.id}",
         "name": project.name,
         "fullName": project.full_name,
@@ -116,7 +137,7 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "forks": project.forks or 0,
         "openIssues": project.open_issues or 0,
         "openPRs": project.open_issues or 0,
-        "contributorsCount": len(project.contributors or []),
+        "contributorsCount": estimated_contributors_count(project),
         "owner": owner_login(project),
         "topics": topics,
         "license": project.license_spdx,
@@ -125,12 +146,19 @@ def repo_node(project: Project, muted: bool = False) -> Dict:
         "updatedAt": project.updated_at.isoformat() if project.updated_at else None,
         "pushedAt": project.pushed_at.isoformat() if project.pushed_at else None,
         "url": project.url,
+    }
+    if compact:
+        node["safetyScore"] = compact_safety_score(project)
+        return node
+
+    node.update({
         "safetyScore": safety_profile["score"],
         "safetyStatus": safety_profile["status"],
         "safetyReasons": safety_profile["reasons"],
         "safetyBreakdown": safety_profile["breakdown"],
         "safetyUnknowns": safety_profile["unknowns"],
-    }
+    })
+    return node
 
 
 def resolve_backend_public_url(request: Request) -> str:
@@ -383,6 +411,8 @@ def get_full_graph(
     language: Optional[str] = None,
     topic: Optional[str] = None,
     org: Optional[str] = None,
+    include_links: bool = Query(True, alias="links"),
+    compact: bool = Query(False),
 ):
     """Returns a grouped repository graph formatted for react-force-graph-2d."""
     db = SessionLocal()
@@ -393,19 +423,37 @@ def get_full_graph(
         projects = db.query(Project).options(
             joinedload(Project.topics),
             joinedload(Project.owner),
-            joinedload(Project.contributors),
         ).all()
         projects = apply_project_filters(projects, language, topic, org, min_stars)
         projects = sort_projects(projects, sort_by)[:limit]
 
+        if not include_links:
+            return {
+                "nodes": [repo_node(project, compact=compact) for project in projects],
+                "links": [],
+                "meta": {
+                    "groupBy": group_by,
+                    "sortBy": sort_by,
+                    "projectCount": len(projects),
+                    "clusterCount": 0,
+                }
+            }
+
+        node_ids = set()
+        def append_node_once(node: Dict):
+            node_id = node["id"]
+            if node_id in node_ids:
+                return
+            node_ids.add(node_id)
+            nodes.append(node)
+
         if group_by == "raw":
             for project in projects:
-                nodes.append(repo_node(project))
+                append_node_once(repo_node(project))
 
                 for project_topic in project.topics:
                     topic_id = f"topic_{project_topic.id}"
-                    if not any(node["id"] == topic_id for node in nodes):
-                        nodes.append({
+                    append_node_once({
                             "id": topic_id,
                             "name": project_topic.name,
                             "group": "topic",
@@ -417,8 +465,7 @@ def get_full_graph(
 
                 for contribution in project.contributors[:5]:
                     user_id = f"user_{contribution.user_id}"
-                    if not any(node["id"] == user_id for node in nodes):
-                        nodes.append({
+                    append_node_once({
                             "id": user_id,
                             "name": contribution.user.login,
                             "group": "user",
@@ -436,10 +483,10 @@ def get_full_graph(
                 reverse=True,
             ):
                 cluster_id = f"{group_by}_{key.lower().replace(' ', '_').replace('/', '_')}"
-                nodes.append(cluster_node(cluster_id, key, group_by, grouped_projects, cluster_color))
+                append_node_once(cluster_node(cluster_id, key, group_by, grouped_projects, cluster_color))
 
                 for project in grouped_projects:
-                    nodes.append(repo_node(project))
+                    append_node_once(repo_node(project))
                     links.append({
                         "source": cluster_id,
                         "target": f"repo_{project.id}",
@@ -449,8 +496,7 @@ def get_full_graph(
                     if group_by != "topic":
                         for project_topic in project.topics[:3]:
                             topic_id = f"topic_{project_topic.id}"
-                            if not any(node["id"] == topic_id for node in nodes):
-                                nodes.append({
+                            append_node_once({
                                     "id": topic_id,
                                     "name": project_topic.name,
                                     "group": "topic",
