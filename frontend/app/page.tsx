@@ -817,8 +817,10 @@ const CAMERA_DRAG_YAW_SPEED = 0.0042;
 const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
 const CAMERA_KEY_PAN_SPEED = 18;
 const CAMERA_MAX_YAW = Math.PI * 0.62;
-const VISUAL_REPOS_PER_DISTRICT_MIN = 42;
-const VISUAL_REPOS_PER_DISTRICT_MAX = 118;
+const VISUAL_REPOS_PER_DISTRICT_MIN = 10;
+const VISUAL_REPOS_PER_DISTRICT_MAX = 28;
+const MAX_INSTANCED_REPO_MARKERS = 12000;
+const REPO_MARKER_WORLD_EDGE = 1720;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -1476,9 +1478,9 @@ function atlasStructureCount(repoCount: number) {
 
 function visualRepoLimitForDistrict(district: District, repoCount: number, totalRepos: number) {
   const edgeDistance = Math.sqrt(district.x * district.x + district.z * district.z);
-  const edgeBonus = edgeDistance > 900 ? 20 : edgeDistance > 650 ? 14 : 6;
-  const densityBonus = Math.log2(repoCount + 1) * 4.4;
-  const universeBonus = Math.log10(totalRepos + 1) * 4.8;
+  const edgeBonus = edgeDistance > 900 ? 6 : edgeDistance > 650 ? 4 : 1;
+  const densityBonus = Math.log2(repoCount + 1) * 1.5;
+  const universeBonus = Math.log10(totalRepos + 1) * 1.4;
   return Math.round(clamp(
     VISUAL_REPOS_PER_DISTRICT_MIN + edgeBonus + densityBonus + universeBonus,
     VISUAL_REPOS_PER_DISTRICT_MIN,
@@ -1931,6 +1933,7 @@ export default function Home() {
 
     const roads = createRoads(scene, buildings);
     applyFilter(buildings, roads, filterRef.current);
+    createInstancedRepoField(scene, sceneReposByDistrict, new Set(buildings.map((building) => building.repo.id)));
 
     const refs: SceneRefs = {
       renderer,
@@ -2118,6 +2121,7 @@ export default function Home() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       if (isTypingTarget() || isTypingTarget(e.target)) {
+        skipCinematicSweep();
         if (movementKeys.includes(key)) clearMovementKeys();
         return;
       }
@@ -2144,8 +2148,10 @@ export default function Home() {
     const handleKeyUp = (e: KeyboardEvent) => {
       keysPressed[e.key.toLowerCase()] = false;
     };
-    const handleFocusIn = () => {
-      if (isTypingTarget()) clearMovementKeys();
+    const handleFocusIn = (event: FocusEvent) => {
+      if (!isTypingTarget() && !isTypingTarget(event.target)) return;
+      skipCinematicSweep();
+      clearMovementKeys();
     };
     const handleWindowBlur = () => {
       clearMovementKeys();
@@ -2538,7 +2544,7 @@ export default function Home() {
       }
       sceneRef.current = null;
     };
-  }, [heightScaleDriver, rendererRetryToken, sceneReady, visualReposByDistrict]);
+  }, [heightScaleDriver, rendererRetryToken, sceneReady, sceneReposByDistrict, visualReposByDistrict]);
 
   useEffect(() => {
     if (!entered) return undefined;
@@ -5805,6 +5811,79 @@ export default function Home() {
       `}</style>
     </main>
   );
+}
+
+
+function instancedRepoPosition(repo: Repo, index: number, district: District, districtRepos: Repo[]) {
+  const seed = repo.id.split('').reduce((total, char) => total + char.charCodeAt(0), 0) + index * 31.7;
+  const angle = index * 2.399963 + seededUnit(seed) * 1.2;
+  const districtLoad = Math.max(1, districtRepos.length);
+  const normalizedRank = Math.sqrt((index + 1) / districtLoad);
+  const spread = clamp(260 + Math.sqrt(districtLoad) * 24, 360, 980);
+  const edgeVector = new THREE.Vector2(district.x, district.z);
+  const edgeLength = Math.max(1, edgeVector.length());
+  edgeVector.multiplyScalar(1 / edgeLength);
+  const edgePush = clamp(edgeLength / 980, 0.25, 1) * (180 + normalizedRank * 340 + seededUnit(seed + 9) * 240);
+  const ringWarp = 0.64 + seededUnit(seed + 4) * 0.74;
+  const x = clamp(
+    district.x + Math.cos(angle) * spread * normalizedRank * 1.46 * ringWarp + edgeVector.x * edgePush,
+    -REPO_MARKER_WORLD_EDGE,
+    REPO_MARKER_WORLD_EDGE,
+  );
+  const z = clamp(
+    district.z + Math.sin(angle) * spread * normalizedRank * 1.34 * (1.08 - ringWarp * 0.18) + edgeVector.y * edgePush,
+    -REPO_MARKER_WORLD_EDGE,
+    REPO_MARKER_WORLD_EDGE,
+  );
+  return { x, z, seed };
+}
+
+function createInstancedRepoField(
+  scene: THREE.Scene,
+  reposByDistrict: Array<{ district: District; repos: Repo[] }>,
+  detailedRepoIds: Set<string>,
+) {
+  const markerEntries: Array<{ repo: Repo; district: District; repos: Repo[]; index: number }> = [];
+  reposByDistrict.forEach(({ district, repos }) => {
+    for (let index = 0; index < repos.length && markerEntries.length < MAX_INSTANCED_REPO_MARKERS; index += 1) {
+      const repo = repos[index];
+      if (!detailedRepoIds.has(repo.id)) markerEntries.push({ repo, district, repos, index });
+    }
+  });
+  if (!markerEntries.length) return null;
+
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.86,
+    depthWrite: false,
+    fog: false,
+  });
+  const markers = new THREE.InstancedMesh(geometry, material, markerEntries.length);
+  markers.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  markers.userData.role = 'repo-marker-field';
+
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  markerEntries.forEach(({ repo, district, repos, index }, markerIndex) => {
+    const { x, z, seed } = instancedRepoPosition(repo, index, district, repos);
+    const height = clamp(3.8 + Math.log10(repo.stars + getOpenWorkItems(repo) + 2) * 7.4, 4.8, 30);
+    const footprint = clamp(1.1 + Math.log10(repo.forks + 2) * 0.52 + seededUnit(seed + 3) * 0.55, 1.1, 3.4);
+    dummy.position.set(x, getTerrainSurfaceY(x, z) + Z.buildings + height / 2, z);
+    dummy.rotation.y = seededUnit(seed + 6) * Math.PI;
+    dummy.scale.set(footprint, height, footprint);
+    dummy.updateMatrix();
+    markers.setMatrixAt(markerIndex, dummy.matrix);
+
+    color.set(district.color).lerp(new THREE.Color('#f0fffb'), 0.18 + seededUnit(seed + 7) * 0.28);
+    markers.setColorAt(markerIndex, color);
+  });
+
+  markers.instanceMatrix.needsUpdate = true;
+  if (markers.instanceColor) markers.instanceColor.needsUpdate = true;
+  scene.add(markers);
+  return markers;
 }
 
 

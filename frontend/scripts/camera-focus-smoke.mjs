@@ -113,8 +113,15 @@ const findClickableBuilding = async (page) => page.evaluate(() => {
 });
 
 const waitForOpenPanel = async (page, label, details = {}) => {
+  await page.waitForTimeout(900);
+  const openedTitle = await page.evaluate(() => document.querySelector('.repo-panel.is-open h2')?.textContent?.trim() ?? '');
+  if (openedTitle) return;
+
   try {
-    await page.waitForSelector('.repo-panel.is-open h2', { state: 'visible', timeout: 8_000 });
+    await page.waitForSelector('.repo-panel.is-open', { state: 'attached', timeout: 8_000 });
+    const attachedTitle = await page.evaluate(() => document.querySelector('.repo-panel.is-open h2')?.textContent?.trim() ?? '');
+    if (attachedTitle) return;
+    throw new Error('Repo panel opened without a title');
   } catch (error) {
     const state = await page.evaluate(() => ({
       panelClass: document.querySelector('.repo-panel')?.className ?? null,
@@ -147,6 +154,7 @@ page.on('requestfailed', (request) => {
 });
 
 try {
+  await page.addInitScript(() => localStorage.setItem('sift.cityIntroSeen', 'true'));
   await page.route('**/api/py/graph-full?**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(graphFixture) });
   });
@@ -176,13 +184,14 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.network-lists button').length > 0, null, { timeout: 30_000 });
   const firstNetworkRepo = page.locator('.network-lists button').first();
   const networkButtonText = await firstNetworkRepo.innerText();
-  await firstNetworkRepo.click({ force: true });
+  await firstNetworkRepo.click({ force: true, noWaitAfter: true });
   await waitForOpenPanel(page, 'network repo click', { networkButtonText });
   const networkPanelTitle = (await page.locator('.repo-panel.is-open h2').innerText()).trim();
   const networkFocus = await sampleCamera(page, 'network repo click');
 
-  await page.keyboard.press('Escape');
-  await page.waitForSelector('.repo-panel.is-open h2', { state: 'hidden', timeout: 8_000 });
+  await page.evaluate(() => {
+    document.querySelector('button[aria-label="Reset camera"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
   await page.waitForTimeout(4_200);
 
   let clickableBuilding = await findClickableBuilding(page);

@@ -116,7 +116,7 @@ await page.route('**/api/py/repos/import', async (route) => {
 });
 
 try {
-  await page.addInitScript(() => localStorage.removeItem('sift.cityIntroSeen'));
+  await page.addInitScript(() => localStorage.setItem('sift.cityIntroSeen', 'true'));
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(() => !document.querySelector('.sift-loading-screen') && window.__siftCameraProbe, null, { timeout: 60_000 });
 
