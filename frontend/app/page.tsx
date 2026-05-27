@@ -481,6 +481,19 @@ function wait(ms: number) {
   });
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = GRAPH_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function isTypingTarget(target: EventTarget | null = document.activeElement) {
   if (!(target instanceof HTMLElement)) return false;
   const tagName = target.tagName.toLowerCase();
@@ -822,6 +835,11 @@ const VISUAL_REPOS_PER_DISTRICT_MIN = 10;
 const VISUAL_REPOS_PER_DISTRICT_MAX = 28;
 const MAX_INSTANCED_REPO_MARKERS = 12000;
 const REPO_MARKER_WORLD_EDGE = 1720;
+const DETAIL_VIEW_ZOOM_THRESHOLD = 0.86;
+const DETAIL_VIEW_SCREEN_PADDING = 96;
+const MAX_DYNAMIC_DETAIL_REPOS = 180;
+const MAX_DETAIL_PROMOTIONS_PER_TICK = 18;
+const GRAPH_FETCH_TIMEOUT_MS = 3500;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -1554,13 +1572,14 @@ export default function Home() {
     const loadGraph = async () => {
       let lastError: unknown = null;
       setLoadingRepos(true);
+      const maxAttempts = process.env.NODE_ENV === 'production' ? 2 : GRAPH_FETCH_ATTEMPTS;
 
-      for (let attempt = 1; attempt <= GRAPH_FETCH_ATTEMPTS; attempt += 1) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
           setLoadingStageIndex(0);
           setLoadingProgress(8);
           setLoadingDetail(`Attempt ${attempt}: opening graph endpoint`);
-          const response = await fetch(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage&links=false&compact=true`, { cache: 'no-store' });
+          const response = await fetchWithTimeout(`/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage&links=false&compact=true`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`Graph request failed with ${response.status}`);
 
           setLoadingStageIndex(2);
@@ -1588,7 +1607,7 @@ export default function Home() {
           return;
         } catch (error) {
           lastError = error;
-          if (attempt < GRAPH_FETCH_ATTEMPTS) {
+          if (attempt < maxAttempts) {
             setLoadingStageIndex(1);
             setLoadingProgress(18);
             setLoadingDetail(`Retrying graph endpoint in ${(GRAPH_FETCH_RETRY_DELAY_MS * attempt / 1000).toFixed(1)}s`);
@@ -1918,7 +1937,12 @@ export default function Home() {
     const siftText = createSiftText(scene);
 
     const buildings: BuildingObject[] = [];
+    const renderedBuildingByRepoId = new Map<string, BuildingObject>();
+    const dynamicBuildingByRepoId = new Map<string, BuildingObject>();
+    const dynamicHitTargetsByRepoId = new Map<string, THREE.Object3D[]>();
+    const hiddenMarkerInstanceIds = new Set<number>();
     const sceneRepoById = new Map(sceneReposByDistrict.flatMap(({ repos }) => repos.map((repo) => [repo.id, repo])));
+    const defaultDetailedRepoIds = new Set<string>();
     visualReposByDistrict.forEach(({ repos }) => {
       repos.forEach((repo, index) => {
         const building = createBuilding(repo, index, repos, heightScaleDriver);
@@ -1926,6 +1950,8 @@ export default function Home() {
         building.group.position.y = surfaceY;
         building.position.y = surfaceY;
         buildings.push(building);
+        renderedBuildingByRepoId.set(repo.id, building);
+        defaultDetailedRepoIds.add(repo.id);
         scene.add(building.group);
       });
     });
@@ -1935,8 +1961,21 @@ export default function Home() {
 
     const roads = createRoads(scene, buildings);
     applyFilter(buildings, roads, filterRef.current);
-    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, new Set(buildings.map((building) => building.repo.id)));
+    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, new Set());
     if (markerField) hitTargets.push(markerField);
+    const markerRepoIds = markerField?.userData.repoIds as string[] | undefined;
+    const markerEntries = markerField?.userData.markerEntries as Array<{ repo: Repo; district: District; repos: Repo[]; index: number }> | undefined;
+    const markerMatrices = markerField?.userData.markerMatrices as THREE.Matrix4[] | undefined;
+    const markerPositions = markerField?.userData.markerPositions as THREE.Vector3[] | undefined;
+    const markerInstanceByRepoId = new Map<string, number>();
+    markerRepoIds?.forEach((repoId, instanceId) => {
+      markerInstanceByRepoId.set(repoId, instanceId);
+    });
+    const hiddenMarkerMatrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(0, -100000, 0),
+      new THREE.Quaternion(),
+      new THREE.Vector3(0, 0, 0),
+    );
 
     const refs: SceneRefs = {
       renderer,
@@ -1963,7 +2002,175 @@ export default function Home() {
     sceneRef.current = refs;
     applyAppearance(refs, appearanceRef.current);
 
-    const findBuilding = (repoId: string | undefined) => buildings.find((building) => building.repo.id === repoId) ?? null;
+    const findBuilding = (repoId: string | undefined) => (repoId ? renderedBuildingByRepoId.get(repoId) ?? null : null);
+    const setMarkerInstanceHidden = (repoId: string, hidden: boolean) => {
+      if (!markerField || !markerMatrices) return;
+      const instanceId = markerInstanceByRepoId.get(repoId);
+      if (typeof instanceId !== 'number') return;
+
+      if (hidden) {
+        if (hiddenMarkerInstanceIds.has(instanceId)) return;
+        markerField.setMatrixAt(instanceId, hiddenMarkerMatrix);
+        hiddenMarkerInstanceIds.add(instanceId);
+      } else {
+        const matrix = markerMatrices[instanceId];
+        if (!matrix || !hiddenMarkerInstanceIds.has(instanceId)) return;
+        markerField.setMatrixAt(instanceId, matrix);
+        hiddenMarkerInstanceIds.delete(instanceId);
+      }
+      markerField.instanceMatrix.needsUpdate = true;
+    };
+    const addBuildingHitTargets = (building: BuildingObject) => {
+      const targets = building.group.children.filter((child) => typeof child.userData.repoId === 'string');
+      dynamicHitTargetsByRepoId.set(building.repo.id, targets);
+      hitTargets.push(...targets);
+    };
+    const repoScreenPosition = (repo: Repo) => {
+      const building = findBuilding(repo.id);
+      if (building?.group.visible) return getRepoScreenPosition(building, camera, renderer);
+
+      const markerInstanceId = markerInstanceByRepoId.get(repo.id);
+      const markerPosition = typeof markerInstanceId === 'number' ? markerPositions?.[markerInstanceId] : undefined;
+      if (markerPosition) {
+        const vector = markerPosition.clone().project(camera);
+        const rect = renderer.domElement.getBoundingClientRect();
+        return {
+          x: (vector.x * 0.5 + 0.5) * rect.width,
+          y: (-vector.y * 0.5 + 0.5) * rect.height,
+        };
+      }
+
+      return null;
+    };
+    const removeBuildingHitTargets = (repoId: string) => {
+      const targets = dynamicHitTargetsByRepoId.get(repoId);
+      if (!targets) return;
+      for (const target of targets) {
+        const index = hitTargets.indexOf(target);
+        if (index >= 0) hitTargets.splice(index, 1);
+      }
+      dynamicHitTargetsByRepoId.delete(repoId);
+    };
+    const promoteMarkerRepo = (entry: { repo: Repo; repos: Repo[]; index: number }, markerPosition: THREE.Vector3) => {
+      const existing = dynamicBuildingByRepoId.get(entry.repo.id);
+      if (existing) {
+        if (!renderedBuildingByRepoId.has(entry.repo.id)) {
+          renderedBuildingByRepoId.set(entry.repo.id, existing);
+          buildings.push(existing);
+          scene.add(existing.group);
+          addBuildingHitTargets(existing);
+        }
+        setMarkerInstanceHidden(entry.repo.id, true);
+        return existing;
+      }
+
+      const building = createBuilding(entry.repo, entry.index, entry.repos, heightScaleDriver);
+      const surfaceY = getTerrainSurfaceY(markerPosition.x, markerPosition.z);
+      building.group.position.set(markerPosition.x, surfaceY, markerPosition.z);
+      building.position.set(markerPosition.x, surfaceY, markerPosition.z);
+      dynamicBuildingByRepoId.set(entry.repo.id, building);
+      renderedBuildingByRepoId.set(entry.repo.id, building);
+      buildings.push(building);
+      scene.add(building.group);
+      addBuildingHitTargets(building);
+      setMarkerInstanceHidden(entry.repo.id, true);
+      return building;
+    };
+    const demoteDynamicRepo = (repoId: string) => {
+      const building = dynamicBuildingByRepoId.get(repoId);
+      if (!building || selectedRef.current?.id === repoId) return;
+
+      scene.remove(building.group);
+      renderedBuildingByRepoId.delete(repoId);
+      const buildingIndex = buildings.indexOf(building);
+      if (buildingIndex >= 0) buildings.splice(buildingIndex, 1);
+      removeBuildingHitTargets(repoId);
+      setMarkerInstanceHidden(repoId, false);
+      if (hoverRef.current?.id === repoId) {
+        hoverRef.current = null;
+        setHoveredRepo(null);
+      }
+    };
+    const updateViewportDetail = () => {
+      if (!markerField || !markerEntries || !markerPositions) return;
+      const selectedId = selectedRef.current?.id;
+      const useViewportDetail = refs.targetZoom <= DETAIL_VIEW_ZOOM_THRESHOLD || Boolean(targetDistrictCenterRef.current);
+
+      if (!useViewportDetail) {
+        for (const repoId of Array.from(dynamicBuildingByRepoId.keys())) {
+          if (repoId !== selectedId) demoteDynamicRepo(repoId);
+        }
+        defaultDetailedRepoIds.forEach((repoId) => {
+          const building = renderedBuildingByRepoId.get(repoId);
+          if (building) {
+            building.group.visible = true;
+            setMarkerInstanceHidden(repoId, true);
+          }
+        });
+        return;
+      }
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const candidates: Array<{ instanceId: number; distance: number }> = [];
+      const projected = new THREE.Vector3();
+      const markerStride = markerPositions.length > 4500 ? 3 : markerPositions.length > 2200 ? 2 : 1;
+      markerPositions.forEach((position, instanceId) => {
+        if (instanceId % markerStride !== 0) return;
+        projected.copy(position).project(camera);
+        if (projected.z < -1 || projected.z > 1) return;
+        const x = rect.left + (projected.x * 0.5 + 0.5) * rect.width;
+        const y = rect.top + (-projected.y * 0.5 + 0.5) * rect.height;
+        if (
+          x < rect.left - DETAIL_VIEW_SCREEN_PADDING ||
+          x > rect.right + DETAIL_VIEW_SCREEN_PADDING ||
+          y < rect.top - DETAIL_VIEW_SCREEN_PADDING ||
+          y > rect.bottom + DETAIL_VIEW_SCREEN_PADDING
+        ) {
+          return;
+        }
+        candidates.push({
+          instanceId,
+          distance: Math.hypot(x - centerX, y - centerY),
+        });
+      });
+
+      candidates.sort((a, b) => a.distance - b.distance);
+      const nextDetailedIds = new Set<string>();
+      let promotions = 0;
+      for (const candidate of candidates.slice(0, MAX_DYNAMIC_DETAIL_REPOS)) {
+        const entry = markerEntries[candidate.instanceId];
+        const position = markerPositions[candidate.instanceId];
+        if (!entry || !position) continue;
+        nextDetailedIds.add(entry.repo.id);
+        if (renderedBuildingByRepoId.has(entry.repo.id)) continue;
+        if (promotions >= MAX_DETAIL_PROMOTIONS_PER_TICK) continue;
+        promoteMarkerRepo(entry, position);
+        promotions += 1;
+      }
+      if (selectedId && markerInstanceByRepoId.has(selectedId)) nextDetailedIds.add(selectedId);
+
+      for (const repoId of Array.from(dynamicBuildingByRepoId.keys())) {
+        if (!nextDetailedIds.has(repoId)) demoteDynamicRepo(repoId);
+      }
+
+      defaultDetailedRepoIds.forEach((repoId) => {
+        const building = renderedBuildingByRepoId.get(repoId);
+        if (!building) return;
+        const samplePoint = new THREE.Vector3(building.position.x, building.position.y + building.height * 0.5, building.position.z).project(camera);
+        const visible =
+          samplePoint.z >= -1 &&
+          samplePoint.z <= 1 &&
+          rect.left + (samplePoint.x * 0.5 + 0.5) * rect.width >= rect.left - DETAIL_VIEW_SCREEN_PADDING &&
+          rect.left + (samplePoint.x * 0.5 + 0.5) * rect.width <= rect.right + DETAIL_VIEW_SCREEN_PADDING &&
+          rect.top + (-samplePoint.y * 0.5 + 0.5) * rect.height >= rect.top - DETAIL_VIEW_SCREEN_PADDING &&
+          rect.top + (-samplePoint.y * 0.5 + 0.5) * rect.height <= rect.bottom + DETAIL_VIEW_SCREEN_PADDING;
+        building.group.visible = visible || repoId === selectedId;
+        setMarkerInstanceHidden(repoId, building.group.visible);
+      });
+    };
+    defaultDetailedRepoIds.forEach((repoId) => setMarkerInstanceHidden(repoId, true));
     const repoFromIntersection = (intersection: THREE.Intersection<THREE.Object3D> | undefined) => {
       if (!intersection) return null;
 
@@ -1988,6 +2195,15 @@ export default function Home() {
         target: { x: number; y: number; z: number };
         zoom: number;
       };
+      __siftLodProbe?: () => {
+        rendered: number;
+        dynamic: number;
+        hiddenMarkers: number;
+        defaultRendered: number;
+        markerTotal: number;
+        zoom: number;
+        targetZoom: number;
+      };
       __siftSceneProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
       __siftMarkerProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
     };
@@ -2008,6 +2224,16 @@ export default function Home() {
           z: Number(refs.cameraTarget.z.toFixed(2)),
         },
         zoom: Number(refs.zoom.toFixed(3)),
+      });
+
+      siftWindow.__siftLodProbe = () => ({
+        rendered: renderedBuildingByRepoId.size,
+        dynamic: Array.from(dynamicBuildingByRepoId.keys()).filter((repoId) => renderedBuildingByRepoId.has(repoId)).length,
+        hiddenMarkers: hiddenMarkerInstanceIds.size,
+        defaultRendered: defaultDetailedRepoIds.size,
+        markerTotal: markerRepoIds?.length ?? 0,
+        zoom: Number(refs.zoom.toFixed(3)),
+        targetZoom: Number(refs.targetZoom.toFixed(3)),
       });
 
       siftWindow.__siftSceneProbe = () => buildings.flatMap((building) => {
@@ -2124,6 +2350,7 @@ export default function Home() {
     let lastDragAt = 0;
     let prevMouseX = 0;
     let prevMouseY = 0;
+    let pointerScreenPoint: { x: number; y: number } | null = null;
     const keysPressed: Record<string, boolean> = {};
     const movementKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
 
@@ -2284,8 +2511,19 @@ export default function Home() {
 
     const handlePointerMoveDrag = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
+      pointerScreenPoint = { x: event.clientX, y: event.clientY };
       refs.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       refs.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (!isDragging && enteredRef.current) {
+        refs.raycaster.setFromCamera(refs.pointer, camera);
+        const nextHovered = repoFromIntersection(refs.raycaster.intersectObjects(hitTargets, false)[0]);
+        if (hoverRef.current?.id !== nextHovered?.id) {
+          hoverRef.current = nextHovered;
+          setHoveredRepo(nextHovered);
+          renderer.domElement.style.cursor = nextHovered ? 'pointer' : 'grab';
+        }
+      }
 
       if (isDragging && enteredRef.current) {
         const deltaX = event.clientX - prevMouseX;
@@ -2318,6 +2556,7 @@ export default function Home() {
     const handlePointerLeave = () => {
       if (isDragging) return;
       refs.pointer.set(9, 9);
+      pointerScreenPoint = null;
       setHoveredRepo(null);
       renderer.domElement.style.cursor = 'default';
       if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
@@ -2467,6 +2706,9 @@ export default function Home() {
         refs.cameraTarget.lerp(desiredTarget, 0.07);
         camera.position.copy(refs.cameraPosition);
         camera.lookAt(refs.cameraTarget);
+        if (hoverFrame % 12 === 0 || Boolean(selectedRef.current)) {
+          updateViewportDetail();
+        }
       }
 
       if (introProgress >= 1 && !introHasRunRef.current) {
@@ -2545,9 +2787,8 @@ export default function Home() {
       }
 
       if (hoverRef.current && tooltipRef.current) {
-        const building = findBuilding(hoverRef.current.id);
-        if (building) {
-          const point = getRepoScreenPosition(building, camera, renderer);
+        const point = repoScreenPosition(hoverRef.current) ?? pointerScreenPoint;
+        if (point) {
           tooltipRef.current.style.opacity = '1';
           tooltipRef.current.style.transform = `translate3d(${point.x}px, ${point.y}px, 0) translate(-50%, -118%)`;
         }
@@ -2595,6 +2836,7 @@ export default function Home() {
       renderer.domElement.remove();
       if (process.env.NODE_ENV !== 'production') {
         delete siftWindow.__siftCameraProbe;
+        delete siftWindow.__siftLodProbe;
         delete siftWindow.__siftSceneProbe;
         delete siftWindow.__siftMarkerProbe;
       }
@@ -2722,7 +2964,7 @@ export default function Home() {
     setEntered(true);
     setSelectedRepo(repo);
     setFilter(repo.district);
-    targetDistrictCenterRef.current = null;
+    targetDistrictCenterRef.current = { x: districtFor(repo).x, z: districtFor(repo).z };
     similarDistrictRef.current = repo.district;
     similarUntilRef.current = performance.now() + 3600;
     setAtlasView(atlasViewForDistrict(districtFor(repo)));
@@ -2904,7 +3146,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div ref={tooltipRef} className="repo-tooltip" style={{ '--repo-color': hoveredRepo ? districtFor(hoveredRepo).color : '#4f8cff' } as CSSProperties}>
+      <div ref={tooltipRef} className={`repo-tooltip ${hoveredRepo ? 'is-visible' : ''}`} style={{ '--repo-color': hoveredRepo ? districtFor(hoveredRepo).color : '#4f8cff' } as CSSProperties}>
         {hoveredRepo ? (
           <>
             <span>{hoveredRepo.name}</span>
@@ -4696,6 +4938,10 @@ export default function Home() {
           transition: opacity 140ms ease;
         }
 
+        .repo-tooltip.is-visible {
+          opacity: 1;
+        }
+
         .repo-tooltip span,
         .repo-tooltip strong,
         .repo-tooltip small {
@@ -5910,19 +6156,24 @@ function createInstancedRepoField(
 
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshBasicMaterial({
+    color: '#ffffff',
     vertexColors: true,
     transparent: true,
     opacity: 0.86,
     depthWrite: false,
     fog: false,
+    toneMapped: false,
   });
   const markers = new THREE.InstancedMesh(geometry, material, markerEntries.length);
   markers.instanceMatrix.setUsage(THREE.StaticDrawUsage);
   markers.userData.role = 'repo-marker-field';
   markers.userData.repoIds = markerEntries.map(({ repo }) => repo.id);
+  markers.userData.markerEntries = markerEntries;
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  const markerMatrices: THREE.Matrix4[] = [];
+  const markerPositions: THREE.Vector3[] = [];
   markerEntries.forEach(({ repo, district, repos, index }, markerIndex) => {
     const { x, z, seed } = instancedRepoPosition(repo, index, district, repos);
     const height = clamp(3.8 + Math.log10(repo.stars + getOpenWorkItems(repo) + 2) * 7.4, 4.8, 30);
@@ -5932,10 +6183,14 @@ function createInstancedRepoField(
     dummy.scale.set(footprint, height, footprint);
     dummy.updateMatrix();
     markers.setMatrixAt(markerIndex, dummy.matrix);
+    markerMatrices[markerIndex] = dummy.matrix.clone();
+    markerPositions[markerIndex] = dummy.position.clone();
 
-    color.set(district.color).lerp(new THREE.Color('#f0fffb'), 0.18 + seededUnit(seed + 7) * 0.28);
+    color.set(district.color);
     markers.setColorAt(markerIndex, color);
   });
+  markers.userData.markerMatrices = markerMatrices;
+  markers.userData.markerPositions = markerPositions;
 
   markers.instanceMatrix.needsUpdate = true;
   if (markers.instanceColor) markers.instanceColor.needsUpdate = true;
