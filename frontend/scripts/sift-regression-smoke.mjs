@@ -129,7 +129,7 @@ await page.route('**/api/py/repos/import**', async (route) => {
 });
 
 try {
-  await page.addInitScript(() => localStorage.removeItem('sift.cityIntroSeen'));
+  await page.addInitScript(() => localStorage.setItem('sift.cityIntroSeen', 'true'));
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(() => !document.querySelector('.sift-loading-screen') && window.__siftCameraProbe, null, { timeout: 60_000 });
 
@@ -163,19 +163,19 @@ try {
     fail('WASD did not move camera after input blur', { afterTyping, afterMovement });
   }
 
-  await page.getByRole('button', { name: 'Night appearance' }).click();
-  await page.getByRole('button', { name: 'Day appearance' }).click();
-  await page.getByRole('button', { name: 'Zoom out' }).click();
-  await page.getByRole('button', { name: 'Zoom in' }).click();
-  await page.getByRole('button', { name: 'Reset camera' }).click();
-  await page.getByRole('button', { name: /Walkthrough/ }).click();
-  await page.getByRole('button', { name: 'Close walkthrough' }).click();
+  await page.getByRole('button', { name: 'Night appearance' }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: 'Day appearance' }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: 'Zoom out' }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: 'Zoom in' }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: 'Reset camera' }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: /Walkthrough/ }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: 'Close walkthrough' }).click({ noWaitAfter: true });
 
-  await page.getByRole('button', { name: /^Activity$/ }).click();
-  await page.getByRole('button', { name: /^Trending$/ }).click();
-  await page.getByRole('button', { name: /^View Encoding$/ }).click();
+  await page.getByRole('button', { name: /^Activity$/ }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: /^Trending$/ }).click({ noWaitAfter: true });
+  await page.getByRole('button', { name: /^View Encoding$/ }).click({ noWaitAfter: true });
   await page.waitForFunction(() => document.body.innerText.includes('Height maps to Activity'), null, { timeout: 8_000 });
-  await page.getByRole('button', { name: 'Close view encoding' }).click();
+  await page.getByRole('button', { name: 'Close view encoding' }).click({ noWaitAfter: true });
 
   await search.fill('beginner friendly ai repo with fast maintainers');
   await page.waitForFunction(() => {

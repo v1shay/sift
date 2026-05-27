@@ -75,60 +75,71 @@ query($query: String!, $cursor: String) {
 }
 """
 
-BACKFILL_QUERIES = [
-    "stars:>10000 archived:false sort:updated-desc",
-    "stars:5000..10000 archived:false sort:updated-desc",
-    "stars:1000..5000 archived:false sort:stars-desc",
-    "stars:500..1000 archived:false pushed:>2024-01-01 sort:updated-desc",
-    "stars:100..500 archived:false pushed:>2024-01-01 sort:updated-desc",
-    "stars:25..100 archived:false pushed:>2024-01-01 sort:updated-desc",
-    "stars:5..25 archived:false pushed:>2024-01-01 sort:updated-desc",
-    "topic:machine-learning archived:false pushed:>2024-01-01",
-    "topic:llm archived:false pushed:>2024-01-01",
-    "topic:agents archived:false pushed:>2024-01-01",
-    "topic:rag archived:false pushed:>2024-01-01",
-    "topic:react archived:false pushed:>2024-01-01",
-    "topic:nextjs archived:false pushed:>2024-01-01",
-    "topic:vue archived:false pushed:>2024-01-01",
-    "topic:svelte archived:false pushed:>2024-01-01",
-    "topic:tailwindcss archived:false pushed:>2024-01-01",
-    "topic:design-system archived:false pushed:>2024-01-01",
-    "topic:developer-tools archived:false pushed:>2024-01-01",
-    "topic:cli archived:false pushed:>2024-01-01",
-    "topic:testing archived:false pushed:>2024-01-01",
-    "topic:observability archived:false pushed:>2024-01-01",
-    "topic:kubernetes archived:false pushed:>2024-01-01",
-    "topic:docker archived:false pushed:>2024-01-01",
-    "topic:terraform archived:false pushed:>2024-01-01",
-    "topic:database archived:false pushed:>2024-01-01",
-    "topic:postgres archived:false pushed:>2024-01-01",
-    "topic:redis archived:false pushed:>2024-01-01",
-    "topic:security archived:false pushed:>2024-01-01",
-    "topic:auth archived:false pushed:>2024-01-01",
-    "topic:cryptography archived:false pushed:>2024-01-01",
-    "topic:compiler archived:false pushed:>2024-01-01",
-    "topic:runtime archived:false pushed:>2024-01-01",
-    "topic:operating-system archived:false pushed:>2024-01-01",
-    "topic:embedded archived:false pushed:>2024-01-01",
-    "topic:ios archived:false pushed:>2024-01-01",
-    "topic:android archived:false pushed:>2024-01-01",
-    "topic:flutter archived:false pushed:>2024-01-01",
-    "topic:game-engine archived:false pushed:>2024-01-01",
-    "topic:web3 archived:false pushed:>2024-01-01",
-    "topic:blockchain archived:false pushed:>2024-01-01",
-    "language:TypeScript archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:JavaScript archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:Python archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:Go archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:Rust archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:Swift archived:false pushed:>2024-01-01 stars:20..1000",
-    "language:Kotlin archived:false pushed:>2024-01-01 stars:20..1000",
-    "language:C archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:C++ archived:false pushed:>2024-01-01 stars:50..2000",
-    "language:Zig archived:false pushed:>2024-01-01 stars:20..1000",
-    "good-first-issues:>0 archived:false pushed:>2024-01-01",
-    "help-wanted-issues:>0 archived:false pushed:>2024-01-01",
+BASE_QUALIFIERS = "archived:false fork:false"
+RECENT_QUALIFIER = "pushed:>2024-01-01"
+
+STAR_SHARDS = [
+    "stars:>10000 sort:updated-desc",
+    "stars:5000..10000 sort:updated-desc",
+    "stars:1000..5000 sort:stars-desc",
+    "stars:500..1000 sort:updated-desc",
+    "stars:100..500 sort:updated-desc",
+    "stars:25..100 sort:updated-desc",
+    "stars:5..25 sort:updated-desc",
+    "stars:1..5 sort:updated-desc",
+    "stars:0..1 sort:updated-desc",
 ]
+
+TOPIC_SHARDS = [
+    "machine-learning", "llm", "agents", "rag", "computer-vision", "nlp", "robotics",
+    "react", "nextjs", "vue", "svelte", "solidjs", "tailwindcss", "design-system",
+    "accessibility", "web-components", "browser-extension", "webgl", "threejs",
+    "developer-tools", "cli", "terminal", "shell", "testing", "linting", "build-tool",
+    "observability", "monitoring", "opentelemetry", "logging", "kubernetes", "docker",
+    "terraform", "serverless", "database", "postgres", "sqlite", "redis", "vector-database",
+    "security", "auth", "oauth", "cryptography", "privacy", "zero-knowledge",
+    "compiler", "runtime", "programming-language", "operating-system", "embedded", "iot",
+    "ios", "android", "flutter", "react-native", "swiftui", "game-engine", "graphics",
+    "audio", "video", "ffmpeg", "web3", "blockchain", "p2p", "protocol", "networking",
+    "bioinformatics", "physics", "simulation", "math", "documentation", "education",
+    "awesome-list", "homebrew", "package-manager", "data-engineering", "analytics",
+]
+
+LANGUAGE_SHARDS = [
+    "TypeScript", "JavaScript", "Python", "Go", "Rust", "Swift", "Kotlin", "Dart",
+    "C", "C++", "Zig", "Ruby", "PHP", "Java", "Scala", "Elixir", "Clojure",
+    "Haskell", "Lua", "R", "Julia", "Shell", "PowerShell",
+]
+
+
+def build_backfill_queries() -> list[str]:
+    queries = []
+
+    for topic in TOPIC_SHARDS:
+        queries.append(f"topic:{topic} stars:0..100 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
+
+    for language in LANGUAGE_SHARDS:
+        queries.append(f"language:{language} stars:0..50 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
+
+    queries.extend([
+        f"good-first-issues:>0 {BASE_QUALIFIERS} {RECENT_QUALIFIER}",
+        f"help-wanted-issues:>0 {BASE_QUALIFIERS} {RECENT_QUALIFIER}",
+        f"created:>2025-01-01 stars:0..200 {BASE_QUALIFIERS} sort:updated-desc",
+        f"created:>2026-01-01 stars:0..200 {BASE_QUALIFIERS} sort:updated-desc",
+    ])
+
+    queries.extend(f"{shard} {BASE_QUALIFIERS}" for shard in STAR_SHARDS)
+
+    for topic in TOPIC_SHARDS:
+        queries.append(f"topic:{topic} {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
+
+    for language in LANGUAGE_SHARDS:
+        queries.append(f"language:{language} stars:50..2000 {BASE_QUALIFIERS} {RECENT_QUALIFIER}")
+
+    return queries
+
+
+BACKFILL_QUERIES = build_backfill_queries()
 
 
 def token_from_gh_cli() -> str | None:
@@ -325,7 +336,7 @@ async def backfill(target_total: int = 5000, per_query: int = 100, query: str | 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill live GitHub repositories into Sift.")
-    parser.add_argument("--target-total", type=int, default=5000, help="Stop once the local database reaches this repository count.")
+    parser.add_argument("--target-total", type=int, default=15000, help="Stop once the local database reaches this repository count.")
     parser.add_argument("--per-query", type=int, default=100, help="Maximum repositories to fetch from each search shard.")
     parser.add_argument("--query", type=str, default=None, help="Run one GitHub search query instead of the default diverse shard list.")
     args = parser.parse_args()
