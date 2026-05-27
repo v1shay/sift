@@ -91,6 +91,8 @@ try {
   const baseline = await page.evaluate(() => {
     const layer = document.querySelector('.rendered-atlas-layer');
     const layerStyle = layer ? getComputedStyle(layer) : null;
+    const tileGrid = document.querySelector('.atlas-tileable-city-grid');
+    const tileGridStyle = tileGrid ? getComputedStyle(tileGrid) : null;
     const forbiddenLabels = [
       'Forest Repository',
       'Skyline Core',
@@ -112,14 +114,18 @@ try {
       districts: document.querySelectorAll('.rendered-district').length,
       terrains: document.querySelectorAll('.atlas-terrain-region').length,
       terrainSprites: document.querySelectorAll('.atlas-ground-tile').length,
+      cityPlates: document.querySelectorAll('.atlas-city-plate').length,
       connectors: document.querySelectorAll('.atlas-connector').length,
       pathBeds: document.querySelectorAll('.atlas-path-bed').length,
+      roadSegments: document.querySelectorAll('.atlas-road-segment').length,
+      roadNodes: document.querySelectorAll('.atlas-road-node').length,
       overlay: Boolean(document.querySelector('[data-nextjs-dialog-overlay], nextjs-portal')),
       atlasImages: document.querySelectorAll('.rendered-atlas-layer img').length,
       spriteBackgrounds: Array.from(document.querySelectorAll('.atlas-repo-marker span')).filter((element) => getComputedStyle(element).backgroundImage.includes('/images/atlas-reference-assets/')).length,
       screenshotReferences: Array.from(document.querySelectorAll('[src], [style]')).filter((element) => `${element.getAttribute('src') ?? ''} ${element.getAttribute('style') ?? ''}`.includes('sift-reference-atlas')).length,
       forbiddenLabels: forbiddenLabels.filter((label) => bodyText.includes(label)),
       layerBackground: layerStyle?.backgroundImage ?? '',
+      tileGridBackground: tileGridStyle?.backgroundImage ?? '',
     };
   });
 
@@ -129,13 +135,16 @@ try {
   if (baseline.districts < 2) fail('District labels did not render', baseline);
   if (baseline.terrains < baseline.districts) fail('Code-native terrain regions did not render for district labels', baseline);
   if (baseline.terrainSprites < baseline.districts) fail('Generated terrain sprite layers did not render for district labels', baseline);
-  if (baseline.connectors < 1) fail('Backend-derived atlas connectors did not render', baseline);
-  if (baseline.pathBeds < baseline.connectors) fail('Connector terrain beds did not render under backend-derived connectors', baseline);
+  if (baseline.cityPlates < baseline.districts) fail('Tileable generated city plates did not render for district labels', baseline);
+  if (baseline.connectors !== 0 || baseline.pathBeds !== 0 || baseline.roadSegments !== 0 || baseline.roadNodes !== 0) {
+    fail('Old explicit road/connector overlay rendered over the tileable city plane', baseline);
+  }
   if (baseline.atlasImages !== 0) fail('Atlas still contains bitmap img elements', baseline);
   if (baseline.spriteBackgrounds < 1) fail('Generated biome sprite backgrounds did not attach to repo buildings', baseline);
   if (baseline.screenshotReferences !== 0) fail('Atlas still references the old screenshot asset', baseline);
   if (baseline.forbiddenLabels.length) fail('Old Claude screenshot labels are still visible', baseline);
   if (!baseline.layerBackground.includes('radial-gradient')) fail('Atlas infinite backdrop blend is missing', baseline);
+  if (!baseline.tileGridBackground.includes('map-tile-city.svg')) fail('Tileable generated city floor is missing', baseline);
 
   const beforePan = await readPan();
   await page.mouse.move(640, 350);
@@ -195,6 +204,7 @@ try {
     url: targetUrl,
     markers: baseline.markers,
     districts: baseline.districts,
+    cityPlates: baseline.cityPlates,
     beforePan,
     afterPan,
     clicked: clickableMarker.title,
