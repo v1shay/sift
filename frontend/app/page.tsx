@@ -1,8 +1,10 @@
 'use client';
 
 import * as THREE from 'three';
-import { Activity, Github, GitPullRequest, HelpCircle, Moon, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { Activity, BarChart3, Github, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { ViewEncodingPanel } from '../components/ViewEncodingPanel';
+import { rankReposForCluster, rankReposForIntent } from '../lib/repoMetrics.mjs';
 import { Z } from '@/lib/constants';
 
 type DistrictKey = string;
@@ -10,6 +12,7 @@ type FilterKey = DistrictKey | 'stars' | 'safe' | 'all';
 type Priority = 'hot' | 'normal' | 'quiet';
 type Appearance = 'night' | 'day';
 type HeightScaleDriver = 'stars' | 'activity' | 'contributors';
+type ClusterMode = 'stack' | 'stars' | 'trending' | 'response';
 
 type SearchPing = {
   label: string;
@@ -1702,6 +1705,8 @@ export default function Home() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [appearance, setAppearance] = useState<Appearance>('day');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
+  const [clusterMode, setClusterMode] = useState<ClusterMode>('stack');
+  const [viewEncodingOpen, setViewEncodingOpen] = useState(false);
   const [zoomValue, setZoomValue] = useState(CAMERA_OVERVIEW_ZOOM);
   const [atlasView, setAtlasView] = useState({ x: 0, y: 0, scale: 1 });
   const [sectionsOpen, setSectionsOpen] = useState(false);
@@ -1746,10 +1751,10 @@ export default function Home() {
       .map(({ district, repos }) => ({
         district,
         repoCount: repos.length,
-        topRepo: [...repos].sort((a, b) => b.stars - a.stars)[0],
+        topRepo: rankReposForCluster(repos, clusterMode)[0],
         position: atlasPositionForDistrict(district),
       }));
-  }, [reposByDistrict]);
+  }, [clusterMode, reposByDistrict]);
   const visualReposByDistrict = useMemo(() => {
     return sceneReposByDistrict.map(({ district, repos }) => {
       const mustShowIds = new Set(
@@ -1758,12 +1763,13 @@ export default function Home() {
           .map((repo) => repo.id),
       );
       const visualLimit = visualRepoLimitForDistrict(district, repos.length, allRepos.length);
-      const visible = pickVisualRepos(repos, visualLimit, mustShowIds);
+      const ranked = rankReposForCluster(repos, clusterMode);
+      const visible = ranked.filter((repo, index) => index < visualLimit || mustShowIds.has(repo.id));
       return { district, repos: visible };
     });
-  }, [allRepos.length, loadedRepos, sceneReposByDistrict, selectedRepo]);
+  }, [allRepos.length, clusterMode, loadedRepos, sceneReposByDistrict, selectedRepo]);
   const sceneReady = !loadingRepos && allRepos.length > 0;
-  const searchResults = useMemo(() => searchRepos(query, effectiveRepos), [query, effectiveRepos]);
+  const searchResults = useMemo(() => rankReposForIntent(query, effectiveRepos), [query, effectiveRepos]);
   const safetyReasons = useMemo(() => (selectedRepo ? getSafetyReasons(selectedRepo) : []), [selectedRepo]);
   const loadedTodayRepos = useMemo(() => {
     const today = new Date().toDateString();
@@ -2314,6 +2320,21 @@ export default function Home() {
       if (!refs.enteredAt) refs.enteredAt = performance.now();
     };
 
+    const quietCameraForTyping = () => {
+      if (performance.now() - refs.startedAt < INTRO_MS) {
+        refs.startedAt = performance.now() - INTRO_MS;
+        refs.cameraPosition.copy(CAMERA_HOME);
+        refs.cameraTarget.copy(TARGET_HOME);
+        camera.position.copy(CAMERA_HOME);
+        camera.lookAt(TARGET_HOME);
+        refs.targetZoom = CAMERA_OVERVIEW_ZOOM;
+        refs.zoom = CAMERA_OVERVIEW_ZOOM;
+        setZoomValue(CAMERA_OVERVIEW_ZOOM);
+      }
+      if (!refs.enteredAt) refs.enteredAt = performance.now();
+      clearMovementKeys();
+    };
+
     const handleResize = () => {
       const width = mount.clientWidth;
       const height = mount.clientHeight;
@@ -2396,14 +2417,16 @@ export default function Home() {
       setAtlasView({ x: 0, y: 0, scale: 1 });
       refs.pointer.set(9, 9);
       renderer.domElement.style.cursor = 'grab';
-      if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
+      if (tooltipRef.current) {
+        tooltipRef.current.style.removeProperty('opacity');
+        tooltipRef.current.style.visibility = 'hidden';
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       if (isTypingTarget() || isTypingTarget(e.target)) {
-        skipCinematicSweep();
-        if (movementKeys.includes(key)) clearMovementKeys();
+        quietCameraForTyping();
         return;
       }
       keysPressed[key] = true;
@@ -2429,10 +2452,11 @@ export default function Home() {
     const handleKeyUp = (e: KeyboardEvent) => {
       keysPressed[e.key.toLowerCase()] = false;
     };
-    const handleFocusIn = (event: FocusEvent) => {
-      if (!isTypingTarget() && !isTypingTarget(event.target)) return;
-      skipCinematicSweep();
-      clearMovementKeys();
+    const handleFocusIn = () => {
+      if (isTypingTarget()) quietCameraForTyping();
+    };
+    const handleTextInput = (event: Event) => {
+      if (isTypingTarget(event.target)) quietCameraForTyping();
     };
     const handleWindowBlur = () => {
       clearMovementKeys();
@@ -2447,6 +2471,7 @@ export default function Home() {
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('focusin', handleFocusIn);
     window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('input', handleTextInput, true);
     document.addEventListener('pointerdown', handleDocumentPointerDown, true);
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -2559,7 +2584,10 @@ export default function Home() {
       pointerScreenPoint = null;
       setHoveredRepo(null);
       renderer.domElement.style.cursor = 'default';
-      if (tooltipRef.current) tooltipRef.current.style.opacity = '0';
+      if (tooltipRef.current) {
+        tooltipRef.current.style.removeProperty('opacity');
+        tooltipRef.current.style.visibility = 'hidden';
+      }
     };
 
     const handleClick = (event: globalThis.MouseEvent) => {
@@ -2722,7 +2750,8 @@ export default function Home() {
 
       hoverFrame += 1;
       const updateBuildingEffects = hoverFrame % 3 === 0 || Boolean(selectedRef.current || hoverRef.current);
-      if (!isDragging && enteredRef.current && hoverFrame % 2 === 0) {
+      const pointerInsideScene = refs.pointer.x >= -1 && refs.pointer.x <= 1 && refs.pointer.y >= -1 && refs.pointer.y <= 1;
+      if (!isDragging && enteredRef.current && pointerInsideScene && hoverFrame % 2 === 0) {
         refs.raycaster.setFromCamera(refs.pointer, camera);
         const intersection = refs.raycaster.intersectObjects(hitTargets, false)[0];
         const nextHovered = repoFromIntersection(intersection);
@@ -2731,6 +2760,10 @@ export default function Home() {
           setHoveredRepo(nextHovered);
           renderer.domElement.style.cursor = nextHovered ? 'pointer' : 'grab';
         }
+      } else if (!pointerInsideScene && hoverRef.current) {
+        hoverRef.current = null;
+        setHoveredRepo(null);
+        renderer.domElement.style.cursor = 'grab';
       }
 
       const similarActive = now < similarUntilRef.current;
@@ -2789,11 +2822,13 @@ export default function Home() {
       if (hoverRef.current && tooltipRef.current) {
         const point = repoScreenPosition(hoverRef.current) ?? pointerScreenPoint;
         if (point) {
-          tooltipRef.current.style.opacity = '1';
+          tooltipRef.current.style.removeProperty('opacity');
+          tooltipRef.current.style.visibility = 'visible';
           tooltipRef.current.style.transform = `translate3d(${point.x}px, ${point.y}px, 0) translate(-50%, -118%)`;
         }
       } else if (tooltipRef.current) {
-        tooltipRef.current.style.opacity = '0';
+        tooltipRef.current.style.removeProperty('opacity');
+        tooltipRef.current.style.visibility = 'hidden';
       }
 
       renderer.render(scene, camera);
@@ -2815,6 +2850,7 @@ export default function Home() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('focusin', handleFocusIn);
       window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('input', handleTextInput, true);
       document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
@@ -2981,6 +3017,22 @@ export default function Home() {
     setAtlasView(atlasViewForDistrict(district));
   };
 
+  const quietCameraForTextInput = () => {
+    const refs = sceneRef.current;
+    if (!refs) return;
+    if (performance.now() - refs.startedAt < INTRO_MS) {
+      refs.startedAt = performance.now() - INTRO_MS;
+      refs.cameraPosition.copy(CAMERA_HOME);
+      refs.cameraTarget.copy(TARGET_HOME);
+      refs.camera.position.copy(CAMERA_HOME);
+      refs.camera.lookAt(TARGET_HOME);
+      refs.targetZoom = CAMERA_OVERVIEW_ZOOM;
+      refs.zoom = CAMERA_OVERVIEW_ZOOM;
+      setZoomValue(CAMERA_OVERVIEW_ZOOM);
+    }
+    if (!refs.enteredAt) refs.enteredAt = performance.now();
+  };
+
   const selectSearchResult = (result: SearchResult) => {
     focusRepo(result.repo);
   };
@@ -2989,7 +3041,7 @@ export default function Home() {
     event.preventDefault();
     const locator = parseGithubRepoLocator(repoImport);
     if (!locator) {
-      setImportStatus('Use owner/repo or a GitHub repository URL.');
+      setImportStatus('Use owner/repo or paste a full GitHub repository URL.');
       return;
     }
 
@@ -3007,7 +3059,10 @@ export default function Home() {
       });
       const payload = await response.json().catch(() => ({})) as Partial<ImportRepositoryResponse> & { detail?: string };
       if (!response.ok || !payload.repo) {
-        throw new Error(payload.detail || `Repository import failed with ${response.status}`);
+        const backendDetail = payload.detail || `Repository import failed with ${response.status}`;
+        throw new Error(response.status === 404
+          ? `${locator.owner}/${locator.repo} was not found on GitHub. Check the spelling or visibility.`
+          : backendDetail);
       }
       const imported = buildRepoFromGraphNode(payload.repo);
       const importedWithSession: Repo = {
@@ -3018,7 +3073,10 @@ export default function Home() {
       };
       setLoadedRepos((current) => [importedWithSession, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
-      setImportStatus(`${imported.owner}/${imported.name} loaded into ${districtFor(imported).label}. Shared graph refresh queued.`);
+      const duplicateCopy = payload.meta?.created === false
+        ? 'was already modeled; focused the existing SIFT repo'
+        : `loaded into ${districtFor(imported).label}`;
+      setImportStatus(`${imported.owner}/${imported.name} ${duplicateCopy}. Graph refresh queued.`);
       setGraphRefreshToken((current) => current + 1);
       focusRepo(importedWithSession);
     } catch (error) {
@@ -3035,10 +3093,14 @@ export default function Home() {
         };
         setLoadedRepos((current) => [importedFromGraph, ...current.filter((repo) => repo.id !== importedFromGraph.id)].slice(0, 20));
         setRepoImport('');
-        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} loaded from the SIFT graph.`);
+        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitHub import was unavailable.`);
         focusRepo(importedFromGraph);
       } else {
-        setImportStatus(error instanceof Error ? error.message : 'Could not load that public GitHub repo.');
+        const message = error instanceof Error ? error.message : '';
+        const importFailure = message.toLowerCase().includes('fetch')
+          ? 'Backend import route unavailable. Check that the SIFT backend is running, then try again.'
+          : message || 'Could not load that public GitHub repo. Check the owner/repo spelling or try again after GitHub rate limits reset.';
+        setImportStatus(importFailure);
       }
     } finally {
       setImportingRepo(false);
@@ -3207,9 +3269,14 @@ export default function Home() {
             <span className="glass-pulse" aria-hidden="true" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onFocus={quietCameraForTextInput}
+              onChange={(event) => {
+                quietCameraForTextInput();
+                setQuery(event.target.value);
+              }}
               placeholder="try: safe ai, observability, rust runtime..."
               aria-label="Search the SIFT city"
+              data-keyboard-capture="true"
             />
             <button type="submit">EXPLORE</button>
           </div>
@@ -3262,31 +3329,86 @@ export default function Home() {
               safe
             </button>
 
-            <div className="height-driver-container" style={{ display: 'flex', gap: '6px', marginLeft: 'auto', alignItems: 'center' }}>
-              <span className="scale-label" style={{ fontSize: '10px', opacity: 0.6, marginRight: '4px', textTransform: 'uppercase', fontFamily: '"Space Mono", monospace', letterSpacing: '0.04em' }}>Height By:</span>
+            <div className="encoding-driver-strip">
+              <div className="height-driver-container" aria-label="Height scale">
+                <span className="scale-label">Height</span>
+                <button
+                  className={`filter-chip scale-stars-chip ${heightScaleDriver === 'stars' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={heightScaleDriver === 'stars'}
+                  onClick={() => setHeightScaleDriver('stars')}
+                >
+                  <Star size={13} strokeWidth={1.8} />
+                  Stars
+                </button>
+                <button
+                  className={`filter-chip scale-activity-chip ${heightScaleDriver === 'activity' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={heightScaleDriver === 'activity'}
+                  onClick={() => setHeightScaleDriver('activity')}
+                >
+                  <Activity size={13} strokeWidth={1.8} />
+                  Activity
+                </button>
+                <button
+                  className={`filter-chip scale-contributors-chip ${heightScaleDriver === 'contributors' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={heightScaleDriver === 'contributors'}
+                  onClick={() => setHeightScaleDriver('contributors')}
+                >
+                  <Users size={13} strokeWidth={1.8} />
+                  Contributors
+                </button>
+              </div>
+
+              <div className="cluster-driver-container" aria-label="Cluster mode">
+                <span className="scale-label">Cluster</span>
+                <button
+                  className={`filter-chip cluster-stack-chip ${clusterMode === 'stack' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={clusterMode === 'stack'}
+                  onClick={() => setClusterMode('stack')}
+                >
+                  <Network size={13} strokeWidth={1.8} />
+                  Stack
+                </button>
+                <button
+                  className={`filter-chip cluster-stars-chip ${clusterMode === 'stars' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={clusterMode === 'stars'}
+                  onClick={() => setClusterMode('stars')}
+                >
+                  <Star size={13} strokeWidth={1.8} />
+                  Stars
+                </button>
+                <button
+                  className={`filter-chip cluster-trending-chip ${clusterMode === 'trending' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={clusterMode === 'trending'}
+                  onClick={() => setClusterMode('trending')}
+                >
+                  <Zap size={13} strokeWidth={1.8} />
+                  Trending
+                </button>
+                <button
+                  className={`filter-chip cluster-response-chip ${clusterMode === 'response' ? 'is-active' : ''}`}
+                  type="button"
+                  aria-pressed={clusterMode === 'response'}
+                  onClick={() => setClusterMode('response')}
+                >
+                  <ShieldCheck size={13} strokeWidth={1.8} />
+                  Response
+                </button>
+              </div>
+
               <button
-                className={`filter-chip scale-stars-chip ${heightScaleDriver === 'stars' ? 'is-active' : ''}`}
+                className={`filter-chip encoding-chip ${viewEncodingOpen ? 'is-active' : ''}`}
                 type="button"
-                onClick={() => setHeightScaleDriver('stars')}
+                aria-expanded={viewEncodingOpen}
+                onClick={() => setViewEncodingOpen((open) => !open)}
               >
-                <Star size={13} strokeWidth={1.8} />
-                Stars
-              </button>
-              <button
-                className={`filter-chip scale-activity-chip ${heightScaleDriver === 'activity' ? 'is-active' : ''}`}
-                type="button"
-                onClick={() => setHeightScaleDriver('activity')}
-              >
-                <Activity size={13} strokeWidth={1.8} />
-                Activity
-              </button>
-              <button
-                className={`filter-chip scale-contributors-chip ${heightScaleDriver === 'contributors' ? 'is-active' : ''}`}
-                type="button"
-                onClick={() => setHeightScaleDriver('contributors')}
-              >
-                <Users size={13} strokeWidth={1.8} />
-                Contributors
+                <BarChart3 size={13} strokeWidth={1.8} />
+                View Encoding
               </button>
             </div>
 
@@ -3317,6 +3439,15 @@ export default function Home() {
             )}
           </div>
         </form>
+
+        <ViewEncodingPanel
+          open={viewEncodingOpen}
+          heightScaleDriver={heightScaleDriver}
+          clusterMode={clusterMode}
+          onHeightScaleChange={setHeightScaleDriver}
+          onClusterModeChange={setClusterMode}
+          onClose={() => setViewEncodingOpen(false)}
+        />
 
         <div className="stat-bar" aria-label="Live city stats">
           <div>
@@ -3350,9 +3481,14 @@ export default function Home() {
         <form className="repo-load-form" onSubmit={handleRepoImport}>
           <input
             value={repoImport}
-            onChange={(event) => setRepoImport(event.target.value)}
+            onFocus={quietCameraForTextInput}
+            onChange={(event) => {
+              quietCameraForTextInput();
+              setRepoImport(event.target.value);
+            }}
             placeholder="owner/repo"
             aria-label="Load GitHub repository"
+            data-keyboard-capture="true"
           />
           <button type="submit" disabled={importingRepo}>
             <GitPullRequest size={13} strokeWidth={1.8} />
@@ -4021,6 +4157,7 @@ export default function Home() {
         .sift-page.is-day .repo-tooltip,
         .sift-page.is-day .repo-panel,
         .sift-page.is-day .network-dock,
+        .sift-page.is-day .view-encoding-panel,
         .sift-page.is-day .tutorial-card {
           background:
             linear-gradient(135deg, rgba(15,23,42,0.7), rgba(15,23,42,0.42)),
@@ -4273,6 +4410,29 @@ export default function Home() {
           gap: 8px;
         }
 
+        .encoding-driver-strip,
+        .height-driver-container,
+        .cluster-driver-container {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .encoding-driver-strip {
+          margin-left: auto;
+          justify-content: flex-end;
+        }
+
+        .scale-label {
+          margin-right: 2px;
+          color: rgba(255,255,255,0.48);
+          font-family: "Space Mono", monospace;
+          font-size: 10px;
+          letter-spacing: 0;
+          text-transform: uppercase;
+        }
+
         .filter-chip {
           --chip-color: var(--sift-primary-blue);
           display: inline-flex;
@@ -4319,6 +4479,168 @@ export default function Home() {
 
         .scale-contributors-chip {
           --chip-color: #a855f7;
+        }
+
+        .cluster-stack-chip {
+          --chip-color: #4f8cff;
+        }
+
+        .cluster-stars-chip {
+          --chip-color: #fbbf24;
+        }
+
+        .cluster-trending-chip {
+          --chip-color: #fb7185;
+        }
+
+        .cluster-response-chip {
+          --chip-color: #34d399;
+        }
+
+        .encoding-chip {
+          --chip-color: #67e8f9;
+        }
+
+        .view-encoding-panel {
+          position: absolute;
+          left: 50%;
+          bottom: 154px;
+          z-index: 34;
+          width: min(680px, calc(100vw - 32px));
+          padding: 14px;
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 12px;
+          background:
+            linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.024)),
+            rgba(4,9,20,0.7);
+          box-shadow: 0 24px 76px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.11);
+          backdrop-filter: blur(34px) saturate(180%);
+          -webkit-backdrop-filter: blur(34px) saturate(180%);
+          transform: translateX(-50%);
+          pointer-events: auto;
+        }
+
+        .view-encoding-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .view-encoding-head div {
+          display: grid;
+          gap: 3px;
+        }
+
+        .view-encoding-head span,
+        .view-encoding-head strong,
+        .encoding-option-grid button span,
+        .encoding-option-grid button small,
+        .encoding-legend span,
+        .encoding-legend small {
+          font-family: "Space Mono", monospace;
+          letter-spacing: 0;
+        }
+
+        .view-encoding-head span {
+          color: rgba(255,255,255,0.88);
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .view-encoding-head strong {
+          color: rgba(255,255,255,0.52);
+          font-size: 10px;
+          font-weight: 400;
+        }
+
+        .view-encoding-head button {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 31px;
+          height: 31px;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 8px;
+          color: rgba(255,255,255,0.72);
+          background: rgba(255,255,255,0.045);
+          cursor: pointer;
+        }
+
+        .encoding-option-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .encoding-option-grid[aria-label="Height scale"] {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .encoding-option-grid button {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: center;
+          gap: 4px 7px;
+          min-height: 76px;
+          padding: 10px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px;
+          color: rgba(255,255,255,0.7);
+          background: rgba(255,255,255,0.035);
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .encoding-option-grid button.is-active {
+          border-color: rgba(103,232,249,0.42);
+          color: rgba(255,255,255,0.96);
+          background: rgba(103,232,249,0.1);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+        }
+
+        .encoding-option-grid button span {
+          min-width: 0;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .encoding-option-grid button small {
+          grid-column: 1 / -1;
+          color: rgba(255,255,255,0.48);
+          font-size: 9px;
+          line-height: 1.35;
+        }
+
+        .encoding-legend {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 8px;
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .encoding-legend div {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 3px 6px;
+          align-items: center;
+        }
+
+        .encoding-legend span {
+          color: rgba(255,255,255,0.72);
+          font-size: 10px;
+          font-weight: 700;
+        }
+
+        .encoding-legend small {
+          grid-column: 1 / -1;
+          color: rgba(255,255,255,0.42);
+          font-size: 8px;
+          line-height: 1.35;
         }
 
         .star-chip {
@@ -4934,12 +5256,13 @@ export default function Home() {
           backdrop-filter: blur(28px) saturate(190%);
           -webkit-backdrop-filter: blur(28px) saturate(190%);
           pointer-events: none;
-          opacity: 0;
-          transition: opacity 140ms ease;
+          opacity: 1;
+          visibility: hidden;
+          transition: visibility 140ms ease;
         }
 
         .repo-tooltip.is-visible {
-          opacity: 1;
+          visibility: visible;
         }
 
         .repo-tooltip span,
@@ -5371,6 +5694,29 @@ export default function Home() {
 
           .search-result {
             padding-right: 40px;
+          }
+
+          .encoding-driver-strip {
+            width: 100%;
+            margin-left: 0;
+            justify-content: center;
+          }
+
+          .height-driver-container,
+          .cluster-driver-container {
+            justify-content: center;
+          }
+
+          .view-encoding-panel {
+            bottom: 162px;
+            max-height: 54vh;
+            overflow-y: auto;
+          }
+
+          .encoding-option-grid,
+          .encoding-option-grid[aria-label="Height scale"],
+          .encoding-legend {
+            grid-template-columns: 1fr;
           }
 
           .stat-bar {
@@ -7450,9 +7796,48 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
     scene.add(ruin);
   }
 }
-    const TERRAIN_BASE_Y = -1.5;
+const TERRAIN_BASE_Y = -1.5;
 
-const TERRAIN_PLAY_EXTENT = 3600;
+const TERRAIN_TILE_SIZE = 2400;
+const TERRAIN_PLAY_EXTENT = TERRAIN_TILE_SIZE * 2;
+const TERRAIN_ROAD_STEP = TERRAIN_TILE_SIZE / 6;
+const TERRAIN_ROAD_SAMPLE_STEP = TERRAIN_TILE_SIZE / 12;
+const TILE_PI = Math.PI * 2;
+
+function wrapTileValue(value: number, size = TERRAIN_TILE_SIZE) {
+  return ((((value + size / 2) % size) + size) % size) - size / 2;
+}
+
+function wrappedDelta(value: number, center: number, size = TERRAIN_TILE_SIZE) {
+  return wrapTileValue(value - center, size);
+}
+
+function tileableNoise2D(worldX: number, worldZ: number, frequency: number, seed = 0) {
+  const x = (worldX / TERRAIN_TILE_SIZE) * TILE_PI * frequency;
+  const z = (worldZ / TERRAIN_TILE_SIZE) * TILE_PI * frequency;
+  const value =
+    Math.sin(x + seed) +
+    Math.cos(z + seed * 1.37) +
+    Math.sin(x + z + seed * 0.73) +
+    Math.cos(x * 2 - z + seed * 0.41);
+
+  return value * 0.125 + 0.5;
+}
+
+function tileableFbm(worldX: number, worldZ: number, octaves = 4) {
+  let value = 0;
+  let amplitude = 0.5;
+  let total = 0;
+
+  for (let octave = 0; octave < octaves; octave += 1) {
+    const frequency = 2 ** octave;
+    value += tileableNoise2D(worldX, worldZ, frequency, octave * 17.13) * amplitude;
+    total += amplitude;
+    amplitude *= 0.48;
+  }
+
+  return total > 0 ? value / total : 0;
+}
 
 function noise2D(x: number, z: number) {
   const i = Math.floor(x);
@@ -7482,10 +7867,10 @@ function fbm(x: number, z: number, octaves = 3) {
 
 function sampleTerrainHeight(worldX: number, worldZ: number) {
   // 1. Macro-scale foundational geography (Global mountains & valleys)
-  let height = fbm(worldX * 0.7, worldZ * 0.7, 5) * 12;
+  let height = tileableFbm(worldX, worldZ, 5) * 12;
   
-  // Massive ridge line across the world
-  const ridge = Math.abs(noise2D(worldX * 0.003, worldZ * 0.003) - 0.5) * 45;
+  // Massive ridge line across the world. The periodic sampler keeps chunk edges aligned.
+  const ridge = Math.abs(tileableNoise2D(worldX, worldZ, 2, 31.2) - 0.5) * 45;
   height += Math.pow(Math.max(0, 1 - ridge / 10), 2) * 25;
 
   // 2. Biome-specific hand-crafted features
@@ -7493,8 +7878,8 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
     const biome = biomeTypeForDistrict(district);
     const centerX = district.x;
     const centerZ = district.z;
-    const dx = worldX - centerX;
-    const dz = worldZ - centerZ;
+    const dx = wrappedDelta(worldX, centerX);
+    const dz = wrappedDelta(worldZ, centerZ);
     const dist = Math.sqrt(dx * dx + dz * dz);
     
     if (biome === 'volcano') {
@@ -7507,7 +7892,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         height += (rim + crater) * t;
         // Lava channels
         const angle = Math.atan2(dz, dx);
-        const channel = Math.sin(angle * 4 + fbm(worldX * 0.05, worldZ * 0.05) * 3);
+        const channel = Math.sin(angle * 4 + tileableFbm(worldX, worldZ, 4) * 3);
         if (channel > 0.88) height -= 4 * t;
       }
     } else if (biome === 'snow') {
@@ -7516,7 +7901,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         const t = 1 - dist / radius;
         // Glacial shelves: stepped terraces
         const steps = Math.floor(t * 8) / 8;
-        height += steps * 42 + fbm(worldX * 0.1, worldZ * 0.1) * 6 * t;
+        height += steps * 42 + tileableFbm(worldX, worldZ, 5) * 6 * t;
         // Icy cliffs
         if (Math.sin(dist * 0.12) > 0.94) height += 18 * t;
       }
@@ -7526,7 +7911,10 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
         const t = 1 - dist / radius;
         // Urban Plateaus: flat raised areas
         const plateau = Math.pow(t, 0.4) * 15;
-        const grid = (Math.abs(Math.sin(worldX * 0.12)) > 0.9 || Math.abs(Math.sin(worldZ * 0.12)) > 0.9) ? 1.5 : 0;
+        const grid = (
+          Math.abs(Math.sin((wrappedDelta(worldX, centerX) / TERRAIN_TILE_SIZE) * TILE_PI * 48)) > 0.9 ||
+          Math.abs(Math.sin((wrappedDelta(worldZ, centerZ) / TERRAIN_TILE_SIZE) * TILE_PI * 48)) > 0.9
+        ) ? 1.5 : 0;
         height += plateau + grid;
       }
     } else if (biome === 'crystal') {
@@ -7534,7 +7922,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Fractured Crater: jagged spikes and depressions
-        const spikes = Math.pow(noise2D(worldX * 0.2, worldZ * 0.2), 3) * 22;
+        const spikes = Math.pow(tileableNoise2D(worldX, worldZ, 32, 48.6), 3) * 22;
         const crater = Math.pow(t, 2) * 8;
         height += (spikes - crater) * t;
       }
@@ -7543,7 +7931,7 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
       if (dist < radius) {
         const t = 1 - dist / radius;
         // Organic uneven topology: knolls and roots
-        const roots = fbm(worldX * 0.15, worldZ * 0.15, 4) * 12;
+        const roots = tileableFbm(worldX, worldZ, 4) * 12;
         const knolls = Math.pow(Math.sin(dist * 0.08), 2) * 8;
         height += (roots + knolls) * t;
       }
@@ -7564,11 +7952,11 @@ function sampleTerrainHeight(worldX: number, worldZ: number) {
   });
 
   // 3. Medium-scale detail (Erosion, paths, riverbeds)
-  const erosion = fbm(worldX * 0.04, worldZ * 0.04, 2) * 4;
+  const erosion = tileableFbm(worldX, worldZ, 3) * 4;
   height += erosion;
 
   // 4. Micro-scale grain
-  const grain = (seededUnit(Math.floor(worldX * 8.5 + worldZ * 5.2)) - 0.5) * 0.25;
+  const grain = (tileableNoise2D(worldX, worldZ, 96, 70.4) - 0.5) * 0.25;
   height += grain;
 
   return Math.max(0, height);
@@ -7585,8 +7973,8 @@ function getTerrainColor(x: number, z: number, h: number) {
   let secondNearestDistrict = DISTRICTS[0];
 
   DISTRICTS.forEach((d) => {
-    const dx = x - d.x;
-    const dz = z - d.z;
+    const dx = wrappedDelta(x, d.x);
+    const dz = wrappedDelta(z, d.z);
     const dist = dx * dx + dz * dz;
     if (dist < nearestDist) {
       secondNearestDist = nearestDist;
@@ -7611,21 +7999,21 @@ function getTerrainColor(x: number, z: number, h: number) {
     const earth = new THREE.Color('#71717a');
 
     if (biome === 'volcano') {
-      const lavaFlow = Math.sin(x * 0.12 + z * 0.08 + fbm(x * 0.1, z * 0.1) * 4);
+      const lavaFlow = Math.sin((x / TERRAIN_TILE_SIZE) * TILE_PI * 34 + (z / TERRAIN_TILE_SIZE) * TILE_PI * 21 + tileableFbm(x, z, 4) * 4);
       if (lavaFlow > 0.85) return new THREE.Color('#b91c1c').lerp(new THREE.Color('#450a0a'), 0.2); // Grounded ember
       return new THREE.Color('#1c1917'); // Obsidian / Ash
     }
     if (biome === 'snow') {
-      const rockMelt = fbm(x * 0.2, z * 0.2, 3);
+      const rockMelt = tileableFbm(x, z, 4);
       if (rockMelt > 0.72) return slate.clone().lerp(new THREE.Color('#1e293b'), 0.5); // Slate rock
       return new THREE.Color('#f1f5f9').lerp(new THREE.Color('#cbd5e1'), 0.15); // Icy white
     }
     if (biome === 'forest') {
-      const moss = fbm(x * 0.3, z * 0.3, 2);
+      const moss = tileableFbm(x, z, 5);
       return new THREE.Color(moss > 0.6 ? '#14532d' : '#365314').lerp(earth, 0.4); // Deep moss/pine
     }
     if (biome === 'crystal') {
-      const fracture = Math.abs(noise2D(x * 0.2, z * 0.2) - 0.5);
+      const fracture = Math.abs(tileableNoise2D(x, z, 32, 88.8) - 0.5);
       if (fracture < 0.04) return new THREE.Color('#4c1d95'); // Deep mineral purple
       return new THREE.Color('#0f172a'); // Quartz slate
     }
@@ -7688,9 +8076,67 @@ function createBiomeTerrain(scene: THREE.Scene) {
   return terrain;
 }
 
+function createTileRoadCurve(axis: 'x' | 'z', offset: number) {
+  const points: THREE.Vector3[] = [];
+  const half = TERRAIN_PLAY_EXTENT / 2;
+
+  for (let distance = -half; distance <= half + 0.1; distance += TERRAIN_ROAD_SAMPLE_STEP) {
+    const x = axis === 'x' ? distance : offset;
+    const z = axis === 'x' ? offset : distance;
+    points.push(new THREE.Vector3(x, getTerrainSurfaceY(x, z) + Z.roads + 0.08, z));
+  }
+
+  return new THREE.CatmullRomCurve3(points);
+}
+
+function addTileRoad(scene: THREE.Scene, axis: 'x' | 'z', offset: number, roadIndex: number) {
+  const curve = createTileRoadCurve(axis, offset);
+  const isPrimary = roadIndex % 3 === 0;
+  const roadMaterial = new THREE.MeshBasicMaterial({
+    color: isPrimary ? '#050b12' : '#07121a',
+    transparent: true,
+    opacity: isPrimary ? 0.56 : 0.36,
+    depthWrite: false,
+  });
+  const road = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 52, isPrimary ? 0.7 : 0.44, 5, false),
+    roadMaterial,
+  );
+  road.renderOrder = -4;
+  markLandscape(road, isPrimary ? 0.58 : 0.38, isPrimary ? 0.48 : 0.32);
+  scene.add(road);
+
+  const laneMaterial = new THREE.MeshBasicMaterial({
+    color: axis === 'x' ? '#38bdf8' : '#fbbf24',
+    transparent: true,
+    opacity: isPrimary ? 0.52 : 0.34,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const lane = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 52, isPrimary ? 0.11 : 0.07, 4, false),
+    laneMaterial,
+  );
+  lane.renderOrder = -3;
+  markLandscape(lane, isPrimary ? 0.54 : 0.34, isPrimary ? 0.72 : 0.46);
+  scene.add(lane);
+}
+
+function createTileableRoadNetwork(scene: THREE.Scene) {
+  const half = TERRAIN_PLAY_EXTENT / 2;
+  const roadCount = Math.round(TERRAIN_PLAY_EXTENT / TERRAIN_ROAD_STEP);
+
+  for (let index = 0; index <= roadCount; index += 1) {
+    const offset = -half + index * TERRAIN_ROAD_STEP;
+    addTileRoad(scene, 'x', offset, index);
+    addTileRoad(scene, 'z', offset, index);
+  }
+}
+
 function createGround(scene: THREE.Scene) {
   // Main organic terrain
   createBiomeTerrain(scene);
+  createTileableRoadNetwork(scene);
 
   // Far distant floor for horizon
   const floor = new THREE.Mesh(

@@ -194,12 +194,14 @@ try {
 
   const baseline = await page.evaluate(() => ({
     title: document.title,
-    overlay: Boolean(document.querySelector('[data-nextjs-dialog-overlay], nextjs-portal')),
+    overlayText: Array.from(document.querySelectorAll('[data-nextjs-dialog-overlay], nextjs-portal'))
+      .map((element) => element.textContent?.trim() ?? '')
+      .find(Boolean) ?? '',
     bodyText: document.body.innerText.slice(0, 300),
   }));
 
   if (!baseline.title.includes('Sift')) fail('Wrong page loaded', baseline);
-  if (baseline.overlay) fail('Framework error overlay is visible', baseline);
+  if (baseline.overlayText) fail('Framework error overlay is visible', baseline);
 
   await page.waitForFunction(() => document.querySelectorAll('.network-lists button').length > 0, null, { timeout: 30_000 });
   const firstNetworkRepo = page.locator('.network-lists button').first();
