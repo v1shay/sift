@@ -832,8 +832,8 @@ const CAMERA_HOME = new THREE.Vector3(0, 215, 390);
 const TARGET_HOME = new THREE.Vector3(0, 8, 38);
 const MIN_ZOOM = 0.58;
 const MAX_ZOOM = 1.42;
-const SCENE_PIXEL_RATIO = 1.15;
-const VISUAL_REPOS_PER_DISTRICT = 34;
+const SCENE_PIXEL_RATIO = 1;
+const VISUAL_REPOS_PER_DISTRICT = 16;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -863,13 +863,13 @@ const ATLAS_DISTRICT_POSITIONS: Partial<Record<DistrictKey, { left: number; top:
   ruined_empire: { left: 53.2, top: 90.2 },
   canyon_networks: { left: 79.4, top: 88.0 },
 };
-const ATLAS_AMBIENT_COLUMNS = [7, 21, 35, 49, 63, 77, 91];
-const ATLAS_AMBIENT_ROWS = [12, 30, 48, 66, 84];
+const ATLAS_AMBIENT_COLUMNS = [10, 30, 50, 70, 90];
+const ATLAS_AMBIENT_ROWS = [16, 40, 64, 88];
 const ATLAS_AMBIENT_KINDS = ['standard', 'safe', 'activity', 'community', 'pr', 'landmark'] as const;
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
-const MAX_PR_FLOW_ROADS = 132;
-const MAX_PR_FLOW_PACKETS = 420;
+const MAX_PR_FLOW_ROADS = 96;
+const MAX_PR_FLOW_PACKETS = 260;
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -1734,9 +1734,9 @@ export default function Home() {
       const isTallDistrict = ['spires', 'megatowers', 'vertical_arcology', 'glass', 'crystal_spires'].includes(district.shape);
       const featured = FEATURED_DISTRICT_KEYS.has(district.key);
       const markerLimit = clamp(
-        Math.round((featured ? 20 : 8) + Math.log10(repos.length + 1) * (featured ? 9 : 4)),
-        featured ? 24 : 8,
-        featured ? 36 : 14,
+        Math.round((featured ? 9 : 3) + Math.log10(repos.length + 1) * (featured ? 3 : 1.25)),
+        featured ? 10 : 3,
+        featured ? 14 : 5,
       );
 
       return repos.slice(0, markerLimit).map((repo, index) => {
@@ -1749,12 +1749,14 @@ export default function Home() {
         const spreadY = isTallDistrict ? 2.55 : 3.25;
         const height = clamp(12 + Math.pow(scale.stars, 1.85) * 46 + Math.pow(scale.activity, 1.4) * 10, 13, isTallDistrict ? 74 : 48);
         const width = clamp(8 + Math.pow(scale.forks, 1.2) * 13, 8, 22);
+        const edgeSafeTop = clamp(12 + height * 0.14, 14, 24);
+        const edgeSafeLeft = clamp(9.5 + width * 0.15, 10.5, 13);
 
         return {
           repo,
           district,
-          left: roundTo(clamp(districtPosition.left + Math.cos(angle) * ring * spreadX, 1, 99)),
-          top: roundTo(clamp(districtPosition.top + Math.sin(angle) * ring * spreadY + seededUnit(seed + 3.3) * 1.9, 3, 97)),
+          left: roundTo(clamp(districtPosition.left + Math.cos(angle) * ring * spreadX, edgeSafeLeft, 100 - edgeSafeLeft)),
+          top: roundTo(clamp(districtPosition.top + Math.sin(angle) * ring * spreadY + seededUnit(seed + 3.3) * 1.9, edgeSafeTop, 92)),
           height: roundTo(height),
           width: roundTo(width),
           delay: `${(seededUnit(seed + 4.8) * -3.2).toFixed(2)}s`,
@@ -1773,9 +1775,9 @@ export default function Home() {
       const featured = FEATURED_DISTRICT_KEYS.has(district.key);
       if (!featured && repos.length < 20) return [];
       const count = clamp(
-        Math.round((featured ? 5 : 1) + Math.sqrt(repos.length) * (featured ? 0.56 : 0.14)),
+        Math.round((featured ? 3 : 1) + Math.sqrt(repos.length) * (featured ? 0.34 : 0.08)),
+        featured ? 4 : 1,
         featured ? 7 : 1,
-        featured ? 11 : 2,
       );
 
       return Array.from({ length: count }, (_, index) => {
@@ -1788,7 +1790,7 @@ export default function Home() {
         return {
           id: `${district.key}-ambient-${index}`,
           left: roundTo(clamp(position.left + Math.cos(angle) * ring * (featured ? 2.9 : 2.3), 1, 99)),
-          top: roundTo(clamp(position.top + Math.sin(angle) * ring * (featured ? 2.45 : 2.05), 3, 97)),
+          top: roundTo(clamp(position.top + Math.sin(angle) * ring * (featured ? 2.45 : 2.05), 12, 97)),
           width: roundTo(width),
           height: roundTo(height),
           delay: `${(seededUnit(seed + 4.5) * -5.6).toFixed(2)}s`,
@@ -1797,7 +1799,7 @@ export default function Home() {
           color: district.color,
           accent: district.accent,
           scale: roundTo(clamp(0.35 + seededUnit(seed + 6.4) * (featured ? 0.4 : 0.26), 0.3, featured ? 0.82 : 0.58), 3),
-          opacity: roundTo(clamp(0.22 + seededUnit(seed + 7.1) * (featured ? 0.34 : 0.22), 0.18, featured ? 0.66 : 0.44), 3),
+          opacity: roundTo(clamp(0.18 + seededUnit(seed + 7.1) * (featured ? 0.24 : 0.16), 0.14, featured ? 0.5 : 0.32), 3),
         };
       });
     });
@@ -1833,7 +1835,7 @@ export default function Home() {
           color: nearest.district.color,
           accent: nearest.district.accent,
           scale: roundTo(clamp(0.24 + seededUnit(seed + 6.2) * 0.28 + Math.max(0, 16 - distance) * 0.012, 0.22, 0.62), 3),
-          opacity: roundTo(clamp(0.16 + seededUnit(seed + 7.4) * 0.2 + Math.max(0, 20 - distance) * 0.008, 0.14, 0.46), 3),
+          opacity: roundTo(clamp(0.12 + seededUnit(seed + 7.4) * 0.16 + Math.max(0, 20 - distance) * 0.006, 0.1, 0.34), 3),
         };
       })
     ));
@@ -1890,6 +1892,36 @@ export default function Home() {
       return plates;
     });
   }, [featuredDistricts, filter]);
+  const atlasClusterProps = useMemo(() => {
+    return featuredDistricts.flatMap(({ district, repoCount, position }, districtIndex) => {
+      const biome = atlasMapTileKindForBiome(atlasBiomeForDistrict(district));
+      const baseScale = atlasRegionScale(repoCount);
+      const seed = 900 + districtIndex * 37.5 + repoCount * 0.41;
+      const propCount = clamp(Math.round(1 + Math.log10(repoCount + 1) * 0.95), 2, 3);
+
+      return Array.from({ length: propCount }, (_, propIndex) => {
+        const propSeed = seed + propIndex * 12.7;
+        const angle = propIndex * 2.399963 + seededUnit(propSeed + 0.2) * 0.88;
+        const distance = 3.8 + Math.sqrt(propIndex + 1) * 3.2 + seededUnit(propSeed + 1.4) * 3.1;
+        const sprite = propIndex % 2 === 1;
+        const variant = (Math.floor(seededUnit(propSeed + 2.2) * 10) + propIndex * 2) % 10;
+
+        return {
+          id: `${district.key}-cluster-prop-${propIndex}`,
+          type: sprite ? 'sprite' : 'platform',
+          biome,
+          variant,
+          left: roundTo(clamp(position.left + Math.cos(angle) * distance, -4, 104)),
+          top: roundTo(clamp(position.top + Math.sin(angle) * distance * 0.72, 9, 102)),
+          scale: roundTo(clamp(0.54 + baseScale * 0.16 + seededUnit(propSeed + 3.4) * 0.2, 0.58, 0.92), 3),
+          rotation: roundTo(-18 + (seededUnit(propSeed + 4.6) - 0.5) * 24, 2),
+          opacity: roundTo(clamp((sprite ? 0.22 : 0.28) + seededUnit(propSeed + 5.1) * 0.12, 0.2, sprite ? 0.34 : 0.42), 3),
+          color: district.color,
+          accent: district.accent,
+        };
+      });
+    });
+  }, [featuredDistricts]);
   const atlasTerrainTiles = useMemo(() => {
     return featuredDistricts.flatMap(({ district, repoCount, position }, index) => {
       const biome = atlasBiomeForDistrict(district);
@@ -2880,6 +2912,22 @@ export default function Home() {
             >
               <i />
             </span>
+          ))}
+          {atlasClusterProps.map((prop) => (
+            <span
+              key={`atlas-cluster-prop-${prop.id}`}
+              className={`atlas-cluster-prop atlas-cluster-prop-${prop.type} atlas-cluster-prop-${prop.biome} atlas-cluster-prop-variant-${prop.variant}`}
+              aria-hidden="true"
+              style={{
+                '--cluster-scale': prop.scale,
+                '--cluster-rotation': `${prop.rotation}deg`,
+                '--cluster-opacity': prop.opacity,
+                '--district-color': prop.color,
+                '--district-accent': prop.accent,
+                left: `${prop.left}%`,
+                top: `${prop.top}%`,
+              } as CSSProperties}
+            />
           ))}
           <div className="rendered-atlas-shade" aria-hidden="true" />
           {atlasAmbientMarkers.map(({ id, left, top, width, height, delay, biome, kind, color, accent, scale, opacity }) => (
@@ -6347,16 +6395,84 @@ export default function Home() {
             radial-gradient(ellipse at 50% 58%, color-mix(in srgb, var(--district-color), #071827 28%), transparent 72%);
         }
 
+        .atlas-cluster-prop {
+          position: absolute;
+          z-index: 4;
+          pointer-events: none;
+          background-image: var(--cluster-image);
+          background-position: var(--cluster-x, 50%) var(--cluster-y, 50%);
+          background-repeat: no-repeat;
+          opacity: var(--cluster-opacity, 0.3);
+          transform: translate(-50%, -50%) rotate(var(--cluster-rotation, -18deg)) scale(var(--cluster-scale, 1));
+          transform-origin: 50% 50%;
+          contain: layout paint style;
+          backface-visibility: hidden;
+          mix-blend-mode: screen;
+        }
+
+        .atlas-cluster-prop::after {
+          content: "";
+          position: absolute;
+          inset: 24% 18% 12%;
+          border-radius: 50%;
+          background: radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--district-accent), transparent 58%), transparent 68%);
+          opacity: 0.7;
+          pointer-events: none;
+        }
+
+        .atlas-cluster-prop-platform {
+          width: 260px;
+          height: 144px;
+          background-size: 520% auto;
+          filter: saturate(1.12) brightness(1.04);
+          -webkit-mask-image: radial-gradient(ellipse at 50% 54%, #000 0 56%, rgba(0,0,0,0.78) 68%, transparent 88%);
+          mask-image: radial-gradient(ellipse at 50% 54%, #000 0 56%, rgba(0,0,0,0.78) 68%, transparent 88%);
+        }
+
+        .atlas-cluster-prop-sprite {
+          width: 150px;
+          height: 132px;
+          background-size: 500% auto;
+          filter: saturate(1.28) brightness(1.12);
+          -webkit-mask-image: radial-gradient(ellipse at 50% 62%, #000 0 74%, rgba(0,0,0,0.86) 86%, transparent 100%);
+          mask-image: radial-gradient(ellipse at 50% 62%, #000 0 74%, rgba(0,0,0,0.86) 86%, transparent 100%);
+        }
+
+        .atlas-cluster-prop-platform.atlas-cluster-prop-city,
+        .atlas-cluster-prop-platform.atlas-cluster-prop-field { --cluster-image: url(/images/atlas-reference-assets/terrain-city-layer.png); }
+        .atlas-cluster-prop-platform.atlas-cluster-prop-green { --cluster-image: url(/images/atlas-reference-assets/terrain-green-layer.png); }
+        .atlas-cluster-prop-platform.atlas-cluster-prop-forge { --cluster-image: url(/images/atlas-reference-assets/terrain-forge-layer.png); }
+        .atlas-cluster-prop-platform.atlas-cluster-prop-signal { --cluster-image: url(/images/atlas-reference-assets/terrain-crystal-layer.png); }
+        .atlas-cluster-prop-platform.atlas-cluster-prop-water { --cluster-image: url(/images/atlas-reference-assets/terrain-water-layer.png); }
+
+        .atlas-cluster-prop-sprite.atlas-cluster-prop-city,
+        .atlas-cluster-prop-sprite.atlas-cluster-prop-field { --cluster-image: url(/images/atlas-reference-assets/biome-city-sprite.png); --cluster-y: 48%; }
+        .atlas-cluster-prop-sprite.atlas-cluster-prop-green { --cluster-image: url(/images/atlas-reference-assets/biome-green-sprite.png); --cluster-y: 50%; }
+        .atlas-cluster-prop-sprite.atlas-cluster-prop-forge { --cluster-image: url(/images/atlas-reference-assets/biome-forge-sprite.png); --cluster-y: 48%; }
+        .atlas-cluster-prop-sprite.atlas-cluster-prop-signal { --cluster-image: url(/images/atlas-reference-assets/biome-crystal-sprite.png); --cluster-y: 46%; }
+        .atlas-cluster-prop-sprite.atlas-cluster-prop-water { --cluster-image: url(/images/atlas-reference-assets/biome-water-sprite.png); --cluster-y: 36%; }
+
+        .atlas-cluster-prop-variant-0 { --cluster-x: 0%; }
+        .atlas-cluster-prop-variant-1 { --cluster-x: 25%; }
+        .atlas-cluster-prop-variant-2 { --cluster-x: 50%; }
+        .atlas-cluster-prop-variant-3 { --cluster-x: 75%; }
+        .atlas-cluster-prop-variant-4 { --cluster-x: 100%; }
+        .atlas-cluster-prop-variant-5 { --cluster-x: 0%; --cluster-y: 78%; }
+        .atlas-cluster-prop-variant-6 { --cluster-x: 25%; --cluster-y: 78%; }
+        .atlas-cluster-prop-variant-7 { --cluster-x: 50%; --cluster-y: 78%; }
+        .atlas-cluster-prop-variant-8 { --cluster-x: 75%; --cluster-y: 78%; }
+        .atlas-cluster-prop-variant-9 { --cluster-x: 100%; --cluster-y: 78%; }
+
         .atlas-repo-marker {
           position: absolute;
           z-index: 6;
-          --repo-visual-width: clamp(36px, calc(var(--repo-width) * 3.2), 86px);
-          --repo-visual-height: clamp(48px, calc(var(--repo-height) * 1.55 + 24px), 138px);
-          --repo-sprite-x: 4%;
+          --repo-visual-width: clamp(38px, calc(var(--repo-width) * 3.25), 92px);
+          --repo-visual-height: clamp(58px, calc(var(--repo-height) * 1.62 + 32px), 158px);
+          --repo-sprite-x: 0%;
           --repo-sprite-y: 48%;
-          --repo-sprite-size: 520% auto;
-          width: calc(var(--repo-visual-width) + 24px);
-          height: calc(var(--repo-visual-height) + 24px);
+          --repo-sprite-size: 500% auto;
+          width: calc(var(--repo-visual-width) + 34px);
+          height: calc(var(--repo-visual-height) + 38px);
           padding: 0;
           border: 0;
           background: transparent;
@@ -6366,6 +6482,8 @@ export default function Home() {
           cursor: pointer;
           isolation: isolate;
           opacity: var(--repo-marker-opacity);
+          contain: layout paint style;
+          backface-visibility: hidden;
         }
 
         .atlas-ambient-marker {
@@ -6381,8 +6499,8 @@ export default function Home() {
         }
 
         .atlas-repo-marker.atlas-ambient-marker span {
-          filter: contrast(1.04) saturate(1.34) brightness(1.12);
-          opacity: 0.78;
+          filter: saturate(1.16) brightness(1.08);
+          opacity: 0.72;
         }
 
         .atlas-repo-marker.atlas-ambient-marker:nth-of-type(3n) span {
@@ -6425,12 +6543,11 @@ export default function Home() {
           background-color: transparent;
           clip-path: none;
           filter:
-            contrast(1.14)
-            saturate(1.62)
-            brightness(1.28);
+            saturate(1.38)
+            brightness(1.18);
           mix-blend-mode: screen;
-          -webkit-mask-image: radial-gradient(ellipse at 50% 64%, #000 0 52%, rgba(0,0,0,0.88) 60%, transparent 82%);
-          mask-image: radial-gradient(ellipse at 50% 64%, #000 0 52%, rgba(0,0,0,0.88) 60%, transparent 82%);
+          -webkit-mask-image: radial-gradient(ellipse at 50% 62%, #000 0 74%, rgba(0,0,0,0.9) 86%, transparent 100%);
+          mask-image: radial-gradient(ellipse at 50% 62%, #000 0 74%, rgba(0,0,0,0.9) 86%, transparent 100%);
           transform: translateX(-50%);
           transition: transform 140ms ease, filter 140ms ease;
         }
@@ -6493,7 +6610,7 @@ export default function Home() {
         }
 
         .atlas-repo-kind-standard span {
-          --repo-sprite-x: 4%;
+          --repo-sprite-x: 0%;
         }
 
         .atlas-repo-kind-safe span {
@@ -6501,37 +6618,35 @@ export default function Home() {
         }
 
         .atlas-repo-kind-activity span {
-          --repo-sprite-x: 48%;
+          --repo-sprite-x: 50%;
         }
 
         .atlas-repo-kind-community span {
-          --repo-sprite-x: 72%;
+          --repo-sprite-x: 75%;
         }
 
         .atlas-repo-kind-pr span {
-          --repo-sprite-x: 72%;
-          --repo-sprite-size: 535% auto;
+          --repo-sprite-x: 75%;
+          --repo-sprite-size: 505% auto;
         }
 
         .atlas-repo-kind-landmark span {
-          --repo-sprite-x: 96%;
-          --repo-sprite-size: 545% auto;
-          -webkit-mask-image: radial-gradient(ellipse at 50% 64%, #000 0 60%, rgba(0,0,0,0.9) 68%, transparent 88%);
-          mask-image: radial-gradient(ellipse at 50% 64%, #000 0 60%, rgba(0,0,0,0.9) 68%, transparent 88%);
+          --repo-sprite-x: 100%;
+          --repo-sprite-size: 505% auto;
+          -webkit-mask-image: radial-gradient(ellipse at 50% 62%, #000 0 82%, rgba(0,0,0,0.92) 92%, transparent 100%);
+          mask-image: radial-gradient(ellipse at 50% 62%, #000 0 82%, rgba(0,0,0,0.92) 92%, transparent 100%);
         }
 
         .atlas-repo-kind-pr span {
           filter:
-            contrast(1.08)
-            saturate(1.58)
-            brightness(1.24);
+            saturate(1.42)
+            brightness(1.2);
         }
 
         .atlas-repo-kind-safe span {
           filter:
-            contrast(1.08)
-            saturate(1.58)
-            brightness(1.24);
+            saturate(1.42)
+            brightness(1.2);
         }
 
         .atlas-repo-kind-community span::before {
@@ -6560,11 +6675,8 @@ export default function Home() {
         .atlas-repo-marker.is-selected span {
           transform: translateX(-50%) translateY(-8px) scale(1.16);
           filter:
-            drop-shadow(12px 18px 0 rgba(0, 0, 0, 0.2))
-            drop-shadow(0 0 30px color-mix(in srgb, var(--repo-accent), transparent 28%))
-            contrast(1.08)
             brightness(1.32)
-            saturate(1.7);
+            saturate(1.55);
         }
 
         @keyframes atlasRepoBreathe {
