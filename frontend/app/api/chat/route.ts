@@ -18,8 +18,8 @@ export async function POST(req: Request) {
 
     console.log('[Next.js API] Proxying query to Python Graph DB:', userMessage);
 
-    // Call Python FastAPI
-    const backendRes = await fetch('http://localhost:8000/api/py/graph-search', {
+    const backendUrl = new URL('/api/py/graph-search', req.url);
+    const backendRes = await fetch(backendUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: userMessage })
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('[Chat API] Error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to process request. Make sure the Python backend is running on port 8000!' },
+      { error: error.message || 'Failed to process request from the graph backend.' },
       { status: 500 },
     );
   }
