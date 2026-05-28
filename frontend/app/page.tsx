@@ -119,6 +119,7 @@ type Repo = {
 
 type GraphRepositoryNode = {
   id?: string;
+  backendId?: number;
   name?: string;
   fullName?: string;
   full_name?: string;
@@ -514,6 +515,7 @@ function isGraphRepositoryNode(node: GraphRepositoryNode) {
 }
 
 function backendRepoIdFromGraphNode(node: GraphRepositoryNode) {
+  if (typeof node.backendId === 'number') return node.backendId;
   const match = /^repo_(\d+)$/.exec(node.id ?? '');
   return match ? Number(match[1]) : undefined;
 }
@@ -1575,9 +1577,10 @@ export default function Home() {
     const loadGraph = async () => {
       let lastError: unknown = null;
       setLoadingRepos(true);
-      const maxAttempts = process.env.NODE_ENV === 'production' ? 2 : GRAPH_FETCH_ATTEMPTS;
+      const shouldUseDemoFallback = process.env.NODE_ENV !== 'production';
+      let attempt = 1;
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      while (!cancelled && (shouldUseDemoFallback ? attempt <= GRAPH_FETCH_ATTEMPTS : true)) {
         try {
           setLoadingStageIndex(0);
           setLoadingProgress(8);
@@ -1610,14 +1613,20 @@ export default function Home() {
           return;
         } catch (error) {
           lastError = error;
-          if (attempt < maxAttempts) {
+          if (!cancelled && (!shouldUseDemoFallback || attempt < GRAPH_FETCH_ATTEMPTS)) {
+            const retryDelay = shouldUseDemoFallback
+              ? GRAPH_FETCH_RETRY_DELAY_MS * attempt
+              : Math.min(6000, GRAPH_FETCH_RETRY_DELAY_MS * attempt);
             setLoadingStageIndex(1);
             setLoadingProgress(18);
-            setLoadingDetail(`Retrying graph endpoint in ${(GRAPH_FETCH_RETRY_DELAY_MS * attempt / 1000).toFixed(1)}s`);
-            await wait(GRAPH_FETCH_RETRY_DELAY_MS * attempt);
+            setLoadingDetail(`Retrying graph endpoint in ${(retryDelay / 1000).toFixed(1)}s`);
+            await wait(retryDelay);
           }
         }
+        attempt += 1;
       }
+
+      if (!shouldUseDemoFallback || cancelled) return;
 
       console.error('[SIFT graph] Failed to fetch local graph; using demo repositories:', lastError);
       if (!cancelled) {
