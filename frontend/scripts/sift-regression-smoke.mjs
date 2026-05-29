@@ -104,6 +104,39 @@ page.on('pageerror', (error) => {
   consoleProblems.push(`pageerror: ${error.message}`);
 });
 
+const clickHitTarget = async (selector, label) => {
+  let hit = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    hit = await page.evaluate(({ selector: targetSelector }) => {
+      const element = document.querySelector(targetSelector);
+      if (!element) return { found: false };
+      const rect = element.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const target = document.elementFromPoint(x, y);
+      return {
+        found: true,
+        sameHitTarget: target === element || element.contains(target),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        x,
+        y,
+        hitTag: target?.tagName ?? null,
+        hitClass: target?.className ?? null,
+        hitLabel: target?.getAttribute?.('aria-label') ?? null,
+        hitText: target?.textContent?.trim().slice(0, 80) ?? null,
+      };
+    }, { selector });
+
+    if (hit.found && hit.sameHitTarget) break;
+    await page.waitForTimeout(100);
+  }
+
+  if (!hit.found || !hit.sameHitTarget) fail(`${label} control is not directly clickable`, hit);
+  await page.evaluate(({ selector: targetSelector }) => {
+    document.querySelector(targetSelector)?.click();
+  }, { selector });
+};
+
 await page.route('**/api/py/graph-full?**', async (route) => {
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(graphFixture()) });
 });
@@ -132,6 +165,14 @@ try {
   await page.addInitScript(() => localStorage.setItem('sift.cityIntroSeen', 'true'));
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(() => !document.querySelector('.sift-loading-screen') && window.__siftCameraProbe, null, { timeout: 60_000 });
+  const networkMapState = await page.evaluate(() => ({
+    headingVisible: document.body.innerText.toLowerCase().includes('repo relationship map'),
+    nodeCount: document.querySelectorAll('.network-map-node').length,
+    linkCount: document.querySelectorAll('.network-map-lines line').length,
+  }));
+  if (!networkMapState.headingVisible || networkMapState.nodeCount < 3 || networkMapState.linkCount < 1) {
+    fail('2D relationship map did not render usable nodes and edges', networkMapState);
+  }
 
   await page.waitForTimeout(2_900);
   const introProbe = await page.evaluate(() => window.__siftCameraProbe?.());
@@ -154,7 +195,13 @@ try {
     fail('Typing WASD moved the camera', { beforeTyping, passiveTypingDrift, afterTyping, passiveDrift, keyDrift });
   }
 
-  await search.blur();
+  await page.evaluate(() => {
+    document.querySelector('input[aria-label="Search the SIFT city"]')?.blur();
+    document.body.setAttribute('tabindex', '-1');
+    document.body.focus();
+  });
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') !== 'Search the SIFT city', null, { timeout: 5_000 });
   await page.keyboard.down('w');
   await page.waitForTimeout(220);
   await page.keyboard.up('w');
@@ -163,19 +210,26 @@ try {
     fail('WASD did not move camera after input blur', { afterTyping, afterMovement });
   }
 
-  await page.getByRole('button', { name: 'Night appearance' }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: 'Day appearance' }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: 'Zoom out' }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: 'Zoom in' }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: 'Reset camera' }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: /Walkthrough/ }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: 'Close walkthrough' }).click({ noWaitAfter: true });
+  await clickHitTarget('button[aria-label="Night appearance"]', 'Night appearance');
+  await clickHitTarget('button[aria-label="Day appearance"]', 'Day appearance');
+  await clickHitTarget('button[aria-label="Zoom out"]', 'Zoom out');
+  await clickHitTarget('button[aria-label="Zoom in"]', 'Zoom in');
+  await clickHitTarget('button[aria-label="Reset camera"]', 'Reset camera');
+  await clickHitTarget('button.guide-button', 'Walkthrough');
+  await page.waitForFunction(() => document.querySelector('.tutorial-overlay.is-open'), null, { timeout: 5_000 });
+  await clickHitTarget('button[aria-label="Close walkthrough"]', 'Close walkthrough');
+  await page.waitForFunction(() => !document.querySelector('.tutorial-overlay.is-open'), null, { timeout: 5_000 });
 
-  await page.getByRole('button', { name: /^Activity$/ }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: /^Trending$/ }).click({ noWaitAfter: true });
-  await page.getByRole('button', { name: /^View Encoding$/ }).click({ noWaitAfter: true });
+  await clickHitTarget('.scale-activity-chip', 'Activity height scale');
+  await clickHitTarget('.cluster-trending-chip', 'Trending cluster mode');
+  await clickHitTarget('.encoding-chip', 'View Encoding');
   await page.waitForFunction(() => document.body.innerText.includes('Height maps to Activity'), null, { timeout: 8_000 });
-  await page.getByRole('button', { name: 'Close view encoding' }).click({ noWaitAfter: true });
+  await clickHitTarget('button[aria-label="Close view encoding"]', 'Close view encoding');
+  await page.waitForFunction(
+    () => !document.querySelector('.view-encoding-panel') && !document.querySelector('.encoding-chip')?.classList.contains('is-active'),
+    null,
+    { timeout: 5_000 },
+  );
 
   await search.fill('beginner friendly ai repo with fast maintainers');
   await page.waitForFunction(() => {

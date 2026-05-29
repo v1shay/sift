@@ -1794,6 +1794,62 @@ export default function Home() {
       .sort((a, b) => (b.goodFirstIssues * 12 + b.safetyScore + getOpenWorkItems(b) * 0.4) - (a.goodFirstIssues * 12 + a.safetyScore + getOpenWorkItems(a) * 0.4))
       .slice(0, 3);
   }, [effectiveRepos]);
+  const networkMap = useMemo(() => {
+    const seen = new Set<string>();
+    const candidateRepos = [
+      ...loadedTodayRepos,
+      ...loadedRepos.slice(0, 3),
+      ...highStarTrending,
+      ...lowStarPromising,
+      ...rankReposForCluster(effectiveRepos, clusterMode).slice(0, 4),
+    ].filter((repo) => {
+      if (seen.has(repo.id)) return false;
+      seen.add(repo.id);
+      return true;
+    }).slice(0, 9);
+
+    const nodeCount = Math.max(candidateRepos.length, 1);
+    const nodes = candidateRepos.map((repo, index) => {
+      const angle = -Math.PI / 2 + (index / nodeCount) * Math.PI * 2;
+      const district = districtFor(repo);
+      const signal = repo.safetyScore + getOpenWorkItems(repo) * 0.06 + repo.goodFirstIssues * 0.3;
+      return {
+        repo,
+        x: 50 + Math.cos(angle) * 36,
+        y: 52 + Math.sin(angle) * 32,
+        size: clamp(24 + Math.log10(repo.stars + 10) * 2.8, 29, 43),
+        color: district.color,
+        signal: Math.round(signal),
+      };
+    });
+
+    const links = nodes.flatMap((source, sourceIndex) => nodes.slice(sourceIndex + 1).map((target) => {
+      const sharedTopics = source.repo.topics.filter((topic) => target.repo.topics.includes(topic)).length;
+      const districtMatch = source.repo.district === target.repo.district ? 3 : 0;
+      const languageMatch = source.repo.language === target.repo.language ? 2 : 0;
+      const ownerMatch = source.repo.owner === target.repo.owner ? 2 : 0;
+      const weight = districtMatch + languageMatch + ownerMatch + Math.min(sharedTopics, 3);
+      return {
+        id: `${source.repo.id}-${target.repo.id}`,
+        weight,
+        x1: source.x,
+        y1: source.y,
+        x2: target.x,
+        y2: target.y,
+        color: source.color,
+      };
+    }))
+      .filter((link) => link.weight > 0)
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 14);
+
+    return {
+      nodes,
+      links,
+      ecosystems: new Set(candidateRepos.map((repo) => repo.language)).size,
+      openWork: candidateRepos.reduce((total, repo) => total + getOpenWorkItems(repo), 0),
+    };
+  }, [clusterMode, effectiveRepos, highStarTrending, loadedRepos, loadedTodayRepos, lowStarPromising]);
   const fallbackCity = useMemo(() => {
     const items = visualReposByDistrict.flatMap(({ repos }) => repos.map((repo, index) => {
       const layout = createRepoLayout(repo, index, repos, heightScaleDriver);
@@ -3140,7 +3196,7 @@ export default function Home() {
 
   return (
     <main
-      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''}`}
+      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''} ${viewEncodingOpen ? 'is-view-encoding' : ''}`}
       aria-label="SIFT 3D open-source city"
       style={{
         '--atlas-pan-x': `${atlasView.x}px`,
@@ -3273,7 +3329,10 @@ export default function Home() {
           </button>
         </div>
 
-        <form className={`search-cluster ${selectedRepo ? 'has-panel' : ''}`} onSubmit={handleSubmit}>
+        <form
+          className={`search-cluster ${selectedRepo ? 'has-panel' : ''} ${viewEncodingOpen ? 'has-encoding-panel' : ''}`}
+          onSubmit={handleSubmit}
+        >
           <div className="glass-search" onMouseMove={handleSearchMove}>
             <span className="glass-pulse" aria-hidden="true" />
             <input
@@ -3517,6 +3576,56 @@ export default function Home() {
         <div className="network-status">
           <span>{loadingRepos ? 'syncing graph' : `${effectiveRepos.length} mapped`}</span>
           <strong>{importStatus}</strong>
+        </div>
+
+        <div className="network-map" aria-label="2D repository relationship map">
+          <div className="network-map-head">
+            <span>
+              <Network size={12} strokeWidth={1.8} />
+              Repo Relationship Map
+            </span>
+            <strong>{networkMap.nodes.length} nodes · {networkMap.links.length} links</strong>
+          </div>
+          <div className="network-map-canvas">
+            <svg className="network-map-lines" viewBox="0 0 100 100" aria-hidden="true">
+              {networkMap.links.map((link) => (
+                <line
+                  key={link.id}
+                  x1={link.x1}
+                  y1={link.y1}
+                  x2={link.x2}
+                  y2={link.y2}
+                  stroke={link.color}
+                  strokeOpacity={0.18 + link.weight * 0.08}
+                  strokeWidth={0.5 + link.weight * 0.26}
+                  strokeLinecap="round"
+                />
+              ))}
+            </svg>
+            {networkMap.nodes.map((node) => (
+              <button
+                key={`map-${node.repo.id}`}
+                className="network-map-node"
+                type="button"
+                style={{
+                  '--node-color': node.color,
+                  '--node-size': `${node.size}px`,
+                  left: `${node.x}%`,
+                  top: `${node.y}%`,
+                } as CSSProperties}
+                onClick={() => focusRepo(node.repo)}
+                title={`${node.repo.owner}/${node.repo.name}`}
+                aria-label={`Focus ${node.repo.owner}/${node.repo.name} in the 2D relationship map`}
+              >
+                <span>{node.repo.name.slice(0, 2).toUpperCase()}</span>
+                <i>{node.signal}</i>
+              </button>
+            ))}
+          </div>
+          <div className="network-map-meta">
+            <span>{networkMap.ecosystems} ecosystems</span>
+            <span>{networkMap.openWork.toLocaleString()} open items</span>
+          </div>
         </div>
 
         <div className="network-lists">
@@ -4060,6 +4169,10 @@ export default function Home() {
           transform: translateY(0);
         }
 
+        .sift-page.is-view-encoding .city-ui {
+          z-index: 6;
+        }
+
         .control-dock {
           position: absolute;
           top: 24px;
@@ -4189,6 +4302,10 @@ export default function Home() {
         .search-cluster.has-panel {
           left: calc(50% - 178px);
           width: min(660px, calc(100vw - 430px));
+        }
+
+        .search-cluster.has-encoding-panel {
+          z-index: 6;
         }
 
         .glass-search {
@@ -4868,6 +4985,7 @@ export default function Home() {
           right: 32px;
           z-index: 5;
           width: min(360px, calc(100vw - 64px));
+          max-height: calc(100vh - 132px);
           display: grid;
           gap: 10px;
           padding: 12px;
@@ -4881,6 +4999,7 @@ export default function Home() {
           -webkit-backdrop-filter: blur(32px) saturate(180%);
           opacity: 0;
           transform: translateY(16px);
+          overflow-y: auto;
           pointer-events: none;
           transition: opacity 280ms ease, transform 280ms ease, right 280ms ease;
         }
@@ -5030,6 +5149,117 @@ export default function Home() {
           font-size: 10px;
           font-weight: 400;
           line-height: 1.45;
+        }
+
+        .network-map {
+          display: grid;
+          gap: 8px;
+          min-height: 162px;
+          padding: 10px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px;
+          background:
+            radial-gradient(circle at 24% 24%, rgba(79,183,197,0.12), transparent 35%),
+            radial-gradient(circle at 76% 72%, rgba(242,166,90,0.1), transparent 38%),
+            rgba(255,255,255,0.03);
+        }
+
+        .network-map-head,
+        .network-map-head span,
+        .network-map-head strong,
+        .network-map-meta,
+        .network-map-node span,
+        .network-map-node i {
+          font-family: "Space Mono", monospace;
+          letter-spacing: 0;
+        }
+
+        .network-map-head,
+        .network-map-meta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .network-map-head span {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: rgba(255,255,255,0.64);
+          font-size: 9px;
+          text-transform: uppercase;
+        }
+
+        .network-map-head strong,
+        .network-map-meta span {
+          color: rgba(255,255,255,0.42);
+          font-size: 9px;
+          font-weight: 400;
+          white-space: nowrap;
+        }
+
+        .network-map-canvas {
+          position: relative;
+          min-height: 104px;
+          overflow: hidden;
+          border-radius: 8px;
+          background:
+            linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+            rgba(2,7,14,0.22);
+          background-size: 22px 22px;
+        }
+
+        .network-map-lines {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+        }
+
+        .network-map-node {
+          position: absolute;
+          display: grid;
+          place-items: center;
+          width: var(--node-size);
+          height: var(--node-size);
+          min-width: 28px;
+          min-height: 28px;
+          padding: 0;
+          border: 1px solid color-mix(in srgb, var(--node-color), white 24%);
+          border-radius: 50%;
+          color: rgba(255,255,255,0.92);
+          background:
+            radial-gradient(circle at 35% 28%, rgba(255,255,255,0.26), transparent 28%),
+            color-mix(in srgb, var(--node-color), rgba(2,7,14,0.86) 42%);
+          box-shadow: 0 10px 28px color-mix(in srgb, var(--node-color), transparent 76%);
+          cursor: pointer;
+          transform: translate(-50%, -50%);
+          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .network-map-node:hover,
+        .network-map-node:focus-visible {
+          border-color: rgba(255,255,255,0.72);
+          box-shadow: 0 14px 34px color-mix(in srgb, var(--node-color), transparent 58%);
+          outline: none;
+          transform: translate(-50%, -50%) scale(1.08);
+        }
+
+        .network-map-node span {
+          font-size: 9px;
+          font-weight: 800;
+          line-height: 1;
+        }
+
+        .network-map-node i {
+          margin-top: -4px;
+          color: rgba(255,255,255,0.58);
+          font-size: 7px;
+          font-style: normal;
+          line-height: 1;
         }
 
         .network-lists {
