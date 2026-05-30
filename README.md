@@ -28,15 +28,15 @@
 ## Contributing
 
 <a href="https://github.com/v1shay/sift/issues/6">
-  <img src="https://img.shields.io/badge/current-issue%20%236%20·%20new%20features-238636?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/current-issue%20%236%20·%20new%20features-238636?style=flat-square" />
 </a>
 
 <a href="https://github.com/v1shay/sift/issues">
-  <img src="https://img.shields.io/badge/issues-view%20all-0969da?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/issues-view%20all-0969da?style=flat-square" />
 </a>
 
 <a href="https://github.com/v1shay/sift/issues/new">
-  <img src="https://img.shields.io/badge/discussion-open%20an%20issue-8250df?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/discussion-open%20an%20issue-8250df?style=flat-square" />
 </a>
 
 </div>
