@@ -59,9 +59,7 @@
 - derives repository response times across issues and pull requests
 - verifies repository maintainers, branch protection, and signed releases
 
-‎ 
 
-<div align=center>
   
 ## Architecture
 
@@ -88,7 +86,7 @@ Analytics Engine
 Sift LLM (RAG)
   └─ Natural language navigation
 ```
-</div>
+
 
 ## Local Development
 
