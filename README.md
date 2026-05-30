@@ -5,10 +5,10 @@
 
 <br />
 
-<img src="https://img.shields.io/badge/repos%20modeled-10%2C223-2ea44f?style=for-the-badge" />
-<img src="https://img.shields.io/badge/open%20items%20mapped-1M%2B-0969da?style=for-the-badge" />
-<img src="https://img.shields.io/badge/repository%20expansion-1%E2%86%92N-8250df?style=for-the-badge" />
-<img src="https://img.shields.io/badge/retrieval%20time-sub--5ms-f0883e?style=for-the-badge" />
+<img src="https://img.shields.io/badge/repos%20modeled-10%2C223-2ea44f?style=flat-square" />
+<img src="https://img.shields.io/badge/open%20items%20mapped-1M%2B-0969da?style=flat-square" />
+<img src="https://img.shields.io/badge/repository%20expansion-1%E2%86%92N-8250df?style=flat-square" />
+<img src="https://img.shields.io/badge/retrieval%20time-sub--5ms-f0883e?style=flat-square" />
 
 <br />
 
