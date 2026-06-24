@@ -229,7 +229,7 @@ type SceneRefs = {
   focusTransition: CameraFocusTransition | null;
 };
 
-const DISTRICTS: District[] = [
+const DISTRICTS: District[] = ([
   // Functional districts laid out as a fixed-perspective contribution atlas.
   { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -390, z: -560, shape: 'spires', parent: 'systems' },
   { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 40, z: -595, shape: 'megatowers', parent: 'web' },
@@ -271,7 +271,19 @@ const DISTRICTS: District[] = [
   { key: 'robotics_yard', label: 'Robotics + Hardware', color: '#65a30d', accent: '#d9f99d', x: -1020, z: 275, shape: 'overgrown', parent: 'systems' },
   { key: 'science_quarry', label: 'Science + Simulation', color: '#a16207', accent: '#fde68a', x: 1000, z: 245, shape: 'caves', parent: 'systems' },
   { key: 'protocol_marshes', label: 'Protocols + P2P', color: '#0891b2', accent: '#cffafe', x: 1020, z: -235, shape: 'holographic', parent: 'infra' },
-];
+] as District[]).map((district, index) => {
+  const distance = Math.hypot(district.x, district.z);
+  const outwardScale = distance > 900 ? 1.78 : distance > 650 ? 1.58 : distance > 430 ? 1.34 : 1;
+  const tangentX = distance > 650 ? -district.z / Math.max(1, distance) : 0;
+  const tangentZ = distance > 650 ? district.x / Math.max(1, distance) : 0;
+  const tangentOffset = distance > 650 ? ((index % 3) - 1) * 160 : 0;
+
+  return {
+    ...district,
+    x: clamp(district.x * outwardScale + tangentX * tangentOffset, -1900, 1900),
+    z: clamp(district.z * outwardScale + tangentZ * tangentOffset, -1550, 1550),
+  };
+});
 
 const SAFETY_GREEN_THRESHOLD = 75;
 const SAFETY_AMBER_THRESHOLD = 60;
@@ -1250,8 +1262,8 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   const angle = index * 2.399963 + seededUnit(seed) * 0.55;
   
   // Restore original radius logic for better spacing/breathing room
-  const radius = 13 + Math.sqrt(index + 1) * 12.8 + seededUnit(seed + 2) * 10.5;
-  const laneOffset = Math.floor(index / 11) * 3.8;
+  const radius = 18 + Math.sqrt(index + 1) * 17.5 + seededUnit(seed + 2) * 15;
+  const laneOffset = Math.floor(index / 9) * 6;
   const x = district.x + Math.cos(angle) * (radius + laneOffset) * 1.42;
   const z = district.z + Math.sin(angle) * (radius + laneOffset) * 1.14 + Math.cos(index * 1.13) * 5.5;
 
@@ -8196,7 +8208,7 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
   createDistrictLabel(scene, district);
 
   // Procedural Clutter Layers
-  const clutterCount = 24 + (districtIndex % 5) * 8;
+  const clutterCount = 8 + (districtIndex % 4) * 3;
   for (let i = 0; i < clutterCount; i++) {
     const angle = (i / clutterCount) * Math.PI * 2 + seededUnit(propSeed + i) * 0.5;
     const dist = 40 + seededUnit(propSeed + i + 10) * 85;
