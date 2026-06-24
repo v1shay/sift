@@ -771,7 +771,7 @@ const REPOS: Repo[] = [
   },
 ];
 
-const GRAPH_REPO_LIMIT = 3000;
+const GRAPH_REPO_LIMIT = 10000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
@@ -824,8 +824,8 @@ function createSiftText(scene: THREE.Scene) {
   scene.add(group);
   return group;
 }
-const CAMERA_HOME = new THREE.Vector3(0, 390, 1460);
-const TARGET_HOME = new THREE.Vector3(0, 42, 20);
+const CAMERA_HOME = new THREE.Vector3(0, 300, 1210);
+const TARGET_HOME = new THREE.Vector3(0, 58, 20);
 const MIN_ZOOM = 0.48;
 const MAX_ZOOM = 1.68;
 const REPO_FOCUS_ZOOM = 0.9;
@@ -838,8 +838,8 @@ const CAMERA_DRAG_YAW_SPEED = 0.0042;
 const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
 const CAMERA_KEY_PAN_SPEED = 18;
 const CAMERA_MAX_YAW = Math.PI * 0.62;
-const VISUAL_REPOS_PER_DISTRICT_MIN = 10;
-const VISUAL_REPOS_PER_DISTRICT_MAX = 28;
+const VISUAL_REPOS_PER_DISTRICT_MIN = 12;
+const VISUAL_REPOS_PER_DISTRICT_MAX = 22;
 const MAX_INSTANCED_REPO_MARKERS = 12000;
 const REPO_MARKER_WORLD_EDGE = 1720;
 const DETAIL_VIEW_ZOOM_THRESHOLD = 0.86;
@@ -1273,15 +1273,15 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
     0.95;
   const districtHeroBoost = FEATURED_DISTRICT_KEYS.has(district.key) ? 1.15 : 0.92;
   
-  // Rebalanced Height: Min 30, Max ~95. Prominent but not claustrophobic.
-  const height = clamp(12.5 + compressedDriver * 75 * heightBias * districtHeroBoost, 30, 95);
+  // Keep the repository skyline as the visual focus.
+  const height = clamp((12.5 + compressedDriver * 75 * heightBias * districtHeroBoost) * 1.5, 45, 142);
   
   const widthBias =
     district.shape === 'blocks' || district.shape === 'apartments' || district.shape === 'valley_villages' ? 1.2 :
     district.shape === 'glass' || district.shape === 'crystal_spires' ? 0.9 :
     1;
-  const width = clamp(3.5 + compressedDriver * 4.5 * widthBias, 4.5, 9.5);
-  const depth = clamp(3.5 + compressedDriver * 4.5 * (district.shape === 'blocks' ? 1.1 : 1), 4.5, 9.5);
+  const width = clamp((3.5 + compressedDriver * 4.5 * widthBias) * 1.35, 6.1, 12.8);
+  const depth = clamp((3.5 + compressedDriver * 4.5 * (district.shape === 'blocks' ? 1.1 : 1)) * 1.35, 6.1, 12.8);
 
   return {
     position: new THREE.Vector3(x, 0, z),
@@ -1727,7 +1727,7 @@ export default function Home() {
   const sceneRef = useRef<SceneRefs | null>(null);
   const enteredRef = useRef(true);
   const filterRef = useRef<FilterKey>('all');
-  const appearanceRef = useRef<Appearance>('day');
+  const appearanceRef = useRef<Appearance>('night');
   const selectedRef = useRef<Repo | null>(null);
   const hoverRef = useRef<Repo | null>(null);
   const similarDistrictRef = useRef<DistrictKey | null>(null);
@@ -1736,7 +1736,7 @@ export default function Home() {
 
   const [entered, setEntered] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [appearance, setAppearance] = useState<Appearance>('day');
+  const [appearance, setAppearance] = useState<Appearance>('night');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
   const [clusterMode, setClusterMode] = useState<ClusterMode>('stack');
   const [viewEncodingOpen, setViewEncodingOpen] = useState(false);
@@ -1796,8 +1796,8 @@ export default function Home() {
           .map((repo) => repo.id),
       );
       const visualLimit = visualRepoLimitForDistrict(district, repos.length, allRepos.length);
-      const ranked = rankReposForCluster(repos, clusterMode);
-      const visible = ranked.filter((repo, index) => index < visualLimit || mustShowIds.has(repo.id));
+      const clusterRanked = rankReposForCluster(repos, clusterMode);
+      const visible = pickVisualRepos(clusterRanked, visualLimit, mustShowIds);
       return { district, repos: visible };
     });
   }, [allRepos.length, clusterMode, loadedRepos, sceneReposByDistrict, selectedRepo]);
@@ -2056,7 +2056,7 @@ export default function Home() {
 
     const roads = createRoads(scene, buildings);
     applyFilter(buildings, roads, filterRef.current);
-    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, new Set());
+    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, defaultDetailedRepoIds);
     if (markerField) hitTargets.push(markerField);
     const markerRepoIds = markerField?.userData.repoIds as string[] | undefined;
     const markerEntries = markerField?.userData.markerEntries as Array<{ repo: Repo; district: District; repos: Repo[]; index: number }> | undefined;
@@ -3333,14 +3333,6 @@ export default function Home() {
         <div className="gitlab-source-badge" aria-label="Sourced from GitLab">
           <img src="/gitlab-logo.png" alt="" />
           <span><small>OPEN SOURCE INTELLIGENCE</small>Sourced from GitLab</span>
-        </div>
-
-        <div className="signal-legend" aria-label="Repository color legend">
-          <span><i style={{ background: '#fc6d26' }} />GitLab / activity</span>
-          <span><i style={{ background: '#ef4444' }} />risk / stale</span>
-          <span><i style={{ background: '#22d3ee' }} />contributors</span>
-          <span><i style={{ background: '#a855f7' }} />issues / MRs</span>
-          <span><i style={{ background: '#22c55e' }} />healthy</span>
         </div>
 
         <div className="control-dock" aria-label="City view controls">
@@ -6822,39 +6814,6 @@ export default function Home() {
           letter-spacing: 0.08em;
         }
 
-        .signal-legend {
-          position: absolute;
-          top: 78px;
-          left: 50%;
-          z-index: 11;
-          display: flex;
-          gap: 11px;
-          transform: translateX(-50%);
-          padding: 6px 10px;
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 999px;
-          background: rgba(7,8,13,0.54);
-          color: rgba(255,255,255,0.56);
-          font-family: "Space Mono", monospace;
-          font-size: 8px;
-          backdrop-filter: blur(18px);
-          pointer-events: none;
-        }
-
-        .signal-legend span {
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          white-space: nowrap;
-        }
-
-        .signal-legend i {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          box-shadow: 0 0 8px currentColor;
-        }
-
         .gitlab-inline-logo {
           width: 15px;
           height: 15px;
@@ -6938,10 +6897,6 @@ export default function Home() {
         }
 
         @media (max-width: 820px) {
-          .signal-legend {
-            display: none;
-          }
-
           .gitlab-source-badge {
             top: 14px;
           }
@@ -7017,8 +6972,8 @@ function createInstancedRepoField(
   const markerPositions: THREE.Vector3[] = [];
   markerEntries.forEach(({ repo, district, repos, index }, markerIndex) => {
     const { x, z, seed } = instancedRepoPosition(repo, index, district, repos);
-    const height = clamp(3.8 + Math.log10(repo.stars + getOpenWorkItems(repo) + 2) * 7.4, 4.8, 30);
-    const footprint = clamp(1.1 + Math.log10(repo.forks + 2) * 0.52 + seededUnit(seed + 3) * 0.55, 1.1, 3.4);
+    const height = clamp((3.8 + Math.log10(repo.stars + getOpenWorkItems(repo) + 2) * 7.4) * 1.5, 7.2, 45);
+    const footprint = clamp((1.1 + Math.log10(repo.forks + 2) * 0.52 + seededUnit(seed + 3) * 0.55) * 1.25, 1.4, 4.25);
     dummy.position.set(x, getTerrainSurfaceY(x, z) + Z.buildings + height / 2, z);
     dummy.rotation.y = seededUnit(seed + 6) * Math.PI;
     dummy.scale.set(footprint, height, footprint);
@@ -7042,23 +6997,32 @@ function createInstancedRepoField(
 function repoSignalPalette(repo: Repo) {
   const openWork = getOpenWorkItems(repo);
   const highSignal = repo.stars >= 50000 || repo.contributors >= 500 || openWork >= 500;
+  const district = districtFor(repo);
+  const base = new THREE.Color(district.color);
+  const accent = new THREE.Color(district.accent);
+  const seed = repoDetailSeed(repo);
+  const variation = seededUnit(seed + 41);
+
+  if (variation > 0.7) base.lerp(accent, 0.18 + (variation - 0.7) * 0.5);
+  else base.lerp(new THREE.Color('#080a10'), 0.08 + (0.7 - variation) * 0.12);
+  const baseHsl = { h: 0, s: 0, l: 0 };
+  const accentHsl = { h: 0, s: 0, l: 0 };
+  base.getHSL(baseHsl);
+  accent.getHSL(accentHsl);
+  base.setHSL(baseHsl.h, Math.max(0.62, baseHsl.s), Math.max(0.46, baseHsl.l));
+  accent.setHSL(accentHsl.h, Math.max(0.58, accentHsl.s), Math.max(0.68, accentHsl.l));
 
   if (repo.importSource === 'gitlab' || repo.loadedAt) {
-    return { base: '#fc6d26', accent: '#fca326', emissive: 0.34, highSignal: true };
+    base.lerp(new THREE.Color('#fc6d26'), 0.34);
+    accent.lerp(new THREE.Color('#fca326'), 0.28);
+    return { base: `#${base.getHexString()}`, accent: `#${accent.getHexString()}`, emissive: 0.38, highSignal: true };
   }
-  if (repo.safetyScore < 58 || repo.responseHours > 96) {
-    return { base: '#b91c1c', accent: '#fb7185', emissive: highSignal ? 0.2 : 0.08, highSignal };
-  }
-  if (repo.openPRs + (repo.openIssues ?? 0) >= 180) {
-    return { base: '#7e22ce', accent: '#c084fc', emissive: highSignal ? 0.28 : 0.12, highSignal };
-  }
-  if (repo.contributors >= 120) {
-    return { base: '#0891b2', accent: '#67e8f9', emissive: highSignal ? 0.28 : 0.12, highSignal };
-  }
-  if (repo.safetyScore >= 78 && repo.commitsPerWeek >= 8) {
-    return { base: '#15803d', accent: '#4ade80', emissive: highSignal ? 0.24 : 0.1, highSignal };
-  }
-  return { base: '#303846', accent: '#94a3b8', emissive: highSignal ? 0.14 : 0.025, highSignal };
+  return {
+    base: `#${base.getHexString()}`,
+    accent: `#${accent.getHexString()}`,
+    emissive: highSignal ? 0.32 : 0.13,
+    highSignal,
+  };
 }
 
 
