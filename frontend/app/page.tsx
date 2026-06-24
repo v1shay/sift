@@ -1,7 +1,7 @@
 'use client';
 
 import * as THREE from 'three';
-import { Activity, BarChart3, Github, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Activity, BarChart3, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewEncodingPanel } from '../components/ViewEncodingPanel';
 import { rankReposForCluster, rankReposForIntent } from '../lib/repoMetrics.mjs';
@@ -114,7 +114,7 @@ type Repo = {
   safetyProfile?: SafetyProfile;
   loadedAt?: string;
   wantsContributions?: boolean;
-  importSource?: 'github';
+  importSource?: 'gitlab';
 };
 
 type GraphRepositoryNode = {
@@ -469,11 +469,13 @@ function inferDistrictFromMetadata(stars: number, languageValue?: string | null,
   return infraBiomes[hash % infraBiomes.length];
 }
 
-function parseGithubRepoLocator(value: string) {
+function parseRepositoryLocator(value: string) {
   const trimmed = value.trim().replace(/\.git$/, '');
   if (!trimmed) return null;
   const withoutProtocol = trimmed.replace(/^https?:\/\//, '').replace(/^www\./, '');
-  const path = withoutProtocol.startsWith('github.com/') ? withoutProtocol.slice('github.com/'.length) : withoutProtocol;
+  const path = withoutProtocol
+    .replace(/^gitlab\.com\//, '')
+    .replace(/^github\.com\//, '');
   const [owner, repo] = path.split('/').filter(Boolean);
   if (!owner || !repo) return null;
   return { owner, repo: repo.replace(/[#?].*$/, '') };
@@ -533,7 +535,7 @@ function repoNameFromFullName(fullName: string) {
 }
 
 function ownerFromFullName(fullName: string, fallback?: string) {
-  return fallback || fullName.split('/').filter(Boolean)[0] || 'github';
+  return fallback || fullName.split('/').filter(Boolean)[0] || 'gitlab';
 }
 
 function commitsPerWeekFromDate(value?: string | null) {
@@ -606,7 +608,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
     prs: recentPullRequests.length
       ? recentPullRequests.map((pull, index) => ({
         number: pull.number ?? index + 1,
-        title: pull.title || 'Open pull request',
+        title: pull.title || 'Open merge request',
         priority: index < 2 ? 'hot' : 'normal',
       }))
       : [],
@@ -624,7 +626,7 @@ function pullRequestsFromBackendSummary(summary: BackendPrFlowSummary): PullRequ
     const state = pull.state?.toLowerCase();
     return {
       number: pull.number ?? index + 1,
-      title: pull.title || 'Recent pull request',
+      title: pull.title || 'Recent merge request',
       priority: state === 'open' ? 'hot' : state === 'merged' ? 'normal' : 'quiet',
     };
   });
@@ -769,7 +771,7 @@ const REPOS: Repo[] = [
   },
 ];
 
-const GRAPH_REPO_LIMIT = 12000;
+const GRAPH_REPO_LIMIT = 3000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
 const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
@@ -782,7 +784,7 @@ const LOADING_STAGES = [
   'Scoring contribution safety',
   'Laying terrain chunks',
   'Warming WebGL materials',
-  'Plotting PR traffic',
+  'Plotting merge request traffic',
   'Finalizing camera sweep',
 ];
 
@@ -844,7 +846,7 @@ const DETAIL_VIEW_ZOOM_THRESHOLD = 0.86;
 const DETAIL_VIEW_SCREEN_PADDING = 96;
 const MAX_DYNAMIC_DETAIL_REPOS = 180;
 const MAX_DETAIL_PROMOTIONS_PER_TICK = 18;
-const GRAPH_FETCH_TIMEOUT_MS = 3500;
+const GRAPH_FETCH_TIMEOUT_MS = 15000;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -919,8 +921,8 @@ const TUTORIAL_STEPS = [
     action: 'Try clicking a taller tower or a low neighborhood block.',
   },
   {
-    title: 'Follow PR Traffic',
-    body: 'Thin glowing paths mark a few high-signal pull-request relationships without filling the map with motion.',
+    title: 'Follow MR Traffic',
+    body: 'Thin glowing paths mark a few high-signal merge-request relationships without filling the map with motion.',
     action: 'Look for the sparse paths that connect the largest projects.',
   },
   {
@@ -931,7 +933,7 @@ const TUTORIAL_STEPS = [
   {
     title: 'Contribute Without Risk',
     body: 'Start with good-first issues, read the repo guide, fork instead of requesting direct access, keep changes small, avoid secrets or generated binaries, and let maintainers review before merge.',
-    action: 'Use View on GitHub only after the safety signals look healthy.',
+    action: 'Use View on GitLab only after the safety signals look healthy.',
   },
 ];
 
@@ -1126,7 +1128,7 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   }
 
   const matchedPr = repo.prs.find((pr) => textMatchesTokenizedQuery(pr.title, cleanQuery, tokens));
-  if (matchedPr) addPing('PR activity', `PR #${matchedPr.number}: ${matchedPr.title}`, 38);
+  if (matchedPr) addPing('MR activity', `MR !${matchedPr.number}: ${matchedPr.title}`, 38);
 
   FUNCTION_ALIASES.forEach((alias) => {
     if (!queryIncludesAny(cleanQuery, tokens, alias.terms)) return;
@@ -1354,14 +1356,14 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   const isDay = appearance === 'day';
   refs.scene.background = null;
   refs.renderer.setClearColor(0x000000, 0);
-  refs.scene.fog = new THREE.FogExp2(isDay ? '#9eb8a8' : '#08142a', isDay ? 0.000028 : 0.00022);
-  refs.renderer.toneMappingExposure = isDay ? 1.28 : 1.16;
-  refs.ambient.color.set(isDay ? '#dbeafe' : '#9bb7f0');
-  refs.ambient.intensity = isDay ? 1.3 : 1.05;
-  refs.key.color.set(isDay ? '#fff4cf' : '#dbe8ff');
-  refs.key.intensity = isDay ? 3.2 : 2.75;
-  refs.rim.color.set(isDay ? '#7bbcff' : '#4f8cff');
-  refs.rim.intensity = isDay ? 38 : 74;
+  refs.scene.fog = new THREE.FogExp2(isDay ? '#8b93a1' : '#090b12', isDay ? 0.00008 : 0.00034);
+  refs.renderer.toneMappingExposure = isDay ? 1.1 : 1.22;
+  refs.ambient.color.set(isDay ? '#d8deea' : '#7d8cad');
+  refs.ambient.intensity = isDay ? 1.08 : 0.82;
+  refs.key.color.set(isDay ? '#fff0d7' : '#ffd5bd');
+  refs.key.intensity = isDay ? 2.8 : 3.35;
+  refs.rim.color.set(isDay ? '#a855f7' : '#fc6d26');
+  refs.rim.intensity = isDay ? 32 : 68;
 
   refs.scene.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -1371,8 +1373,8 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
 
     if (role === 'ground' || role === 'terrain') {
       const groundMaterial = (Array.isArray(material) ? material[0] : material) as THREE.MeshStandardMaterial;
-      groundMaterial.color.set(isDay ? '#f2f6f0' : '#8fa0b0');
-      groundMaterial.emissiveIntensity = isDay ? 0.04 : 0.08;
+      groundMaterial.color.set(isDay ? '#87909f' : '#c3cad6');
+      groundMaterial.emissiveIntensity = isDay ? 0.035 : 0.065;
       groundMaterial.transparent = false;
       groundMaterial.opacity = 1;
       groundMaterial.depthWrite = true;
@@ -1566,7 +1568,7 @@ export default function Home() {
   const [loadedRepos, setLoadedRepos] = useState<Repo[]>([]);
   const [repoImport, setRepoImport] = useState('');
   const [importingRepo, setImportingRepo] = useState(false);
-  const [importStatus, setImportStatus] = useState('Paste owner/repo or a GitHub URL.');
+  const [importStatus, setImportStatus] = useState('Paste namespace/project or a GitLab URL.');
   const [wantsContributions, setWantsContributions] = useState(true);
   const [webglError, setWebglError] = useState('');
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
@@ -1634,8 +1636,30 @@ export default function Home() {
         setLoadingProgress(72);
         setLoadingDetail('Backend unavailable; falling back to bundled demo graph');
         setRepos(REPOS.map((repo) => enrichRepoSafety(repo)));
-        setImportStatus('Backend graph unavailable; showing demo repos.');
+        setImportStatus('Backend reconnecting; showing demo repos temporarily.');
         setLoadingRepos(false);
+      }
+
+      while (!cancelled) {
+        await wait(5000);
+        if (cancelled) return;
+        try {
+          const response = await fetchWithTimeout(
+            `/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage&links=false&compact=true`,
+            { cache: 'no-store' },
+          );
+          if (!response.ok) continue;
+          const data = await response.json() as GraphFullResponse;
+          const mappedRepos = (data.nodes ?? [])
+            .filter(isGraphRepositoryNode)
+            .map(buildRepoFromGraphNode);
+          if (!mappedRepos.length) continue;
+          setRepos(mappedRepos);
+          setImportStatus(`Connected to the GitLab-sourced graph · ${mappedRepos.length.toLocaleString()} projects loaded.`);
+          return;
+        } catch {
+          // Keep the demo map interactive while the local backend comes online.
+        }
       }
     };
 
@@ -1888,7 +1912,7 @@ export default function Home() {
   }, [hoveredRepo]);
 
   useEffect(() => {
-    if (allRepos.length > 5000) {
+    if (allRepos.length > 1000) {
       setSafetyProfiles({});
       return undefined;
     }
@@ -1953,8 +1977,8 @@ export default function Home() {
     if (!mount) return undefined;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#040606');
-    scene.fog = new THREE.FogExp2('#0c1514', 0.002);
+    scene.background = new THREE.Color('#07080d');
+    scene.fog = new THREE.FogExp2('#090b12', 0.00034);
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
     const now = performance.now();
@@ -1984,24 +2008,24 @@ export default function Home() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.22;
     renderer.shadowMap.enabled = false;
     mount.appendChild(renderer.domElement);
 
-    const ambient = new THREE.HemisphereLight('#c0e8e0', '#020617', 1.2);
+    const ambient = new THREE.HemisphereLight('#8795b7', '#050609', 0.82);
     scene.add(ambient);
 
-    const key = new THREE.DirectionalLight('#dbe8ff', 4.5);
-    key.position.set(-80, 120, 50);
+    const key = new THREE.DirectionalLight('#ffd5bd', 3.35);
+    key.position.set(-140, 190, 90);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     scene.add(key);
 
-    const rim = new THREE.PointLight('#4fb7c5', 85, 250, 1.8);
+    const rim = new THREE.PointLight('#fc6d26', 68, 360, 1.7);
     rim.position.set(20, 45, -60);
     scene.add(rim);
 
-    scene.fog = new THREE.FogExp2('#0c1514', 0.0018);
+    scene.fog = new THREE.FogExp2('#090b12', 0.00034);
 
     createGround(scene);
     createSky(scene);
@@ -2832,15 +2856,29 @@ export default function Home() {
       }
 
       const similarActive = now < similarUntilRef.current;
+      const hoveredId = hoverRef.current?.id;
       for (const building of buildings) {
         const isHovered = hoverRef.current?.id === building.repo.id;
         const isSelected = selectedRef.current?.id === building.repo.id;
         const isSimilar = similarActive && (similarDistrictRef.current === building.repo.district || similarDistrictRef.current === building.district.parent);
         if (!updateBuildingEffects && !isHovered && !isSelected && !isSimilar) continue;
         const pulse = 0.5 + Math.sin(elapsed * 2.5 + building.phase * 8) * 0.5;
-        building.body.material.emissiveIntensity = isSelected ? 0.12 : isHovered ? 0.08 : isSimilar ? 0.06 + pulse * 0.025 : 0.018;
-        building.top.material.emissiveIntensity = isSelected || isHovered ? 0.32 : isSimilar ? 0.18 : 0.08;
-        building.windows.material.opacity = isHovered || isSelected ? 0.58 : filterRef.current === 'all' ? 0.28 : building.windows.material.opacity;
+        const signal = repoSignalPalette(building.repo);
+        const backgroundDim = Boolean(hoveredId && !isHovered && !isSelected);
+        building.body.material.emissiveIntensity = isSelected
+          ? Math.max(0.58, signal.emissive * 1.7)
+          : isHovered
+            ? Math.max(0.42, signal.emissive * 1.4)
+            : isSimilar
+              ? signal.emissive + pulse * 0.06
+              : signal.emissive;
+        building.top.material.emissiveIntensity = isSelected || isHovered
+          ? 0.72
+          : isSimilar ? 0.32 : signal.highSignal ? 0.34 : 0.14;
+        building.group.scale.y = THREE.MathUtils.lerp(building.group.scale.y, isHovered || isSelected ? 1.045 : 1, 0.18);
+        building.body.material.opacity = backgroundDim ? 0.46 : signal.highSignal ? 0.98 : 0.86;
+        building.top.material.opacity = backgroundDim ? 0.52 : 1;
+        building.windows.material.opacity = backgroundDim ? 0.08 : isHovered || isSelected ? 0.78 : signal.highSignal ? 0.48 : 0.3;
         if (isSelected) {
           const details = ensureSelectedBuildingDetails(building);
           details.visible = true;
@@ -3104,9 +3142,9 @@ export default function Home() {
 
   const handleRepoImport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const locator = parseGithubRepoLocator(repoImport);
+    const locator = parseRepositoryLocator(repoImport);
     if (!locator) {
-      setImportStatus('Use owner/repo or paste a full GitHub repository URL.');
+      setImportStatus('Use namespace/project or paste a full GitLab project URL.');
       return;
     }
 
@@ -3126,7 +3164,7 @@ export default function Home() {
       if (!response.ok || !payload.repo) {
         const backendDetail = payload.detail || `Repository import failed with ${response.status}`;
         throw new Error(response.status === 404
-          ? `${locator.owner}/${locator.repo} was not found on GitHub. Check the spelling or visibility.`
+          ? `${locator.owner}/${locator.repo} was not found on GitLab. Check the spelling or visibility.`
           : backendDetail);
       }
       const imported = buildRepoFromGraphNode(payload.repo);
@@ -3134,7 +3172,7 @@ export default function Home() {
         ...imported,
         loadedAt: new Date().toISOString(),
         wantsContributions,
-        importSource: 'github',
+        importSource: 'gitlab',
       };
       setLoadedRepos((current) => [importedWithSession, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
@@ -3145,7 +3183,7 @@ export default function Home() {
       setGraphRefreshToken((current) => current + 1);
       focusRepo(importedWithSession);
     } catch (error) {
-      console.error('[SIFT imports] GitHub import failed:', error);
+      console.error('[SIFT imports] project import failed:', error);
       const fallbackId = `${locator.owner}/${locator.repo}`.toLowerCase();
       const graphRepo = effectiveRepos.find((repo) => `${repo.owner}/${repo.name}`.toLowerCase() === fallbackId || repo.id === fallbackId);
 
@@ -3154,17 +3192,17 @@ export default function Home() {
           ...graphRepo,
           loadedAt: new Date().toISOString(),
           wantsContributions,
-          importSource: 'github',
+          importSource: 'gitlab',
         };
         setLoadedRepos((current) => [importedFromGraph, ...current.filter((repo) => repo.id !== importedFromGraph.id)].slice(0, 20));
         setRepoImport('');
-        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitHub import was unavailable.`);
+        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitLab import was unavailable.`);
         focusRepo(importedFromGraph);
       } else {
         const message = error instanceof Error ? error.message : '';
         const importFailure = message.toLowerCase().includes('fetch')
           ? 'Backend import route unavailable. Check that the SIFT backend is running, then try again.'
-          : message || 'Could not load that public GitHub repo. Check the owner/repo spelling or try again after GitHub rate limits reset.';
+          : message || 'Could not load that public GitLab project. Check the namespace/project spelling or try again later.';
         setImportStatus(importFailure);
       }
     } finally {
@@ -3208,6 +3246,10 @@ export default function Home() {
       {loadingRepos && (
         <div className="sift-loading-screen">
           <div className="sift-loading-content">
+            <div className="gitlab-loading-brand">
+              <img src="/gitlab-logo.png" alt="" />
+              <span>Sourced from GitLab</span>
+            </div>
             <h1 className="sift-loading-title">SIFT</h1>
             <div className="sift-spinner-8bit"></div>
             <p className="sift-loading-text">{loadingStage}</p>
@@ -3259,6 +3301,10 @@ export default function Home() {
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
         <div className="intro-copy">
+          <div className="gitlab-intro-brand">
+            <img src="/gitlab-logo.png" alt="" />
+            <span>Sourced from GitLab</span>
+          </div>
           <h1 aria-label="sift">
             {'sift'.split('').map((letter, index) => (
               <span key={letter} style={{ animationDelay: `${0.65 + index * 0.18}s` }}>
@@ -3284,6 +3330,19 @@ export default function Home() {
       </div>
 
       <section className={`city-ui ${entered ? 'is-visible' : ''}`} aria-hidden={!entered}>
+        <div className="gitlab-source-badge" aria-label="Sourced from GitLab">
+          <img src="/gitlab-logo.png" alt="" />
+          <span><small>OPEN SOURCE INTELLIGENCE</small>Sourced from GitLab</span>
+        </div>
+
+        <div className="signal-legend" aria-label="Repository color legend">
+          <span><i style={{ background: '#fc6d26' }} />GitLab / activity</span>
+          <span><i style={{ background: '#ef4444' }} />risk / stale</span>
+          <span><i style={{ background: '#22d3ee' }} />contributors</span>
+          <span><i style={{ background: '#a855f7' }} />issues / MRs</span>
+          <span><i style={{ background: '#22c55e' }} />healthy</span>
+        </div>
+
         <div className="control-dock" aria-label="City view controls">
           <div className="tool-group" aria-label="Zoom controls">
             <button type="button" onClick={handleZoomIn} title="Zoom in" aria-label="Zoom in">
@@ -3541,7 +3600,7 @@ export default function Home() {
       <section className={`network-dock ${entered ? 'is-visible' : ''} ${selectedRepo ? 'has-panel' : ''}`} aria-label="Contribution network">
         <div className="network-head">
           <span>
-            <Github size={14} strokeWidth={1.8} />
+            <img className="gitlab-inline-logo" src="/gitlab-logo.png" alt="" />
             Contribution Network
           </span>
         </div>
@@ -3554,8 +3613,8 @@ export default function Home() {
               quietCameraForTextInput();
               setRepoImport(event.target.value);
             }}
-            placeholder="owner/repo"
-            aria-label="Load GitHub repository"
+            placeholder="namespace/project"
+            aria-label="Load GitLab project"
             data-keyboard-capture="true"
           />
           <button type="submit" disabled={importingRepo}>
@@ -3775,12 +3834,12 @@ export default function Home() {
             </div>
 
             <div className="pr-list">
-              <span className="section-label">open pull requests</span>
+              <span className="section-label">open merge requests</span>
               {selectedRepo.prs.map((pr) => (
                 <div className="pr-item" key={pr.number}>
                   <i className={`priority-dot ${pr.priority}`} />
                   <div>
-                    <strong>PR #{pr.number}</strong>
+                    <strong>MR !{pr.number}</strong>
                     <span>{pr.title}</span>
                   </div>
                 </div>
@@ -3788,8 +3847,8 @@ export default function Home() {
             </div>
 
             <div className="panel-actions">
-              <a href={`https://github.com/${selectedRepo.owner}/${selectedRepo.name}`} target="_blank" rel="noreferrer">
-                view on github ↗
+              <a href={`https://gitlab.com/${selectedRepo.owner}/${selectedRepo.name}`} target="_blank" rel="noreferrer">
+                view on gitlab ↗
               </a>
               <button type="button" onClick={handleFindSimilar}>
                 find similar repos
@@ -6447,7 +6506,7 @@ export default function Home() {
 
         .stat-bar {
           top: 10px;
-          right: 116px;
+          right: 360px;
           gap: 42px;
           padding: 5px 12px;
           border: 1px solid rgba(255,255,255,0.08);
@@ -6691,6 +6750,203 @@ export default function Home() {
           animation: loadingDetailPop 420ms steps(4);
         }
 
+        .gitlab-loading-brand,
+        .gitlab-intro-brand,
+        .gitlab-source-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid rgba(252,109,38,0.34);
+          background:
+            linear-gradient(135deg, rgba(252,109,38,0.15), rgba(168,85,247,0.1)),
+            rgba(9,10,16,0.78);
+          box-shadow: 0 16px 48px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.09);
+          backdrop-filter: blur(22px) saturate(150%);
+        }
+
+        .gitlab-loading-brand,
+        .gitlab-intro-brand {
+          border-radius: 999px;
+          padding: 8px 14px 8px 10px;
+          color: rgba(255,255,255,0.88);
+          font-family: "Space Mono", monospace;
+          font-size: 10px;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+
+        .gitlab-loading-brand img,
+        .gitlab-intro-brand img {
+          width: 24px;
+          height: 24px;
+          object-fit: contain;
+        }
+
+        .gitlab-intro-brand {
+          margin-bottom: 4px;
+          opacity: 0;
+          animation: enterIn 800ms cubic-bezier(.16,1,.3,1) 1.8s forwards;
+        }
+
+        .gitlab-source-badge {
+          position: absolute;
+          top: 22px;
+          left: 50%;
+          z-index: 12;
+          transform: translateX(-50%);
+          padding: 8px 14px 8px 10px;
+          border-radius: 12px;
+          pointer-events: none;
+        }
+
+        .gitlab-source-badge img {
+          width: 28px;
+          height: 28px;
+          object-fit: contain;
+          filter: drop-shadow(0 0 12px rgba(252,109,38,0.34));
+        }
+
+        .gitlab-source-badge span {
+          display: grid;
+          gap: 1px;
+          color: rgba(255,255,255,0.94);
+          font-family: "Space Mono", monospace;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .gitlab-source-badge small {
+          color: rgba(255,255,255,0.42);
+          font-size: 7px;
+          font-weight: 500;
+          letter-spacing: 0.08em;
+        }
+
+        .signal-legend {
+          position: absolute;
+          top: 78px;
+          left: 50%;
+          z-index: 11;
+          display: flex;
+          gap: 11px;
+          transform: translateX(-50%);
+          padding: 6px 10px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 999px;
+          background: rgba(7,8,13,0.54);
+          color: rgba(255,255,255,0.56);
+          font-family: "Space Mono", monospace;
+          font-size: 8px;
+          backdrop-filter: blur(18px);
+          pointer-events: none;
+        }
+
+        .signal-legend span {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          white-space: nowrap;
+        }
+
+        .signal-legend i {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          box-shadow: 0 0 8px currentColor;
+        }
+
+        .gitlab-inline-logo {
+          width: 15px;
+          height: 15px;
+          object-fit: contain;
+        }
+
+        .sift-page {
+          background:
+            radial-gradient(circle at 70% 20%, rgba(168,85,247,0.12), transparent 28%),
+            radial-gradient(circle at 30% 74%, rgba(252,109,38,0.12), transparent 32%),
+            linear-gradient(180deg, #07080d 0%, #0b0d14 52%, #11131b 100%);
+        }
+
+        .sift-page::before {
+          background:
+            linear-gradient(90deg, rgba(2,3,7,0.5), transparent 22%, transparent 76%, rgba(2,3,7,0.56)),
+            radial-gradient(ellipse at center, transparent 34%, rgba(2,3,7,0.34) 76%, rgba(2,3,7,0.68) 100%);
+        }
+
+        .control-dock,
+        .search-cluster,
+        .network-dock,
+        .stat-bar,
+        .cinema-readout {
+          opacity: 0.78;
+        }
+
+        .control-dock:hover,
+        .search-cluster:focus-within,
+        .search-cluster:hover,
+        .network-dock:hover {
+          opacity: 1;
+        }
+
+        .network-dock {
+          background:
+            linear-gradient(145deg, rgba(252,109,38,0.055), rgba(168,85,247,0.035)),
+            rgba(7,8,13,0.58);
+          border-color: rgba(255,255,255,0.09);
+        }
+
+        .sift-loading-screen {
+          background:
+            radial-gradient(circle at 50% 34%, rgba(252,109,38,0.18), transparent 34%),
+            radial-gradient(circle at 62% 52%, rgba(168,85,247,0.1), transparent 30%),
+            #07080d;
+          color: #fca326;
+        }
+
+        .sift-loading-content {
+          border-color: rgba(252,109,38,0.24);
+          border-radius: 18px;
+          background: rgba(9,10,16,0.72);
+          box-shadow: 0 0 0 1px rgba(168,85,247,0.06), 0 28px 90px rgba(0,0,0,0.5);
+        }
+
+        .sift-loading-title {
+          color: #fff;
+          text-shadow: 0 0 32px rgba(252,109,38,0.28), 3px 3px 0 #6b2f18;
+        }
+
+        .sift-spinner-8bit {
+          border-color: rgba(168,85,247,0.35);
+          border-top-color: #fc6d26;
+          border-radius: 50%;
+          animation-timing-function: linear;
+        }
+
+        .sift-loading-progress {
+          border-color: rgba(252,109,38,0.4);
+          background: rgba(252,109,38,0.04);
+        }
+
+        .sift-loading-progress span {
+          background: linear-gradient(90deg, #e24329, #fc6d26, #fca326, #a855f7);
+          box-shadow: 0 0 18px rgba(252,109,38,0.38);
+        }
+
+        .sift-loading-detail {
+          color: rgba(255,255,255,0.5);
+        }
+
+        @media (max-width: 820px) {
+          .signal-legend {
+            display: none;
+          }
+
+          .gitlab-source-badge {
+            top: 14px;
+          }
+        }
+
         @keyframes loadingDetailPop {
           0% { opacity: 0; transform: translateY(8px); }
           100% { opacity: 1; transform: translateY(0); }
@@ -6771,7 +7027,7 @@ function createInstancedRepoField(
     markerMatrices[markerIndex] = dummy.matrix.clone();
     markerPositions[markerIndex] = dummy.position.clone();
 
-    color.set(district.color);
+    color.set(repoSignalPalette(repo).base);
     markers.setColorAt(markerIndex, color);
   });
   markers.userData.markerMatrices = markerMatrices;
@@ -6783,6 +7039,28 @@ function createInstancedRepoField(
   return markers;
 }
 
+function repoSignalPalette(repo: Repo) {
+  const openWork = getOpenWorkItems(repo);
+  const highSignal = repo.stars >= 50000 || repo.contributors >= 500 || openWork >= 500;
+
+  if (repo.importSource === 'gitlab' || repo.loadedAt) {
+    return { base: '#fc6d26', accent: '#fca326', emissive: 0.34, highSignal: true };
+  }
+  if (repo.safetyScore < 58 || repo.responseHours > 96) {
+    return { base: '#b91c1c', accent: '#fb7185', emissive: highSignal ? 0.2 : 0.08, highSignal };
+  }
+  if (repo.openPRs + (repo.openIssues ?? 0) >= 180) {
+    return { base: '#7e22ce', accent: '#c084fc', emissive: highSignal ? 0.28 : 0.12, highSignal };
+  }
+  if (repo.contributors >= 120) {
+    return { base: '#0891b2', accent: '#67e8f9', emissive: highSignal ? 0.28 : 0.12, highSignal };
+  }
+  if (repo.safetyScore >= 78 && repo.commitsPerWeek >= 8) {
+    return { base: '#15803d', accent: '#4ade80', emissive: highSignal ? 0.24 : 0.1, highSignal };
+  }
+  return { base: '#303846', accent: '#94a3b8', emissive: highSignal ? 0.14 : 0.025, highSignal };
+}
+
 
 function createBuilding(repo: Repo, index: number, districtRepos: Repo[], heightScaleDriver: HeightScaleDriver) {
   const district = districtFor(repo);
@@ -6791,18 +7069,20 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   const layout = createRepoLayout(repo, index, districtRepos, heightScaleDriver);
   group.position.copy(layout.position);
 
-  // Restore Color-Coded Palettes (District-driven)
-  const baseColor = new THREE.Color(district.color);
-  const bodyColor = baseColor.clone().lerp(new THREE.Color('#020617'), 0.25);
-  const accentColor = new THREE.Color(district.accent);
+  const signal = repoSignalPalette(repo);
+  const baseColor = new THREE.Color(signal.base);
+  const bodyColor = baseColor.clone().lerp(new THREE.Color('#080a10'), 0.32);
+  const accentColor = new THREE.Color(signal.accent);
   const isHighDetail = Boolean(repo.loadedAt) || index < 4 || repo.stars >= 100000;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,
-    roughness: 0.65,
-    metalness: 0.42,
+    roughness: signal.highSignal ? 0.34 : 0.56,
+    metalness: signal.highSignal ? 0.62 : 0.38,
     emissive: bodyColor,
-    emissiveIntensity: 0.05,
+    emissiveIntensity: signal.emissive,
+    transparent: true,
+    opacity: signal.highSignal ? 0.98 : 0.86,
   });
 
   const topMaterial = new THREE.MeshStandardMaterial({
@@ -6810,7 +7090,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     roughness: 0.35,
     metalness: 0.75,
     emissive: accentColor,
-    emissiveIntensity: 0.25,
+    emissiveIntensity: signal.highSignal ? 0.46 : 0.2,
   });
 
   const glassMaterial = new THREE.MeshStandardMaterial({
@@ -6818,9 +7098,9 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     roughness: 0.1,
     metalness: 0.95,
     transparent: true,
-    opacity: 0.75,
+    opacity: signal.highSignal ? 0.86 : 0.68,
     emissive: accentColor,
-    emissiveIntensity: 0.35,
+    emissiveIntensity: signal.highSignal ? 0.52 : 0.22,
   });
 
   let visualHeight = layout.height;
@@ -6832,16 +7112,22 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   // Base Plate (Grounding)
   const basePlate = new THREE.Mesh(
     new THREE.BoxGeometry(bodyWidth * 1.35, 1.2, bodyDepth * 1.35),
-    new THREE.MeshStandardMaterial({ color: '#1c1917', roughness: 0.9, metalness: 0.15 })
+    new THREE.MeshStandardMaterial({
+      color: '#11131a',
+      roughness: 0.72,
+      metalness: 0.38,
+      emissive: baseColor,
+      emissiveIntensity: signal.highSignal ? 0.06 : 0.018,
+    })
   );
   basePlate.position.y = Z.buildingBase;
   basePlate.receiveShadow = true;
   group.add(basePlate);
 
   // Layered Tower Body
-  const layerCount = isHighDetail ? 3 : 1;
+  const layerCount = isHighDetail ? 3 : 2;
   for (let i = 0; i < layerCount; i++) {
-    const t = layerCount === 1 ? 0 : i / (layerCount - 1);
+    const t = i / (layerCount - 1);
     const layerHeight = (visualHeight * 0.8) / layerCount;
     const taper = 1 - t * 0.25;
     const lWidth = bodyWidth * taper;
@@ -6889,7 +7175,13 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   let windows: THREE.InstancedMesh;
   if (showWindows) {
     const windowGeometry = new THREE.PlaneGeometry(0.25, 0.18);
-    const windowMaterial = new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: 0.45, depthWrite: false });
+    const windowMaterial = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      transparent: true,
+      opacity: signal.highSignal ? 0.68 : 0.38,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
     const cols = Math.max(1, Math.floor(bodyWidth / 1.4));
     const rows = Math.max(1, Math.floor(visualHeight / 3.5));
     const litWindows = [];
@@ -8233,51 +8525,52 @@ function getTerrainColor(x: number, z: number, h: number) {
   const mixFactor = Math.pow(blend, 2) * (3 - 2 * blend);
 
   const getColorForBiome = (biome: string) => {
-    const slate = new THREE.Color('#475569');
-    const concrete = new THREE.Color('#94a3b8');
-    const earth = new THREE.Color('#71717a');
+    const slate = new THREE.Color('#17202b');
+    const concrete = new THREE.Color('#242b36');
+    const earth = new THREE.Color('#20252c');
 
     if (biome === 'volcano') {
       const lavaFlow = Math.sin((x / TERRAIN_TILE_SIZE) * TILE_PI * 34 + (z / TERRAIN_TILE_SIZE) * TILE_PI * 21 + tileableFbm(x, z, 4) * 4);
-      if (lavaFlow > 0.85) return new THREE.Color('#b91c1c').lerp(new THREE.Color('#450a0a'), 0.2); // Grounded ember
-      return new THREE.Color('#1c1917'); // Obsidian / Ash
+      if (lavaFlow > 0.88) return new THREE.Color('#6f241b').lerp(new THREE.Color('#fc6d26'), 0.12);
+      return new THREE.Color('#171519');
     }
     if (biome === 'snow') {
       const rockMelt = tileableFbm(x, z, 4);
-      if (rockMelt > 0.72) return slate.clone().lerp(new THREE.Color('#1e293b'), 0.5); // Slate rock
-      return new THREE.Color('#f1f5f9').lerp(new THREE.Color('#cbd5e1'), 0.15); // Icy white
+      if (rockMelt > 0.72) return slate.clone().lerp(new THREE.Color('#222938'), 0.5);
+      return new THREE.Color('#2a3442').lerp(new THREE.Color('#435268'), 0.18);
     }
     if (biome === 'forest') {
       const moss = tileableFbm(x, z, 5);
-      return new THREE.Color(moss > 0.6 ? '#14532d' : '#365314').lerp(earth, 0.4); // Deep moss/pine
+      return new THREE.Color(moss > 0.6 ? '#153328' : '#252e24').lerp(earth, 0.54);
     }
     if (biome === 'crystal') {
       const fracture = Math.abs(tileableNoise2D(x, z, 32, 88.8) - 0.5);
-      if (fracture < 0.04) return new THREE.Color('#4c1d95'); // Deep mineral purple
-      return new THREE.Color('#0f172a'); // Quartz slate
+      if (fracture < 0.04) return new THREE.Color('#3b225d');
+      return new THREE.Color('#171927');
     }
     if (biome === 'desert') {
-      return new THREE.Color('#d97706').lerp(new THREE.Color('#92400e'), 0.3).lerp(concrete, 0.4); // Sandstone/clay
+      return new THREE.Color('#4a3024').lerp(new THREE.Color('#7c3f22'), 0.18).lerp(concrete, 0.56);
     }
     if (biome === 'holographic') {
-      return new THREE.Color('#082f49'); // Steel blue/glass
+      return new THREE.Color('#152a34');
     }
-    return concrete.clone().lerp(earth, 0.3); // City concrete
+    return concrete.clone().lerp(earth, 0.42);
   };
 
   const color1 = getColorForBiome(biome1);
   const color2 = getColorForBiome(biome2);
   const finalColor = color1.lerp(color2, mixFactor);
 
-  const shade = clamp(h * 0.038, 0, 0.42);
-  finalColor.multiplyScalar(1 - shade);
+  const normalizedHeight = clamp(h / 72, 0, 1);
+  finalColor.multiplyScalar(0.72 + normalizedHeight * 0.32);
+  finalColor.lerp(new THREE.Color('#384253'), normalizedHeight * 0.12);
 
   return finalColor;
 }
 
 function createBiomeTerrain(scene: THREE.Scene) {
   const extent = TERRAIN_PLAY_EXTENT;
-  const res = 320;
+  const res = 260;
   const geometry = new THREE.PlaneGeometry(extent, extent, res, res);
   const positions = geometry.attributes.position as THREE.BufferAttribute;
   const colors = new THREE.BufferAttribute(new Float32Array(positions.count * 3), 3);
@@ -8300,10 +8593,10 @@ function createBiomeTerrain(scene: THREE.Scene) {
     geometry,
     new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.85,
-      metalness: 0.12,
-      emissive: '#05080a',
-      emissiveIntensity: 0.05,
+      roughness: 0.78,
+      metalness: 0.2,
+      emissive: '#080a0f',
+      emissiveIntensity: 0.08,
     }),
   );
   terrain.rotation.x = -Math.PI / 2;
@@ -8372,15 +8665,60 @@ function createTileableRoadNetwork(scene: THREE.Scene) {
   }
 }
 
+let districtGlowTexture: THREE.CanvasTexture | null = null;
+
+function getDistrictGlowTexture() {
+  if (districtGlowTexture) return districtGlowTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (context) {
+    const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.54)');
+    gradient.addColorStop(0.28, 'rgba(255,255,255,0.24)');
+    gradient.addColorStop(0.7, 'rgba(255,255,255,0.06)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 128, 128);
+  }
+  districtGlowTexture = new THREE.CanvasTexture(canvas);
+  return districtGlowTexture;
+}
+
+function createDistrictGroundGlows(scene: THREE.Scene) {
+  DISTRICTS.filter((district) => FEATURED_DISTRICT_KEYS.has(district.key)).forEach((district) => {
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(260, 260),
+      new THREE.MeshBasicMaterial({
+        map: getDistrictGlowTexture(),
+        color: district.parent === 'ai' ? '#a855f7' : district.parent === 'security' ? '#ef4444' : '#fc6d26',
+        transparent: true,
+        opacity: 0.16,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(district.x, getTerrainSurfaceY(district.x, district.z) + Z.roads + 0.12, district.z);
+    glow.renderOrder = -2;
+    glow.userData.role = 'landscape';
+    glow.userData.dayOpacity = 0.08;
+    glow.userData.nightOpacity = 0.16;
+    scene.add(glow);
+  });
+}
+
 function createGround(scene: THREE.Scene) {
   // Main organic terrain
   createBiomeTerrain(scene);
   createTileableRoadNetwork(scene);
+  createDistrictGroundGlows(scene);
 
   // Far distant floor for horizon
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(8000, 8000, 1, 1),
-    new THREE.MeshStandardMaterial({ color: '#040606', roughness: 1, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ color: '#07080d', roughness: 1, metalness: 0 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = TERRAIN_BASE_Y - 5;
@@ -8652,8 +8990,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       cars.push(packet);
     }
 
-    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed PRs` : `${formatMetric(openWork)} open`;
-    const labelTexture = makeSpriteTexture(flowLabel, 'PR flow', pathColor, 260, 72);
+    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed MRs` : `${formatMetric(openWork)} open`;
+    const labelTexture = makeSpriteTexture(flowLabel, 'MR flow', pathColor, 260, 72);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
     const labelPoint = curve.getPointAt(0.5);
     label.position.set(labelPoint.x, 3.2 + flowStrength * 0.8 + Z.labels, labelPoint.z);
