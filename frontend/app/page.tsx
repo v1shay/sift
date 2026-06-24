@@ -875,8 +875,8 @@ const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
 ]);
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
-const MAX_PR_FLOW_ROADS = 56;
-const MAX_PR_FLOW_PACKETS = 150;
+const MAX_PR_FLOW_ROADS = 72;
+const MAX_PR_FLOW_PACKETS = 220;
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -2913,12 +2913,12 @@ export default function Home() {
         const roadPulse = 0.5 + Math.sin(elapsed * 2.2 + road.phase * 6) * 0.5;
         const filteredRoadOpacity = typeof road.mesh.material.userData.filteredOpacity === 'number' ? road.mesh.material.userData.filteredOpacity : road.baseOpacity;
         road.mesh.material.opacity = selectedRoad
-          ? Math.min(0.54, filteredRoadOpacity + 0.18 + roadPulse * 0.06)
+          ? Math.min(1, filteredRoadOpacity + 0.08 + roadPulse * 0.08)
           : filteredRoadOpacity;
         if (road.label.visible) {
           const labelPoint = road.curve.getPointAt(0.5);
-          road.label.position.set(labelPoint.x, 2.2 + road.flowStrength * 0.6, labelPoint.z);
-          road.label.material.opacity = selectedRoad ? 0.5 : 0;
+          road.label.position.set(labelPoint.x, labelPoint.y + 5 + Z.labels, labelPoint.z);
+          road.label.material.opacity = selectedRoad ? 0.76 : 0;
         }
         road.cars.forEach((car, carIndex) => {
           const t = (road.phase + elapsed * road.speed + carIndex / road.cars.length) % 1;
@@ -8868,6 +8868,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const roads: RoadObject[] = [];
   const roadPairs = new Set<string>();
   let packetBudget = MAX_PR_FLOW_PACKETS;
+  let localRoadCount = 0;
 
   const buildingsByDistrict = new Map<DistrictKey, BuildingObject[]>();
   buildings.forEach((building) => {
@@ -8878,19 +8879,20 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
 
   const addRoad = (source: BuildingObject, target: BuildingObject, laneIndex: number, isDistrictTrunk = false) => {
     if (roads.length >= MAX_PR_FLOW_ROADS || packetBudget <= 0 || source === target) return;
+    if (!isDistrictTrunk && localRoadCount >= 44) return;
     const pairKey = [source.repo.id, target.repo.id].sort().join('::');
     if (roadPairs.has(pairKey)) return;
 
     const distance = source.position.distanceTo(target.position);
-    if (distance < 5 || distance > (isDistrictTrunk ? 400 : 250)) return;
+    if (distance < 5 || distance > (isDistrictTrunk ? 2600 : 420)) return;
 
     roadPairs.add(pairKey);
 
     const openWork = Math.max(1, getOpenWorkItems(source.repo));
     const flowStrength = clamp(Math.log10(openWork + source.repo.prs.length * 40 + 8) / 3.25, 0.22, 1);
     const pathColor = flowColorFor(source);
-    const baseOpacity = clamp(0.25 + flowStrength * 0.4, 0.3, 0.8);
-    const radius = clamp(0.08 + flowStrength * 0.15, 0.1, 0.25);
+    const baseOpacity = clamp(0.58 + flowStrength * 0.3, 0.64, 0.96);
+    const radius = clamp((isDistrictTrunk ? 0.28 : 0.18) + flowStrength * 0.22, 0.24, 0.52);
 
     const p1 = source.position.clone();
     const p2 = target.position.clone();
@@ -8902,16 +8904,17 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const bow = (seededUnit(seed) - 0.5) * clamp(distance * 0.24, 6, 24) + (laneIndex - 0.5) * 2.8;
     const midX = (p1.x + p2.x) / 2 + normal.x * bow;
     const midZ = (p1.z + p2.z) / 2 + normal.z * bow;
-    const startY = getTerrainSurfaceY(p1.x, p1.z) + 0.22;
-    const endY = getTerrainSurfaceY(p2.x, p2.z) + 0.22;
-    const midY = getTerrainSurfaceY(midX, midZ) + 0.35 + flowStrength * 0.15;
+    const startY = getTerrainSurfaceY(p1.x, p1.z) + clamp(source.height * 0.18, 10, 26);
+    const endY = getTerrainSurfaceY(p2.x, p2.z) + clamp(target.height * 0.18, 10, 26);
+    const archHeight = clamp(distance * (isDistrictTrunk ? 0.16 : 0.1), isDistrictTrunk ? 48 : 18, isDistrictTrunk ? 210 : 72);
+    const midY = Math.max(startY, endY, getTerrainSurfaceY(midX, midZ)) + archHeight;
     const start = new THREE.Vector3(p1.x, startY + Z.roads, p1.z);
     const end = new THREE.Vector3(p2.x, endY + Z.roads, p2.z);
     const curve = new THREE.CatmullRomCurve3([
       start,
-      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, startY + flowStrength * 0.12 + Z.roads, p1.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, startY + archHeight * 0.58 + Z.roads, p1.z * 0.72 + midZ * 0.28),
       new THREE.Vector3(midX, midY + Z.roads, midZ),
-      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, endY + flowStrength * 0.12 + Z.roads, p2.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, endY + archHeight * 0.58 + Z.roads, p2.z * 0.72 + midZ * 0.28),
       end,
     ]);
 
@@ -8921,6 +8924,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       opacity: baseOpacity,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      depthTest: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
@@ -8932,14 +8936,28 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       roadMaterial,
     );
     mesh.userData.role = 'pr-flow-road';
+    mesh.renderOrder = 14;
+    const core = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, isDistrictTrunk ? 52 : 34, radius * 0.34, 5, false),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(pathColor).lerp(new THREE.Color('#ffffff'), 0.5),
+        transparent: true,
+        opacity: 0.96,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    core.renderOrder = 15;
+    mesh.add(core);
     scene.add(mesh);
 
-    const packetCount = Math.max(3, Math.min(packetBudget, Math.round(4 + flowStrength * 8.0 + Math.min(5, source.repo.prs.length))));
+    const packetCount = Math.max(isDistrictTrunk ? 7 : 4, Math.min(packetBudget, Math.round(6 + flowStrength * 9 + Math.min(6, source.repo.prs.length))));
     packetBudget -= packetCount;
     const packetGeometry = new THREE.BoxGeometry(
-      clamp(radius * 7.2, 0.34, 0.82),
-      clamp(radius * 2.1, 0.11, 0.24),
-      clamp(radius * 3.7, 0.18, 0.42),
+      clamp(radius * 8.4, 0.8, 2.3),
+      clamp(radius * 2.8, 0.26, 0.72),
+      clamp(radius * 4.4, 0.42, 1.2),
     );
     const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
     const packetMaterials = [
@@ -8948,12 +8966,16 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
       }),
       new THREE.MeshBasicMaterial({
         color: source.district.color,
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
       }),
     ];
     packetMaterials.forEach((material) => {
@@ -8962,6 +8984,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
       const packet = new THREE.Mesh(packetGeometry, packetMaterials[packetIndex % packetMaterials.length]);
       packet.userData.role = 'pr-flow-packet';
+      packet.renderOrder = 18;
       scene.add(packet);
       cars.push(packet);
     }
@@ -8983,11 +9006,12 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       mesh,
       cars,
       label,
-      speed: 0.15 + flowStrength * 0.15 + (source.repo.stars % 7) * 0.01,
+      speed: 0.2 + flowStrength * 0.2 + (source.repo.stars % 7) * 0.012,
       phase: seededUnit(seed + 3.8),
       flowStrength,
       baseOpacity,
     });
+    if (!isDistrictTrunk) localRoadCount += 1;
   };
 
   DISTRICTS.forEach((district) => {
@@ -9028,6 +9052,15 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       const target = hubs[(hubIndex + 1) % hubs.length];
       if (target && target !== hub) addRoad(hub, target, hubIndex + 10, true);
     });
+  });
+
+  const ecosystemHubs = Array.from(hubsByParent.values())
+    .map((hubs) => [...hubs].sort((a, b) => prFlowScore(b) - prFlowScore(a))[0])
+    .filter((hub): hub is BuildingObject => Boolean(hub))
+    .sort((a, b) => Math.atan2(a.position.z, a.position.x) - Math.atan2(b.position.z, b.position.x));
+  ecosystemHubs.forEach((hub, index) => {
+    const target = ecosystemHubs[(index + 1) % ecosystemHubs.length];
+    if (target && target !== hub) addRoad(hub, target, index + 40, true);
   });
 
   return roads;
