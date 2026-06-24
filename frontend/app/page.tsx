@@ -185,6 +185,8 @@ type RoadObject = {
   target: Repo;
   curve: THREE.CatmullRomCurve3;
   mesh: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
+  hitMesh: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
+  gradientTexture: THREE.CanvasTexture;
   cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
   label: THREE.Sprite;
   speed: number;
@@ -875,8 +877,9 @@ const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
 ]);
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
-const MAX_PR_FLOW_ROADS = 72;
-const MAX_PR_FLOW_PACKETS = 220;
+const MAX_PR_FLOW_ROADS = 110;
+const MAX_PR_FLOW_PACKETS = 360;
+const SYNTHETIC_PR_URL = 'https://github.com/v1shay/sift/pull/8';
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -2067,6 +2070,7 @@ export default function Home() {
     ));
 
     const roads = createRoads(scene, buildings);
+    const roadHitTargets = roads.map((road) => road.hitMesh);
     applyFilter(buildings, roads, filterRef.current);
     const markerField = createInstancedRepoField(scene, sceneReposByDistrict, defaultDetailedRepoIds);
     if (markerField) hitTargets.push(markerField);
@@ -2601,6 +2605,14 @@ export default function Home() {
       return repoFromIntersection(intersection);
     };
 
+    const roadAtClientPoint = (clientX: number, clientY: number) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      refs.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      refs.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      refs.raycaster.setFromCamera(refs.pointer, camera);
+      return refs.raycaster.intersectObjects(roadHitTargets, false)[0]?.object ?? null;
+    };
+
     const focusSceneRepo = (repo: Repo) => {
       skipCinematicSweep();
       resetFocusTransition(refs);
@@ -2693,6 +2705,12 @@ export default function Home() {
 
     const handleClick = (event: globalThis.MouseEvent) => {
       if (didDrag || performance.now() - lastDragAt < 140) return;
+      const roadTarget = roadAtClientPoint(event.clientX, event.clientY);
+      const prUrl = roadTarget?.userData.prUrl;
+      if (typeof prUrl === 'string') {
+        window.open(prUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
       const repo = hoverRef.current ?? repoAtClientPoint(event.clientX, event.clientY);
       if (repo) focusSceneRepo(repo);
     };
@@ -2908,6 +2926,7 @@ export default function Home() {
       }
 
       for (const road of roads) {
+        road.gradientTexture.offset.x = -((elapsed * road.speed * 0.16 + road.phase) % 1);
         road.label.quaternion.copy(camera.quaternion);
         const selectedRoad = selected ? road.source.id === selected.id || road.target.id === selected.id : false;
         const roadPulse = 0.5 + Math.sin(elapsed * 2.2 + road.phase * 6) * 0.5;
@@ -8860,6 +8879,32 @@ function flowColorFor(building: BuildingObject) {
   return building.district.accent;
 }
 
+function createFlowGradientTexture(sourceColor: string, targetColor: string) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 8;
+  const context = canvas.getContext('2d');
+  if (context) {
+    const source = new THREE.Color(sourceColor);
+    const target = new THREE.Color(targetColor);
+    const midpoint = source.clone().lerp(target, 0.5).lerp(new THREE.Color('#ffffff'), 0.18);
+    const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
+    gradient.addColorStop(0, source.getStyle());
+    gradient.addColorStop(0.46, midpoint.getStyle());
+    gradient.addColorStop(1, target.getStyle());
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(1.7, 1);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function prFlowScore(building: BuildingObject) {
   return getOpenWorkItems(building.repo) * 1.1 + building.repo.prs.length * 70 + building.repo.goodFirstIssues * 8 + Math.log10(building.repo.stars + 1) * 7;
 }
@@ -8891,6 +8936,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const openWork = Math.max(1, getOpenWorkItems(source.repo));
     const flowStrength = clamp(Math.log10(openWork + source.repo.prs.length * 40 + 8) / 3.25, 0.22, 1);
     const pathColor = flowColorFor(source);
+    const targetColor = flowColorFor(target);
+    const gradientTexture = createFlowGradientTexture(pathColor, targetColor);
     const baseOpacity = clamp(0.58 + flowStrength * 0.3, 0.64, 0.96);
     const radius = clamp((isDistrictTrunk ? 0.28 : 0.18) + flowStrength * 0.22, 0.24, 0.52);
 
@@ -8919,7 +8966,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     ]);
 
     const roadMaterial = new THREE.MeshBasicMaterial({
-      color: pathColor,
+      color: '#ffffff',
+      map: gradientTexture,
       transparent: true,
       opacity: baseOpacity,
       depthWrite: false,
@@ -8936,11 +8984,13 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       roadMaterial,
     );
     mesh.userData.role = 'pr-flow-road';
+    mesh.userData.prUrl = SYNTHETIC_PR_URL;
     mesh.renderOrder = 14;
     const core = new THREE.Mesh(
       new THREE.TubeGeometry(curve, isDistrictTrunk ? 52 : 34, radius * 0.34, 5, false),
       new THREE.MeshBasicMaterial({
-        color: new THREE.Color(pathColor).lerp(new THREE.Color('#ffffff'), 0.5),
+        color: '#ffffff',
+        map: gradientTexture,
         transparent: true,
         opacity: 0.96,
         depthWrite: false,
@@ -8951,6 +9001,20 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     core.renderOrder = 15;
     mesh.add(core);
     scene.add(mesh);
+
+    const hitMesh = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, isDistrictTrunk ? 40 : 28, Math.max(2.6, radius * 5.5), 5, false),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    hitMesh.userData.role = 'pr-flow-hit-target';
+    hitMesh.userData.prUrl = SYNTHETIC_PR_URL;
+    hitMesh.renderOrder = 19;
+    scene.add(hitMesh);
 
     const packetCount = Math.max(isDistrictTrunk ? 7 : 4, Math.min(packetBudget, Math.round(6 + flowStrength * 9 + Math.min(6, source.repo.prs.length))));
     packetBudget -= packetCount;
@@ -8970,7 +9034,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
         blending: THREE.AdditiveBlending,
       }),
       new THREE.MeshBasicMaterial({
-        color: source.district.color,
+        color: targetColor,
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
@@ -9004,6 +9068,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       target: target.repo,
       curve,
       mesh,
+      hitMesh,
+      gradientTexture,
       cars,
       label,
       speed: 0.2 + flowStrength * 0.2 + (source.repo.stars % 7) * 0.012,
@@ -9018,13 +9084,11 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const districtBuildings = buildingsByDistrict.get(district.key) ?? [];
     if (districtBuildings.length < 2) return;
 
-    const activeBuildings = [...districtBuildings]
-      .filter((building) => getOpenWorkItems(building.repo) > 0 || building.repo.prs.length > 0)
-      .sort((a, b) => prFlowScore(b) - prFlowScore(a));
-    const sourceCount = Math.min(5, Math.max(2, Math.ceil(activeBuildings.length / 9)));
+    const activeBuildings = [...districtBuildings].sort((a, b) => prFlowScore(b) - prFlowScore(a));
+    const sourceCount = Math.min(7, Math.max(3, Math.ceil(activeBuildings.length / 6)));
 
     activeBuildings.slice(0, sourceCount).forEach((source, sourceIndex) => {
-      const connectionCount = getOpenWorkItems(source.repo) > 280 || source.repo.prs.length > 0 ? 2 : 1;
+      const connectionCount = sourceIndex < 3 || getOpenWorkItems(source.repo) > 280 || source.repo.prs.length > 0 ? 2 : 1;
       for (let connectionIndex = 0; connectionIndex < connectionCount; connectionIndex += 1) {
         const offset = Math.max(1, Math.floor(activeBuildings.length / (connectionIndex + 2)));
         let target = activeBuildings[(sourceIndex + offset + connectionIndex * 3) % activeBuildings.length];
@@ -9039,7 +9103,6 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const hubsByParent = new Map<string, BuildingObject[]>();
   DISTRICTS.forEach((district) => {
     const hub = [...(buildingsByDistrict.get(district.key) ?? [])]
-      .filter((building) => getOpenWorkItems(building.repo) > 0)
       .sort((a, b) => prFlowScore(b) - prFlowScore(a))[0];
     if (!hub) return;
     const parentHubs = hubsByParent.get(district.parent) ?? [];
