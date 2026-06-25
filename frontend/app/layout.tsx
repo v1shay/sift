@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Sift — Find Your Next Open Source Project',
-  description: 'AI-powered search to discover the perfect open source projects to contribute to. Describe what you\'re looking for in natural language.',
+  title: 'Sift × GitLab — Open Source Intelligence Map',
+  description: 'A GitLab-sourced intelligence map for discovering open source projects and contribution opportunities.',
 };
 
 export default function RootLayout({

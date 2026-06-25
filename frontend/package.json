@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:camera-focus": "node scripts/camera-focus-smoke.mjs",
+    "test:pr-flow-intro": "node scripts/pr-flow-intro-smoke.mjs",
     "test:regression-smoke": "node scripts/sift-regression-smoke.mjs",
     "test:repo-metrics": "node scripts/repo-metrics-test.mjs"
   },

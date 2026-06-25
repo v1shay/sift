@@ -1,7 +1,7 @@
 'use client';
 
 import * as THREE from 'three';
-import { Activity, BarChart3, Github, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Activity, BarChart3, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewEncodingPanel } from '../components/ViewEncodingPanel';
 import { rankReposForCluster, rankReposForIntent } from '../lib/repoMetrics.mjs';
@@ -114,7 +114,7 @@ type Repo = {
   safetyProfile?: SafetyProfile;
   loadedAt?: string;
   wantsContributions?: boolean;
-  importSource?: 'github';
+  importSource?: 'gitlab';
 };
 
 type GraphRepositoryNode = {
@@ -185,6 +185,8 @@ type RoadObject = {
   target: Repo;
   curve: THREE.CatmullRomCurve3;
   mesh: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
+  hitMesh: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
+  gradientTexture: THREE.CanvasTexture;
   cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
   label: THREE.Sprite;
   speed: number;
@@ -229,7 +231,7 @@ type SceneRefs = {
   focusTransition: CameraFocusTransition | null;
 };
 
-const DISTRICTS: District[] = [
+const DISTRICTS: District[] = ([
   // Functional districts laid out as a fixed-perspective contribution atlas.
   { key: 'skyline_core', label: 'Core Platforms', color: '#5d8dff', accent: '#c7ddff', x: -390, z: -560, shape: 'spires', parent: 'systems' },
   { key: 'vertical_arcology', label: 'Frontend Frameworks', color: '#8fba70', accent: '#f4ffd2', x: 40, z: -595, shape: 'megatowers', parent: 'web' },
@@ -271,7 +273,19 @@ const DISTRICTS: District[] = [
   { key: 'robotics_yard', label: 'Robotics + Hardware', color: '#65a30d', accent: '#d9f99d', x: -1020, z: 275, shape: 'overgrown', parent: 'systems' },
   { key: 'science_quarry', label: 'Science + Simulation', color: '#a16207', accent: '#fde68a', x: 1000, z: 245, shape: 'caves', parent: 'systems' },
   { key: 'protocol_marshes', label: 'Protocols + P2P', color: '#0891b2', accent: '#cffafe', x: 1020, z: -235, shape: 'holographic', parent: 'infra' },
-];
+] as District[]).map((district, index) => {
+  const distance = Math.hypot(district.x, district.z);
+  const outwardScale = distance > 900 ? 1.78 : distance > 650 ? 1.58 : distance > 430 ? 1.34 : 1;
+  const tangentX = distance > 650 ? -district.z / Math.max(1, distance) : 0;
+  const tangentZ = distance > 650 ? district.x / Math.max(1, distance) : 0;
+  const tangentOffset = distance > 650 ? ((index % 3) - 1) * 160 : 0;
+
+  return {
+    ...district,
+    x: clamp(district.x * outwardScale + tangentX * tangentOffset, -1900, 1900),
+    z: clamp(district.z * outwardScale + tangentZ * tangentOffset, -1550, 1550),
+  };
+});
 
 const SAFETY_GREEN_THRESHOLD = 75;
 const SAFETY_AMBER_THRESHOLD = 60;
@@ -469,11 +483,13 @@ function inferDistrictFromMetadata(stars: number, languageValue?: string | null,
   return infraBiomes[hash % infraBiomes.length];
 }
 
-function parseGithubRepoLocator(value: string) {
+function parseRepositoryLocator(value: string) {
   const trimmed = value.trim().replace(/\.git$/, '');
   if (!trimmed) return null;
   const withoutProtocol = trimmed.replace(/^https?:\/\//, '').replace(/^www\./, '');
-  const path = withoutProtocol.startsWith('github.com/') ? withoutProtocol.slice('github.com/'.length) : withoutProtocol;
+  const path = withoutProtocol
+    .replace(/^gitlab\.com\//, '')
+    .replace(/^github\.com\//, '');
   const [owner, repo] = path.split('/').filter(Boolean);
   if (!owner || !repo) return null;
   return { owner, repo: repo.replace(/[#?].*$/, '') };
@@ -533,7 +549,7 @@ function repoNameFromFullName(fullName: string) {
 }
 
 function ownerFromFullName(fullName: string, fallback?: string) {
-  return fallback || fullName.split('/').filter(Boolean)[0] || 'github';
+  return fallback || fullName.split('/').filter(Boolean)[0] || 'gitlab';
 }
 
 function commitsPerWeekFromDate(value?: string | null) {
@@ -606,7 +622,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
     prs: recentPullRequests.length
       ? recentPullRequests.map((pull, index) => ({
         number: pull.number ?? index + 1,
-        title: pull.title || 'Open pull request',
+        title: pull.title || 'Open merge request',
         priority: index < 2 ? 'hot' : 'normal',
       }))
       : [],
@@ -624,7 +640,7 @@ function pullRequestsFromBackendSummary(summary: BackendPrFlowSummary): PullRequ
     const state = pull.state?.toLowerCase();
     return {
       number: pull.number ?? index + 1,
-      title: pull.title || 'Recent pull request',
+      title: pull.title || 'Recent merge request',
       priority: state === 'open' ? 'hot' : state === 'merged' ? 'normal' : 'quiet',
     };
   });
@@ -769,10 +785,9 @@ const REPOS: Repo[] = [
   },
 ];
 
-const GRAPH_REPO_LIMIT = 12000;
+const GRAPH_REPO_LIMIT = 10000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
-const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
 const LOADING_STAGES = [
   'Opening graph socket',
   'Talking to SQLite',
@@ -782,48 +797,95 @@ const LOADING_STAGES = [
   'Scoring contribution safety',
   'Laying terrain chunks',
   'Warming WebGL materials',
-  'Plotting PR traffic',
+  'Plotting merge request traffic',
   'Finalizing camera sweep',
 ];
 
-const INTRO_MS = 2400;
+const INTRO_MS = 5200;
 const ENTRY_MS = 1000;
 const spriteTextureCache = new Map<string, THREE.CanvasTexture>();
 
 function createSiftText(scene: THREE.Scene) {
   const group = new THREE.Group();
-  const letters = ['S', 'I', 'F', 'T'];
-  letters.forEach((char, i) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 512;
-    canvas.height = 512;
-    if (ctx) {
-      ctx.fillStyle = 'rgba(0,0,0,0)';
-      ctx.clearRect(0, 0, 512, 512);
-      ctx.font = '900 450px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 12;
-      ctx.strokeText(char, 256, 256);
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillText(char, 256, 256);
-    }
-    const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(70, 70, 1);
-    sprite.position.set(-165 + i * 110, 165, -135);
-    sprite.userData.baseX = sprite.position.x;
-    sprite.userData.baseY = sprite.position.y;
-    group.add(sprite);
+  group.name = 'gitlab-sift-intro';
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 360;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const glow = context.createRadialGradient(512, 164, 20, 512, 164, 390);
+    glow.addColorStop(0, 'rgba(252,109,38,0.34)');
+    glow.addColorStop(0.52, 'rgba(252,109,38,0.1)');
+    glow.addColorStop(1, 'rgba(252,109,38,0)');
+    context.fillStyle = glow;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    const gradient = context.createLinearGradient(190, 60, 840, 260);
+    gradient.addColorStop(0, '#ffd6b8');
+    gradient.addColorStop(0.28, '#fc9a45');
+    gradient.addColorStop(0.62, '#fc6d26');
+    gradient.addColorStop(1, '#e24329');
+    context.shadowColor = '#fc6d26';
+    context.shadowBlur = 44;
+    context.font = '900 220px Inter, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = gradient;
+    context.fillText('SIFT', 512, 160);
+    context.shadowBlur = 0;
+
+    context.font = '700 27px Space Mono, monospace';
+    context.letterSpacing = '9px';
+    context.fillStyle = 'rgba(255,235,220,0.92)';
+    context.fillText('REPOSITORY INTELLIGENCE', 512, 302);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const mark = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  }));
+  mark.name = 'sift-mark';
+  mark.scale.set(150, 52, 1);
+  group.add(mark);
+
+  const ribbonColors = ['#ffd0ad', '#fc6d26', '#e24329'];
+  ribbonColors.forEach((color, index) => {
+    const points = Array.from({ length: 9 }, (_, pointIndex) => {
+      const x = -116 + pointIndex * 27;
+      const wave = Math.sin(pointIndex * 0.72 + index * 0.9) * (9 + index * 3);
+      return new THREE.Vector3(x, wave - 26 - index * 7, -6 - index * 3);
+    });
+    const ribbon = new THREE.Mesh(
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 48, 1.5 + index * 0.65, 6, false),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    ribbon.name = `sift-ribbon-${index}`;
+    group.add(ribbon);
   });
+
+  group.visible = false;
+  group.renderOrder = 100;
   scene.add(group);
   return group;
 }
-const CAMERA_HOME = new THREE.Vector3(0, 390, 1460);
-const TARGET_HOME = new THREE.Vector3(0, 42, 20);
+const CAMERA_HOME = new THREE.Vector3(260, 245, 920);
+const TARGET_HOME = new THREE.Vector3(20, 58, -60);
+const INTRO_OVERVIEW = new THREE.Vector3(0, 560, 1820);
 const MIN_ZOOM = 0.48;
 const MAX_ZOOM = 1.68;
 const REPO_FOCUS_ZOOM = 0.9;
@@ -836,15 +898,15 @@ const CAMERA_DRAG_YAW_SPEED = 0.0042;
 const CAMERA_DRAG_HEIGHT_SPEED = 0.92;
 const CAMERA_KEY_PAN_SPEED = 18;
 const CAMERA_MAX_YAW = Math.PI * 0.62;
-const VISUAL_REPOS_PER_DISTRICT_MIN = 10;
-const VISUAL_REPOS_PER_DISTRICT_MAX = 28;
+const VISUAL_REPOS_PER_DISTRICT_MIN = 12;
+const VISUAL_REPOS_PER_DISTRICT_MAX = 22;
 const MAX_INSTANCED_REPO_MARKERS = 12000;
 const REPO_MARKER_WORLD_EDGE = 1720;
 const DETAIL_VIEW_ZOOM_THRESHOLD = 0.86;
 const DETAIL_VIEW_SCREEN_PADDING = 96;
 const MAX_DYNAMIC_DETAIL_REPOS = 180;
 const MAX_DETAIL_PROMOTIONS_PER_TICK = 18;
-const GRAPH_FETCH_TIMEOUT_MS = 3500;
+const GRAPH_FETCH_TIMEOUT_MS = 15000;
 const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
   'skyline_core',
   'vertical_arcology',
@@ -861,8 +923,9 @@ const FEATURED_DISTRICT_KEYS = new Set<DistrictKey>([
 ]);
 const HIGH_DETAIL_REPO_STARS = 50000;
 const WINDOW_REPO_STARS = 10000;
-const MAX_PR_FLOW_ROADS = 56;
-const MAX_PR_FLOW_PACKETS = 150;
+const MAX_PR_FLOW_ROADS = 110;
+const MAX_PR_FLOW_PACKETS = 360;
+const SYNTHETIC_PR_URL = 'https://github.com/v1shay/sift/pull/8';
 
 const FUNCTION_ALIASES: Array<{ label: string; terms: string[]; districts?: DistrictKey[]; topics?: string[]; languages?: string[] }> = [
   {
@@ -919,8 +982,8 @@ const TUTORIAL_STEPS = [
     action: 'Try clicking a taller tower or a low neighborhood block.',
   },
   {
-    title: 'Follow PR Traffic',
-    body: 'Thin glowing paths mark a few high-signal pull-request relationships without filling the map with motion.',
+    title: 'Follow MR Traffic',
+    body: 'Thin glowing paths mark a few high-signal merge-request relationships without filling the map with motion.',
     action: 'Look for the sparse paths that connect the largest projects.',
   },
   {
@@ -931,7 +994,7 @@ const TUTORIAL_STEPS = [
   {
     title: 'Contribute Without Risk',
     body: 'Start with good-first issues, read the repo guide, fork instead of requesting direct access, keep changes small, avoid secrets or generated binaries, and let maintainers review before merge.',
-    action: 'Use View on GitHub only after the safety signals look healthy.',
+    action: 'Use View on GitLab only after the safety signals look healthy.',
   },
 ];
 
@@ -1126,7 +1189,7 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   }
 
   const matchedPr = repo.prs.find((pr) => textMatchesTokenizedQuery(pr.title, cleanQuery, tokens));
-  if (matchedPr) addPing('PR activity', `PR #${matchedPr.number}: ${matchedPr.title}`, 38);
+  if (matchedPr) addPing('MR activity', `MR !${matchedPr.number}: ${matchedPr.title}`, 38);
 
   FUNCTION_ALIASES.forEach((alias) => {
     if (!queryIncludesAny(cleanQuery, tokens, alias.terms)) return;
@@ -1248,8 +1311,8 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
   const angle = index * 2.399963 + seededUnit(seed) * 0.55;
   
   // Restore original radius logic for better spacing/breathing room
-  const radius = 13 + Math.sqrt(index + 1) * 12.8 + seededUnit(seed + 2) * 10.5;
-  const laneOffset = Math.floor(index / 11) * 3.8;
+  const radius = 18 + Math.sqrt(index + 1) * 17.5 + seededUnit(seed + 2) * 15;
+  const laneOffset = Math.floor(index / 9) * 6;
   const x = district.x + Math.cos(angle) * (radius + laneOffset) * 1.42;
   const z = district.z + Math.sin(angle) * (radius + laneOffset) * 1.14 + Math.cos(index * 1.13) * 5.5;
 
@@ -1271,15 +1334,15 @@ function createRepoLayout(repo: Repo, index: number, districtRepos: Repo[], heig
     0.95;
   const districtHeroBoost = FEATURED_DISTRICT_KEYS.has(district.key) ? 1.15 : 0.92;
   
-  // Rebalanced Height: Min 30, Max ~95. Prominent but not claustrophobic.
-  const height = clamp(12.5 + compressedDriver * 75 * heightBias * districtHeroBoost, 30, 95);
+  // Keep the repository skyline as the visual focus.
+  const height = clamp((12.5 + compressedDriver * 75 * heightBias * districtHeroBoost) * 1.5, 45, 142);
   
   const widthBias =
     district.shape === 'blocks' || district.shape === 'apartments' || district.shape === 'valley_villages' ? 1.2 :
     district.shape === 'glass' || district.shape === 'crystal_spires' ? 0.9 :
     1;
-  const width = clamp(3.5 + compressedDriver * 4.5 * widthBias, 4.5, 9.5);
-  const depth = clamp(3.5 + compressedDriver * 4.5 * (district.shape === 'blocks' ? 1.1 : 1), 4.5, 9.5);
+  const width = clamp((3.5 + compressedDriver * 4.5 * widthBias) * 1.35, 6.1, 12.8);
+  const depth = clamp((3.5 + compressedDriver * 4.5 * (district.shape === 'blocks' ? 1.1 : 1)) * 1.35, 6.1, 12.8);
 
   return {
     position: new THREE.Vector3(x, 0, z),
@@ -1354,14 +1417,14 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   const isDay = appearance === 'day';
   refs.scene.background = null;
   refs.renderer.setClearColor(0x000000, 0);
-  refs.scene.fog = new THREE.FogExp2(isDay ? '#9eb8a8' : '#08142a', isDay ? 0.000028 : 0.00022);
-  refs.renderer.toneMappingExposure = isDay ? 1.28 : 1.16;
-  refs.ambient.color.set(isDay ? '#dbeafe' : '#9bb7f0');
-  refs.ambient.intensity = isDay ? 1.3 : 1.05;
-  refs.key.color.set(isDay ? '#fff4cf' : '#dbe8ff');
-  refs.key.intensity = isDay ? 3.2 : 2.75;
-  refs.rim.color.set(isDay ? '#7bbcff' : '#4f8cff');
-  refs.rim.intensity = isDay ? 38 : 74;
+  refs.scene.fog = new THREE.FogExp2(isDay ? '#8b93a1' : '#090b12', isDay ? 0.00008 : 0.00034);
+  refs.renderer.toneMappingExposure = isDay ? 1.1 : 1.22;
+  refs.ambient.color.set(isDay ? '#d8deea' : '#7d8cad');
+  refs.ambient.intensity = isDay ? 1.08 : 0.82;
+  refs.key.color.set(isDay ? '#fff0d7' : '#ffd5bd');
+  refs.key.intensity = isDay ? 2.8 : 3.35;
+  refs.rim.color.set(isDay ? '#a855f7' : '#fc6d26');
+  refs.rim.intensity = isDay ? 32 : 68;
 
   refs.scene.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -1371,8 +1434,8 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
 
     if (role === 'ground' || role === 'terrain') {
       const groundMaterial = (Array.isArray(material) ? material[0] : material) as THREE.MeshStandardMaterial;
-      groundMaterial.color.set(isDay ? '#f2f6f0' : '#8fa0b0');
-      groundMaterial.emissiveIntensity = isDay ? 0.04 : 0.08;
+      groundMaterial.color.set(isDay ? '#87909f' : '#c3cad6');
+      groundMaterial.emissiveIntensity = isDay ? 0.035 : 0.065;
       groundMaterial.transparent = false;
       groundMaterial.opacity = 1;
       groundMaterial.depthWrite = true;
@@ -1566,7 +1629,7 @@ export default function Home() {
   const [loadedRepos, setLoadedRepos] = useState<Repo[]>([]);
   const [repoImport, setRepoImport] = useState('');
   const [importingRepo, setImportingRepo] = useState(false);
-  const [importStatus, setImportStatus] = useState('Paste owner/repo or a GitHub URL.');
+  const [importStatus, setImportStatus] = useState('Paste namespace/project or a GitLab URL.');
   const [wantsContributions, setWantsContributions] = useState(true);
   const [webglError, setWebglError] = useState('');
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
@@ -1634,8 +1697,30 @@ export default function Home() {
         setLoadingProgress(72);
         setLoadingDetail('Backend unavailable; falling back to bundled demo graph');
         setRepos(REPOS.map((repo) => enrichRepoSafety(repo)));
-        setImportStatus('Backend graph unavailable; showing demo repos.');
+        setImportStatus('Backend reconnecting; showing demo repos temporarily.');
         setLoadingRepos(false);
+      }
+
+      while (!cancelled) {
+        await wait(5000);
+        if (cancelled) return;
+        try {
+          const response = await fetchWithTimeout(
+            `/api/py/graph-full?limit=${GRAPH_REPO_LIMIT}&sortBy=coverage&links=false&compact=true`,
+            { cache: 'no-store' },
+          );
+          if (!response.ok) continue;
+          const data = await response.json() as GraphFullResponse;
+          const mappedRepos = (data.nodes ?? [])
+            .filter(isGraphRepositoryNode)
+            .map(buildRepoFromGraphNode);
+          if (!mappedRepos.length) continue;
+          setRepos(mappedRepos);
+          setImportStatus(`Connected to the GitLab-sourced graph · ${mappedRepos.length.toLocaleString()} projects loaded.`);
+          return;
+        } catch {
+          // Keep the demo map interactive while the local backend comes online.
+        }
       }
     };
 
@@ -1703,7 +1788,7 @@ export default function Home() {
   const sceneRef = useRef<SceneRefs | null>(null);
   const enteredRef = useRef(true);
   const filterRef = useRef<FilterKey>('all');
-  const appearanceRef = useRef<Appearance>('day');
+  const appearanceRef = useRef<Appearance>('night');
   const selectedRef = useRef<Repo | null>(null);
   const hoverRef = useRef<Repo | null>(null);
   const similarDistrictRef = useRef<DistrictKey | null>(null);
@@ -1711,8 +1796,9 @@ export default function Home() {
   const introHasRunRef = useRef(false);
 
   const [entered, setEntered] = useState(true);
+  const [introPlaying, setIntroPlaying] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [appearance, setAppearance] = useState<Appearance>('day');
+  const [appearance, setAppearance] = useState<Appearance>('night');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
   const [clusterMode, setClusterMode] = useState<ClusterMode>('stack');
   const [viewEncodingOpen, setViewEncodingOpen] = useState(false);
@@ -1772,8 +1858,8 @@ export default function Home() {
           .map((repo) => repo.id),
       );
       const visualLimit = visualRepoLimitForDistrict(district, repos.length, allRepos.length);
-      const ranked = rankReposForCluster(repos, clusterMode);
-      const visible = ranked.filter((repo, index) => index < visualLimit || mustShowIds.has(repo.id));
+      const clusterRanked = rankReposForCluster(repos, clusterMode);
+      const visible = pickVisualRepos(clusterRanked, visualLimit, mustShowIds);
       return { district, repos: visible };
     });
   }, [allRepos.length, clusterMode, loadedRepos, sceneReposByDistrict, selectedRepo]);
@@ -1888,7 +1974,7 @@ export default function Home() {
   }, [hoveredRepo]);
 
   useEffect(() => {
-    if (allRepos.length > 5000) {
+    if (allRepos.length > 1000) {
       setSafetyProfiles({});
       return undefined;
     }
@@ -1953,22 +2039,16 @@ export default function Home() {
     if (!mount) return undefined;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#040606');
-    scene.fog = new THREE.FogExp2('#0c1514', 0.002);
+    scene.background = new THREE.Color('#07080d');
+    scene.fog = new THREE.FogExp2('#090b12', 0.00034);
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
     const now = performance.now();
-    const hasSeenIntro = (() => {
-      try {
-        return window.localStorage.getItem(INTRO_SEEN_STORAGE_KEY) === 'true';
-      } catch {
-        return false;
-      }
-    })();
-    const shouldRunIntro = !introHasRunRef.current && !hasSeenIntro;
+    const shouldRunIntro = !introHasRunRef.current;
     const introStart = shouldRunIntro ? now : now - INTRO_MS;
     if (!shouldRunIntro) introHasRunRef.current = true;
-    camera.position.copy(shouldRunIntro ? new THREE.Vector3(-760, 210, -540) : CAMERA_HOME);
+    setIntroPlaying(shouldRunIntro);
+    camera.position.copy(shouldRunIntro ? new THREE.Vector3(-820, 118, -620) : CAMERA_HOME);
 
     setWebglError('');
 
@@ -1984,24 +2064,24 @@ export default function Home() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.22;
     renderer.shadowMap.enabled = false;
     mount.appendChild(renderer.domElement);
 
-    const ambient = new THREE.HemisphereLight('#c0e8e0', '#020617', 1.2);
+    const ambient = new THREE.HemisphereLight('#8795b7', '#050609', 0.82);
     scene.add(ambient);
 
-    const key = new THREE.DirectionalLight('#dbe8ff', 4.5);
-    key.position.set(-80, 120, 50);
+    const key = new THREE.DirectionalLight('#ffd5bd', 3.35);
+    key.position.set(-140, 190, 90);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     scene.add(key);
 
-    const rim = new THREE.PointLight('#4fb7c5', 85, 250, 1.8);
+    const rim = new THREE.PointLight('#fc6d26', 68, 360, 1.7);
     rim.position.set(20, 45, -60);
     scene.add(rim);
 
-    scene.fog = new THREE.FogExp2('#0c1514', 0.0018);
+    scene.fog = new THREE.FogExp2('#090b12', 0.00034);
 
     createGround(scene);
     createSky(scene);
@@ -2031,8 +2111,9 @@ export default function Home() {
     ));
 
     const roads = createRoads(scene, buildings);
+    const roadHitTargets = roads.map((road) => road.hitMesh);
     applyFilter(buildings, roads, filterRef.current);
-    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, new Set());
+    const markerField = createInstancedRepoField(scene, sceneReposByDistrict, defaultDetailedRepoIds);
     if (markerField) hitTargets.push(markerField);
     const markerRepoIds = markerField?.userData.repoIds as string[] | undefined;
     const markerEntries = markerField?.userData.markerEntries as Array<{ repo: Repo; district: District; repos: Repo[]; index: number }> | undefined;
@@ -2277,6 +2358,14 @@ export default function Home() {
       };
       __siftSceneProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
       __siftMarkerProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
+      __siftFlowProbe?: () => {
+        roads: number;
+        packets: number;
+        crossClusterRoads: number;
+        gradients: number;
+        introVisible: boolean;
+        introProgress: number;
+      };
     };
 
     if (process.env.NODE_ENV !== 'production') {
@@ -2305,6 +2394,15 @@ export default function Home() {
         markerTotal: markerRepoIds?.length ?? 0,
         zoom: Number(refs.zoom.toFixed(3)),
         targetZoom: Number(refs.targetZoom.toFixed(3)),
+      });
+
+      siftWindow.__siftFlowProbe = () => ({
+        roads: roads.length,
+        packets: roads.reduce((total, road) => total + road.cars.length, 0),
+        crossClusterRoads: roads.filter((road) => road.source.district !== road.target.district).length,
+        gradients: roads.filter((road) => Boolean(road.mesh.material.map)).length,
+        introVisible: refs.siftText.visible,
+        introProgress: Number(clamp((performance.now() - refs.startedAt) / INTRO_MS, 0, 1).toFixed(3)),
       });
 
       siftWindow.__siftSceneProbe = () => buildings.flatMap((building) => {
@@ -2381,6 +2479,8 @@ export default function Home() {
         refs.startedAt = performance.now() - INTRO_MS;
         refs.cameraPosition.copy(camera.position);
         refs.cameraTarget.set(0, 60, 0);
+        refs.siftText.visible = false;
+        setIntroPlaying(false);
       }
       if (!refs.enteredAt) refs.enteredAt = performance.now();
     };
@@ -2395,6 +2495,8 @@ export default function Home() {
         refs.targetZoom = CAMERA_OVERVIEW_ZOOM;
         refs.zoom = CAMERA_OVERVIEW_ZOOM;
         setZoomValue(CAMERA_OVERVIEW_ZOOM);
+        refs.siftText.visible = false;
+        setIntroPlaying(false);
       }
       if (!refs.enteredAt) refs.enteredAt = performance.now();
       clearMovementKeys();
@@ -2565,6 +2667,14 @@ export default function Home() {
       return repoFromIntersection(intersection);
     };
 
+    const roadAtClientPoint = (clientX: number, clientY: number) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      refs.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      refs.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      refs.raycaster.setFromCamera(refs.pointer, camera);
+      return refs.raycaster.intersectObjects(roadHitTargets, false)[0]?.object ?? null;
+    };
+
     const focusSceneRepo = (repo: Repo) => {
       skipCinematicSweep();
       resetFocusTransition(refs);
@@ -2657,6 +2767,12 @@ export default function Home() {
 
     const handleClick = (event: globalThis.MouseEvent) => {
       if (didDrag || performance.now() - lastDragAt < 140) return;
+      const roadTarget = roadAtClientPoint(event.clientX, event.clientY);
+      const prUrl = roadTarget?.userData.prUrl;
+      if (typeof prUrl === 'string') {
+        window.open(prUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
       const repo = hoverRef.current ?? repoAtClientPoint(event.clientX, event.clientY);
       if (repo) focusSceneRepo(repo);
     };
@@ -2702,34 +2818,66 @@ export default function Home() {
       let desiredPosition = new THREE.Vector3();
       let desiredTarget = new THREE.Vector3();
 
-      // --- 1. Cinematic Opening Sweep (Priority) ---
+      // --- 1. GitLab-orange repository fly-through, reveal, and settle ---
       if (introProgress < 1 && !hasInteractiveCameraRequest) {
-        const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(-620, 250, -420),
-          new THREE.Vector3(-260, 190, 190),
-          new THREE.Vector3(240, 180, -170),
-          new THREE.Vector3(560, 230, 320),
-          CAMERA_HOME.clone(),
+        const flyThroughEnd = 0.5;
+        const revealEnd = 0.74;
+        const markPath = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(-760, 76, -560),
+          new THREE.Vector3(-390, 68, -120),
+          new THREE.Vector3(60, 72, -80),
+          new THREE.Vector3(420, 82, -130),
+          new THREE.Vector3(730, 96, 170),
         ]);
-        
-        const pos = curve.getPointAt(introT);
-        camera.position.copy(pos);
-        const sweepTarget = TARGET_HOME.clone().lerp(new THREE.Vector3(0, 70, 0), 1 - introT);
-        camera.lookAt(sweepTarget);
+        refs.siftText.visible = true;
 
-        // Reveal SIFT letters cinematicaly
-        if (introProgress > 0.55) {
-          const textT = easeOutCubic((introProgress - 0.55) / 0.45);
-          refs.siftText.children.forEach((child, i) => {
-            const sprite = child as THREE.Sprite;
-            sprite.material.opacity = textT;
-            sprite.position.y = sprite.userData.baseY + Math.sin(now * 0.001 + i) * 10 * textT;
-            sprite.scale.setScalar(70 + 24 * textT);
+        if (introProgress < flyThroughEnd) {
+          const flyT = easeInOutCubic(introProgress / flyThroughEnd);
+          const markPosition = markPath.getPointAt(flyT);
+          const tangent = markPath.getTangentAt(flyT);
+          const cameraPosition = markPosition.clone()
+            .add(new THREE.Vector3(-tangent.x * 150, 54, -tangent.z * 150))
+            .add(new THREE.Vector3(tangent.z * 34, 0, -tangent.x * 34));
+          refs.siftText.position.copy(markPosition);
+          refs.siftText.scale.setScalar(0.72 + Math.sin(flyT * Math.PI) * 0.16);
+          camera.position.copy(cameraPosition);
+          camera.lookAt(markPosition.clone().add(tangent.clone().multiplyScalar(76)));
+          refs.siftText.quaternion.copy(camera.quaternion);
+
+          refs.siftText.children.forEach((child, index) => {
+            const material = (child as THREE.Sprite | THREE.Mesh).material as THREE.SpriteMaterial | THREE.MeshBasicMaterial;
+            material.opacity = index === 0 ? 0.96 : 0.68 - index * 0.1;
+            if (index > 0) child.rotation.z = Math.sin(elapsed * 7 + index) * 0.08;
           });
+          refs.cameraPosition.copy(cameraPosition);
+          refs.cameraTarget.copy(markPosition);
+        } else if (introProgress < revealEnd) {
+          const revealT = easeOutCubic((introProgress - flyThroughEnd) / (revealEnd - flyThroughEnd));
+          const cameraPosition = markPath.getPointAt(1).clone().add(new THREE.Vector3(0, 62, 160)).lerp(INTRO_OVERVIEW, revealT);
+          const markPosition = markPath.getPointAt(1).lerp(new THREE.Vector3(0, 210, 0), revealT);
+          refs.siftText.position.copy(markPosition);
+          refs.siftText.scale.setScalar(1.1 + revealT * 4.2);
+          camera.position.copy(cameraPosition);
+          camera.lookAt(markPosition);
+          refs.siftText.quaternion.copy(camera.quaternion);
+          refs.cameraPosition.copy(cameraPosition);
+          refs.cameraTarget.copy(markPosition);
+        } else {
+          const settleT = easeInOutCubic((introProgress - revealEnd) / (1 - revealEnd));
+          const cameraPosition = INTRO_OVERVIEW.clone().lerp(CAMERA_HOME, settleT);
+          const target = new THREE.Vector3(0, 110, 0).lerp(TARGET_HOME, settleT);
+          refs.siftText.position.lerp(new THREE.Vector3(0, 175, -20), 0.12);
+          refs.siftText.scale.setScalar(5.3 - settleT * 1.8);
+          refs.siftText.children.forEach((child, index) => {
+            const material = (child as THREE.Sprite | THREE.Mesh).material as THREE.SpriteMaterial | THREE.MeshBasicMaterial;
+            material.opacity = Math.max(0, (index === 0 ? 1 : 0.55) * (1 - settleT * 1.2));
+          });
+          camera.position.copy(cameraPosition);
+          camera.lookAt(target);
+          refs.siftText.quaternion.copy(camera.quaternion);
+          refs.cameraPosition.copy(cameraPosition);
+          refs.cameraTarget.copy(target);
         }
-        
-        refs.cameraPosition.copy(pos);
-        refs.cameraTarget.copy(sweepTarget);
       } 
       // --- 2. Interactive States ---
       else {
@@ -2806,11 +2954,8 @@ export default function Home() {
 
       if (introProgress >= 1 && !introHasRunRef.current) {
         introHasRunRef.current = true;
-        try {
-          window.localStorage.setItem(INTRO_SEEN_STORAGE_KEY, 'true');
-        } catch {
-          // localStorage can be unavailable in private or embedded contexts.
-        }
+        refs.siftText.visible = false;
+        setIntroPlaying(false);
       }
 
       hoverFrame += 1;
@@ -2832,15 +2977,29 @@ export default function Home() {
       }
 
       const similarActive = now < similarUntilRef.current;
+      const hoveredId = hoverRef.current?.id;
       for (const building of buildings) {
         const isHovered = hoverRef.current?.id === building.repo.id;
         const isSelected = selectedRef.current?.id === building.repo.id;
         const isSimilar = similarActive && (similarDistrictRef.current === building.repo.district || similarDistrictRef.current === building.district.parent);
         if (!updateBuildingEffects && !isHovered && !isSelected && !isSimilar) continue;
         const pulse = 0.5 + Math.sin(elapsed * 2.5 + building.phase * 8) * 0.5;
-        building.body.material.emissiveIntensity = isSelected ? 0.12 : isHovered ? 0.08 : isSimilar ? 0.06 + pulse * 0.025 : 0.018;
-        building.top.material.emissiveIntensity = isSelected || isHovered ? 0.32 : isSimilar ? 0.18 : 0.08;
-        building.windows.material.opacity = isHovered || isSelected ? 0.58 : filterRef.current === 'all' ? 0.28 : building.windows.material.opacity;
+        const signal = repoSignalPalette(building.repo);
+        const backgroundDim = Boolean(hoveredId && !isHovered && !isSelected);
+        building.body.material.emissiveIntensity = isSelected
+          ? Math.max(0.58, signal.emissive * 1.7)
+          : isHovered
+            ? Math.max(0.42, signal.emissive * 1.4)
+            : isSimilar
+              ? signal.emissive + pulse * 0.06
+              : signal.emissive;
+        building.top.material.emissiveIntensity = isSelected || isHovered
+          ? 0.72
+          : isSimilar ? 0.32 : signal.highSignal ? 0.34 : 0.14;
+        building.group.scale.y = THREE.MathUtils.lerp(building.group.scale.y, isHovered || isSelected ? 1.045 : 1, 0.18);
+        building.body.material.opacity = backgroundDim ? 0.46 : signal.highSignal ? 0.98 : 0.86;
+        building.top.material.opacity = backgroundDim ? 0.52 : 1;
+        building.windows.material.opacity = backgroundDim ? 0.08 : isHovered || isSelected ? 0.78 : signal.highSignal ? 0.48 : 0.3;
         if (isSelected) {
           const details = ensureSelectedBuildingDetails(building);
           details.visible = true;
@@ -2858,17 +3017,18 @@ export default function Home() {
       }
 
       for (const road of roads) {
+        road.gradientTexture.offset.x = -((elapsed * road.speed * 0.16 + road.phase) % 1);
         road.label.quaternion.copy(camera.quaternion);
         const selectedRoad = selected ? road.source.id === selected.id || road.target.id === selected.id : false;
         const roadPulse = 0.5 + Math.sin(elapsed * 2.2 + road.phase * 6) * 0.5;
         const filteredRoadOpacity = typeof road.mesh.material.userData.filteredOpacity === 'number' ? road.mesh.material.userData.filteredOpacity : road.baseOpacity;
         road.mesh.material.opacity = selectedRoad
-          ? Math.min(0.54, filteredRoadOpacity + 0.18 + roadPulse * 0.06)
+          ? Math.min(1, filteredRoadOpacity + 0.08 + roadPulse * 0.08)
           : filteredRoadOpacity;
         if (road.label.visible) {
           const labelPoint = road.curve.getPointAt(0.5);
-          road.label.position.set(labelPoint.x, 2.2 + road.flowStrength * 0.6, labelPoint.z);
-          road.label.material.opacity = selectedRoad ? 0.5 : 0;
+          road.label.position.set(labelPoint.x, labelPoint.y + 5 + Z.labels, labelPoint.z);
+          road.label.material.opacity = selectedRoad ? 0.76 : 0;
         }
         road.cars.forEach((car, carIndex) => {
           const t = (road.phase + elapsed * road.speed + carIndex / road.cars.length) % 1;
@@ -2940,6 +3100,7 @@ export default function Home() {
         delete siftWindow.__siftLodProbe;
         delete siftWindow.__siftSceneProbe;
         delete siftWindow.__siftMarkerProbe;
+        delete siftWindow.__siftFlowProbe;
       }
       sceneRef.current = null;
     };
@@ -3104,9 +3265,9 @@ export default function Home() {
 
   const handleRepoImport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const locator = parseGithubRepoLocator(repoImport);
+    const locator = parseRepositoryLocator(repoImport);
     if (!locator) {
-      setImportStatus('Use owner/repo or paste a full GitHub repository URL.');
+      setImportStatus('Use namespace/project or paste a full GitLab project URL.');
       return;
     }
 
@@ -3126,7 +3287,7 @@ export default function Home() {
       if (!response.ok || !payload.repo) {
         const backendDetail = payload.detail || `Repository import failed with ${response.status}`;
         throw new Error(response.status === 404
-          ? `${locator.owner}/${locator.repo} was not found on GitHub. Check the spelling or visibility.`
+          ? `${locator.owner}/${locator.repo} was not found on GitLab. Check the spelling or visibility.`
           : backendDetail);
       }
       const imported = buildRepoFromGraphNode(payload.repo);
@@ -3134,7 +3295,7 @@ export default function Home() {
         ...imported,
         loadedAt: new Date().toISOString(),
         wantsContributions,
-        importSource: 'github',
+        importSource: 'gitlab',
       };
       setLoadedRepos((current) => [importedWithSession, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
@@ -3145,7 +3306,7 @@ export default function Home() {
       setGraphRefreshToken((current) => current + 1);
       focusRepo(importedWithSession);
     } catch (error) {
-      console.error('[SIFT imports] GitHub import failed:', error);
+      console.error('[SIFT imports] project import failed:', error);
       const fallbackId = `${locator.owner}/${locator.repo}`.toLowerCase();
       const graphRepo = effectiveRepos.find((repo) => `${repo.owner}/${repo.name}`.toLowerCase() === fallbackId || repo.id === fallbackId);
 
@@ -3154,17 +3315,17 @@ export default function Home() {
           ...graphRepo,
           loadedAt: new Date().toISOString(),
           wantsContributions,
-          importSource: 'github',
+          importSource: 'gitlab',
         };
         setLoadedRepos((current) => [importedFromGraph, ...current.filter((repo) => repo.id !== importedFromGraph.id)].slice(0, 20));
         setRepoImport('');
-        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitHub import was unavailable.`);
+        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitLab import was unavailable.`);
         focusRepo(importedFromGraph);
       } else {
         const message = error instanceof Error ? error.message : '';
         const importFailure = message.toLowerCase().includes('fetch')
           ? 'Backend import route unavailable. Check that the SIFT backend is running, then try again.'
-          : message || 'Could not load that public GitHub repo. Check the owner/repo spelling or try again after GitHub rate limits reset.';
+          : message || 'Could not load that public GitLab project. Check the namespace/project spelling or try again later.';
         setImportStatus(importFailure);
       }
     } finally {
@@ -3196,7 +3357,7 @@ export default function Home() {
 
   return (
     <main
-      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''} ${viewEncodingOpen ? 'is-view-encoding' : ''}`}
+      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${introPlaying ? 'is-cinematic' : ''} ${selectedRepo ? 'is-repo-focus' : ''} ${viewEncodingOpen ? 'is-view-encoding' : ''}`}
       aria-label="SIFT 3D open-source city"
       style={{
         '--atlas-pan-x': `${atlasView.x}px`,
@@ -3208,6 +3369,10 @@ export default function Home() {
       {loadingRepos && (
         <div className="sift-loading-screen">
           <div className="sift-loading-content">
+            <div className="gitlab-loading-brand">
+              <img src="/gitlab-logo.png" alt="" />
+              <span>Sourced from GitLab</span>
+            </div>
             <h1 className="sift-loading-title">SIFT</h1>
             <div className="sift-spinner-8bit"></div>
             <p className="sift-loading-text">{loadingStage}</p>
@@ -3259,6 +3424,10 @@ export default function Home() {
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
         <div className="intro-copy">
+          <div className="gitlab-intro-brand">
+            <img src="/gitlab-logo.png" alt="" />
+            <span>Sourced from GitLab</span>
+          </div>
           <h1 aria-label="sift">
             {'sift'.split('').map((letter, index) => (
               <span key={letter} style={{ animationDelay: `${0.65 + index * 0.18}s` }}>
@@ -3284,6 +3453,11 @@ export default function Home() {
       </div>
 
       <section className={`city-ui ${entered ? 'is-visible' : ''}`} aria-hidden={!entered}>
+        <div className="gitlab-source-badge" aria-label="Sourced from GitLab">
+          <img src="/gitlab-logo.png" alt="" />
+          <span><small>OPEN SOURCE INTELLIGENCE</small>Sourced from GitLab</span>
+        </div>
+
         <div className="control-dock" aria-label="City view controls">
           <div className="tool-group" aria-label="Zoom controls">
             <button type="button" onClick={handleZoomIn} title="Zoom in" aria-label="Zoom in">
@@ -3541,7 +3715,7 @@ export default function Home() {
       <section className={`network-dock ${entered ? 'is-visible' : ''} ${selectedRepo ? 'has-panel' : ''}`} aria-label="Contribution network">
         <div className="network-head">
           <span>
-            <Github size={14} strokeWidth={1.8} />
+            <img className="gitlab-inline-logo" src="/gitlab-logo.png" alt="" />
             Contribution Network
           </span>
         </div>
@@ -3554,8 +3728,8 @@ export default function Home() {
               quietCameraForTextInput();
               setRepoImport(event.target.value);
             }}
-            placeholder="owner/repo"
-            aria-label="Load GitHub repository"
+            placeholder="namespace/project"
+            aria-label="Load GitLab project"
             data-keyboard-capture="true"
           />
           <button type="submit" disabled={importingRepo}>
@@ -3775,12 +3949,12 @@ export default function Home() {
             </div>
 
             <div className="pr-list">
-              <span className="section-label">open pull requests</span>
+              <span className="section-label">open merge requests</span>
               {selectedRepo.prs.map((pr) => (
                 <div className="pr-item" key={pr.number}>
                   <i className={`priority-dot ${pr.priority}`} />
                   <div>
-                    <strong>PR #{pr.number}</strong>
+                    <strong>MR !{pr.number}</strong>
                     <span>{pr.title}</span>
                   </div>
                 </div>
@@ -3788,8 +3962,8 @@ export default function Home() {
             </div>
 
             <div className="panel-actions">
-              <a href={`https://github.com/${selectedRepo.owner}/${selectedRepo.name}`} target="_blank" rel="noreferrer">
-                view on github ↗
+              <a href={`https://gitlab.com/${selectedRepo.owner}/${selectedRepo.name}`} target="_blank" rel="noreferrer">
+                view on gitlab ↗
               </a>
               <button type="button" onClick={handleFindSimilar}>
                 find similar repos
@@ -4167,6 +4341,15 @@ export default function Home() {
         .city-ui.is-visible {
           opacity: 1;
           transform: translateY(0);
+        }
+
+        .sift-page.is-cinematic .city-ui,
+        .sift-page.is-cinematic .network-dock,
+        .sift-page.is-cinematic .repo-panel,
+        .sift-page.is-cinematic .repo-tooltip {
+          opacity: 0 !important;
+          pointer-events: none !important;
+          transform: translateY(14px) scale(0.985);
         }
 
         .sift-page.is-view-encoding .city-ui {
@@ -6447,7 +6630,7 @@ export default function Home() {
 
         .stat-bar {
           top: 10px;
-          right: 116px;
+          right: 360px;
           gap: 42px;
           padding: 5px 12px;
           border: 1px solid rgba(255,255,255,0.08);
@@ -6691,6 +6874,166 @@ export default function Home() {
           animation: loadingDetailPop 420ms steps(4);
         }
 
+        .gitlab-loading-brand,
+        .gitlab-intro-brand,
+        .gitlab-source-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          border: 1px solid rgba(252,109,38,0.34);
+          background:
+            linear-gradient(135deg, rgba(252,109,38,0.15), rgba(168,85,247,0.1)),
+            rgba(9,10,16,0.78);
+          box-shadow: 0 16px 48px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.09);
+          backdrop-filter: blur(22px) saturate(150%);
+        }
+
+        .gitlab-loading-brand,
+        .gitlab-intro-brand {
+          border-radius: 999px;
+          padding: 8px 14px 8px 10px;
+          color: rgba(255,255,255,0.88);
+          font-family: "Space Mono", monospace;
+          font-size: 10px;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+
+        .gitlab-loading-brand img,
+        .gitlab-intro-brand img {
+          width: 24px;
+          height: 24px;
+          object-fit: contain;
+        }
+
+        .gitlab-intro-brand {
+          margin-bottom: 4px;
+          opacity: 0;
+          animation: enterIn 800ms cubic-bezier(.16,1,.3,1) 1.8s forwards;
+        }
+
+        .gitlab-source-badge {
+          position: absolute;
+          top: 22px;
+          left: 50%;
+          z-index: 12;
+          transform: translateX(-50%);
+          padding: 8px 14px 8px 10px;
+          border-radius: 12px;
+          pointer-events: none;
+        }
+
+        .gitlab-source-badge img {
+          width: 28px;
+          height: 28px;
+          object-fit: contain;
+          filter: drop-shadow(0 0 12px rgba(252,109,38,0.34));
+        }
+
+        .gitlab-source-badge span {
+          display: grid;
+          gap: 1px;
+          color: rgba(255,255,255,0.94);
+          font-family: "Space Mono", monospace;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .gitlab-source-badge small {
+          color: rgba(255,255,255,0.42);
+          font-size: 7px;
+          font-weight: 500;
+          letter-spacing: 0.08em;
+        }
+
+        .gitlab-inline-logo {
+          width: 15px;
+          height: 15px;
+          object-fit: contain;
+        }
+
+        .sift-page {
+          background:
+            radial-gradient(circle at 70% 20%, rgba(168,85,247,0.12), transparent 28%),
+            radial-gradient(circle at 30% 74%, rgba(252,109,38,0.12), transparent 32%),
+            linear-gradient(180deg, #07080d 0%, #0b0d14 52%, #11131b 100%);
+        }
+
+        .sift-page::before {
+          background:
+            linear-gradient(90deg, rgba(2,3,7,0.5), transparent 22%, transparent 76%, rgba(2,3,7,0.56)),
+            radial-gradient(ellipse at center, transparent 34%, rgba(2,3,7,0.34) 76%, rgba(2,3,7,0.68) 100%);
+        }
+
+        .control-dock,
+        .search-cluster,
+        .network-dock,
+        .stat-bar,
+        .cinema-readout {
+          opacity: 0.78;
+        }
+
+        .control-dock:hover,
+        .search-cluster:focus-within,
+        .search-cluster:hover,
+        .network-dock:hover {
+          opacity: 1;
+        }
+
+        .network-dock {
+          background:
+            linear-gradient(145deg, rgba(252,109,38,0.055), rgba(168,85,247,0.035)),
+            rgba(7,8,13,0.58);
+          border-color: rgba(255,255,255,0.09);
+        }
+
+        .sift-loading-screen {
+          background:
+            radial-gradient(circle at 50% 34%, rgba(252,109,38,0.18), transparent 34%),
+            radial-gradient(circle at 62% 52%, rgba(168,85,247,0.1), transparent 30%),
+            #07080d;
+          color: #fca326;
+        }
+
+        .sift-loading-content {
+          border-color: rgba(252,109,38,0.24);
+          border-radius: 18px;
+          background: rgba(9,10,16,0.72);
+          box-shadow: 0 0 0 1px rgba(168,85,247,0.06), 0 28px 90px rgba(0,0,0,0.5);
+        }
+
+        .sift-loading-title {
+          color: #fff;
+          text-shadow: 0 0 32px rgba(252,109,38,0.28), 3px 3px 0 #6b2f18;
+        }
+
+        .sift-spinner-8bit {
+          border-color: rgba(168,85,247,0.35);
+          border-top-color: #fc6d26;
+          border-radius: 50%;
+          animation-timing-function: linear;
+        }
+
+        .sift-loading-progress {
+          border-color: rgba(252,109,38,0.4);
+          background: rgba(252,109,38,0.04);
+        }
+
+        .sift-loading-progress span {
+          background: linear-gradient(90deg, #e24329, #fc6d26, #fca326, #a855f7);
+          box-shadow: 0 0 18px rgba(252,109,38,0.38);
+        }
+
+        .sift-loading-detail {
+          color: rgba(255,255,255,0.5);
+        }
+
+        @media (max-width: 820px) {
+          .gitlab-source-badge {
+            top: 14px;
+          }
+        }
+
         @keyframes loadingDetailPop {
           0% { opacity: 0; transform: translateY(8px); }
           100% { opacity: 1; transform: translateY(0); }
@@ -6761,8 +7104,8 @@ function createInstancedRepoField(
   const markerPositions: THREE.Vector3[] = [];
   markerEntries.forEach(({ repo, district, repos, index }, markerIndex) => {
     const { x, z, seed } = instancedRepoPosition(repo, index, district, repos);
-    const height = clamp(3.8 + Math.log10(repo.stars + getOpenWorkItems(repo) + 2) * 7.4, 4.8, 30);
-    const footprint = clamp(1.1 + Math.log10(repo.forks + 2) * 0.52 + seededUnit(seed + 3) * 0.55, 1.1, 3.4);
+    const height = clamp((3.8 + Math.log10(repo.stars + getOpenWorkItems(repo) + 2) * 7.4) * 1.5, 7.2, 45);
+    const footprint = clamp((1.1 + Math.log10(repo.forks + 2) * 0.52 + seededUnit(seed + 3) * 0.55) * 1.25, 1.4, 4.25);
     dummy.position.set(x, getTerrainSurfaceY(x, z) + Z.buildings + height / 2, z);
     dummy.rotation.y = seededUnit(seed + 6) * Math.PI;
     dummy.scale.set(footprint, height, footprint);
@@ -6771,7 +7114,7 @@ function createInstancedRepoField(
     markerMatrices[markerIndex] = dummy.matrix.clone();
     markerPositions[markerIndex] = dummy.position.clone();
 
-    color.set(district.color);
+    color.set(repoSignalPalette(repo).base);
     markers.setColorAt(markerIndex, color);
   });
   markers.userData.markerMatrices = markerMatrices;
@@ -6783,6 +7126,37 @@ function createInstancedRepoField(
   return markers;
 }
 
+function repoSignalPalette(repo: Repo) {
+  const openWork = getOpenWorkItems(repo);
+  const highSignal = repo.stars >= 50000 || repo.contributors >= 500 || openWork >= 500;
+  const district = districtFor(repo);
+  const base = new THREE.Color(district.color);
+  const accent = new THREE.Color(district.accent);
+  const seed = repoDetailSeed(repo);
+  const variation = seededUnit(seed + 41);
+
+  if (variation > 0.7) base.lerp(accent, 0.18 + (variation - 0.7) * 0.5);
+  else base.lerp(new THREE.Color('#080a10'), 0.08 + (0.7 - variation) * 0.12);
+  const baseHsl = { h: 0, s: 0, l: 0 };
+  const accentHsl = { h: 0, s: 0, l: 0 };
+  base.getHSL(baseHsl);
+  accent.getHSL(accentHsl);
+  base.setHSL(baseHsl.h, Math.max(0.62, baseHsl.s), Math.max(0.46, baseHsl.l));
+  accent.setHSL(accentHsl.h, Math.max(0.58, accentHsl.s), Math.max(0.68, accentHsl.l));
+
+  if (repo.importSource === 'gitlab' || repo.loadedAt) {
+    base.lerp(new THREE.Color('#fc6d26'), 0.34);
+    accent.lerp(new THREE.Color('#fca326'), 0.28);
+    return { base: `#${base.getHexString()}`, accent: `#${accent.getHexString()}`, emissive: 0.38, highSignal: true };
+  }
+  return {
+    base: `#${base.getHexString()}`,
+    accent: `#${accent.getHexString()}`,
+    emissive: highSignal ? 0.32 : 0.13,
+    highSignal,
+  };
+}
+
 
 function createBuilding(repo: Repo, index: number, districtRepos: Repo[], heightScaleDriver: HeightScaleDriver) {
   const district = districtFor(repo);
@@ -6791,18 +7165,20 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   const layout = createRepoLayout(repo, index, districtRepos, heightScaleDriver);
   group.position.copy(layout.position);
 
-  // Restore Color-Coded Palettes (District-driven)
-  const baseColor = new THREE.Color(district.color);
-  const bodyColor = baseColor.clone().lerp(new THREE.Color('#020617'), 0.25);
-  const accentColor = new THREE.Color(district.accent);
+  const signal = repoSignalPalette(repo);
+  const baseColor = new THREE.Color(signal.base);
+  const bodyColor = baseColor.clone().lerp(new THREE.Color('#080a10'), 0.32);
+  const accentColor = new THREE.Color(signal.accent);
   const isHighDetail = Boolean(repo.loadedAt) || index < 4 || repo.stars >= 100000;
 
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: bodyColor,
-    roughness: 0.65,
-    metalness: 0.42,
+    roughness: signal.highSignal ? 0.34 : 0.56,
+    metalness: signal.highSignal ? 0.62 : 0.38,
     emissive: bodyColor,
-    emissiveIntensity: 0.05,
+    emissiveIntensity: signal.emissive,
+    transparent: true,
+    opacity: signal.highSignal ? 0.98 : 0.86,
   });
 
   const topMaterial = new THREE.MeshStandardMaterial({
@@ -6810,7 +7186,7 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     roughness: 0.35,
     metalness: 0.75,
     emissive: accentColor,
-    emissiveIntensity: 0.25,
+    emissiveIntensity: signal.highSignal ? 0.46 : 0.2,
   });
 
   const glassMaterial = new THREE.MeshStandardMaterial({
@@ -6818,9 +7194,9 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
     roughness: 0.1,
     metalness: 0.95,
     transparent: true,
-    opacity: 0.75,
+    opacity: signal.highSignal ? 0.86 : 0.68,
     emissive: accentColor,
-    emissiveIntensity: 0.35,
+    emissiveIntensity: signal.highSignal ? 0.52 : 0.22,
   });
 
   let visualHeight = layout.height;
@@ -6832,16 +7208,22 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   // Base Plate (Grounding)
   const basePlate = new THREE.Mesh(
     new THREE.BoxGeometry(bodyWidth * 1.35, 1.2, bodyDepth * 1.35),
-    new THREE.MeshStandardMaterial({ color: '#1c1917', roughness: 0.9, metalness: 0.15 })
+    new THREE.MeshStandardMaterial({
+      color: '#11131a',
+      roughness: 0.72,
+      metalness: 0.38,
+      emissive: baseColor,
+      emissiveIntensity: signal.highSignal ? 0.06 : 0.018,
+    })
   );
   basePlate.position.y = Z.buildingBase;
   basePlate.receiveShadow = true;
   group.add(basePlate);
 
   // Layered Tower Body
-  const layerCount = isHighDetail ? 3 : 1;
+  const layerCount = isHighDetail ? 3 : 2;
   for (let i = 0; i < layerCount; i++) {
-    const t = layerCount === 1 ? 0 : i / (layerCount - 1);
+    const t = i / (layerCount - 1);
     const layerHeight = (visualHeight * 0.8) / layerCount;
     const taper = 1 - t * 0.25;
     const lWidth = bodyWidth * taper;
@@ -6889,7 +7271,13 @@ function createBuilding(repo: Repo, index: number, districtRepos: Repo[], height
   let windows: THREE.InstancedMesh;
   if (showWindows) {
     const windowGeometry = new THREE.PlaneGeometry(0.25, 0.18);
-    const windowMaterial = new THREE.MeshBasicMaterial({ color: accentColor, transparent: true, opacity: 0.45, depthWrite: false });
+    const windowMaterial = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      transparent: true,
+      opacity: signal.highSignal ? 0.68 : 0.38,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
     const cols = Math.max(1, Math.floor(bodyWidth / 1.4));
     const rows = Math.max(1, Math.floor(visualHeight / 3.5));
     const litWindows = [];
@@ -7940,7 +8328,7 @@ function createDistrictLandscaping(scene: THREE.Scene, district: District, distr
   createDistrictLabel(scene, district);
 
   // Procedural Clutter Layers
-  const clutterCount = 24 + (districtIndex % 5) * 8;
+  const clutterCount = 8 + (districtIndex % 4) * 3;
   for (let i = 0; i < clutterCount; i++) {
     const angle = (i / clutterCount) * Math.PI * 2 + seededUnit(propSeed + i) * 0.5;
     const dist = 40 + seededUnit(propSeed + i + 10) * 85;
@@ -8233,51 +8621,52 @@ function getTerrainColor(x: number, z: number, h: number) {
   const mixFactor = Math.pow(blend, 2) * (3 - 2 * blend);
 
   const getColorForBiome = (biome: string) => {
-    const slate = new THREE.Color('#475569');
-    const concrete = new THREE.Color('#94a3b8');
-    const earth = new THREE.Color('#71717a');
+    const slate = new THREE.Color('#17202b');
+    const concrete = new THREE.Color('#242b36');
+    const earth = new THREE.Color('#20252c');
 
     if (biome === 'volcano') {
       const lavaFlow = Math.sin((x / TERRAIN_TILE_SIZE) * TILE_PI * 34 + (z / TERRAIN_TILE_SIZE) * TILE_PI * 21 + tileableFbm(x, z, 4) * 4);
-      if (lavaFlow > 0.85) return new THREE.Color('#b91c1c').lerp(new THREE.Color('#450a0a'), 0.2); // Grounded ember
-      return new THREE.Color('#1c1917'); // Obsidian / Ash
+      if (lavaFlow > 0.88) return new THREE.Color('#6f241b').lerp(new THREE.Color('#fc6d26'), 0.12);
+      return new THREE.Color('#171519');
     }
     if (biome === 'snow') {
       const rockMelt = tileableFbm(x, z, 4);
-      if (rockMelt > 0.72) return slate.clone().lerp(new THREE.Color('#1e293b'), 0.5); // Slate rock
-      return new THREE.Color('#f1f5f9').lerp(new THREE.Color('#cbd5e1'), 0.15); // Icy white
+      if (rockMelt > 0.72) return slate.clone().lerp(new THREE.Color('#222938'), 0.5);
+      return new THREE.Color('#2a3442').lerp(new THREE.Color('#435268'), 0.18);
     }
     if (biome === 'forest') {
       const moss = tileableFbm(x, z, 5);
-      return new THREE.Color(moss > 0.6 ? '#14532d' : '#365314').lerp(earth, 0.4); // Deep moss/pine
+      return new THREE.Color(moss > 0.6 ? '#153328' : '#252e24').lerp(earth, 0.54);
     }
     if (biome === 'crystal') {
       const fracture = Math.abs(tileableNoise2D(x, z, 32, 88.8) - 0.5);
-      if (fracture < 0.04) return new THREE.Color('#4c1d95'); // Deep mineral purple
-      return new THREE.Color('#0f172a'); // Quartz slate
+      if (fracture < 0.04) return new THREE.Color('#3b225d');
+      return new THREE.Color('#171927');
     }
     if (biome === 'desert') {
-      return new THREE.Color('#d97706').lerp(new THREE.Color('#92400e'), 0.3).lerp(concrete, 0.4); // Sandstone/clay
+      return new THREE.Color('#4a3024').lerp(new THREE.Color('#7c3f22'), 0.18).lerp(concrete, 0.56);
     }
     if (biome === 'holographic') {
-      return new THREE.Color('#082f49'); // Steel blue/glass
+      return new THREE.Color('#152a34');
     }
-    return concrete.clone().lerp(earth, 0.3); // City concrete
+    return concrete.clone().lerp(earth, 0.42);
   };
 
   const color1 = getColorForBiome(biome1);
   const color2 = getColorForBiome(biome2);
   const finalColor = color1.lerp(color2, mixFactor);
 
-  const shade = clamp(h * 0.038, 0, 0.42);
-  finalColor.multiplyScalar(1 - shade);
+  const normalizedHeight = clamp(h / 72, 0, 1);
+  finalColor.multiplyScalar(0.72 + normalizedHeight * 0.32);
+  finalColor.lerp(new THREE.Color('#384253'), normalizedHeight * 0.12);
 
   return finalColor;
 }
 
 function createBiomeTerrain(scene: THREE.Scene) {
   const extent = TERRAIN_PLAY_EXTENT;
-  const res = 320;
+  const res = 260;
   const geometry = new THREE.PlaneGeometry(extent, extent, res, res);
   const positions = geometry.attributes.position as THREE.BufferAttribute;
   const colors = new THREE.BufferAttribute(new Float32Array(positions.count * 3), 3);
@@ -8300,10 +8689,10 @@ function createBiomeTerrain(scene: THREE.Scene) {
     geometry,
     new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.85,
-      metalness: 0.12,
-      emissive: '#05080a',
-      emissiveIntensity: 0.05,
+      roughness: 0.78,
+      metalness: 0.2,
+      emissive: '#080a0f',
+      emissiveIntensity: 0.08,
     }),
   );
   terrain.rotation.x = -Math.PI / 2;
@@ -8372,15 +8761,60 @@ function createTileableRoadNetwork(scene: THREE.Scene) {
   }
 }
 
+let districtGlowTexture: THREE.CanvasTexture | null = null;
+
+function getDistrictGlowTexture() {
+  if (districtGlowTexture) return districtGlowTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (context) {
+    const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.54)');
+    gradient.addColorStop(0.28, 'rgba(255,255,255,0.24)');
+    gradient.addColorStop(0.7, 'rgba(255,255,255,0.06)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 128, 128);
+  }
+  districtGlowTexture = new THREE.CanvasTexture(canvas);
+  return districtGlowTexture;
+}
+
+function createDistrictGroundGlows(scene: THREE.Scene) {
+  DISTRICTS.filter((district) => FEATURED_DISTRICT_KEYS.has(district.key)).forEach((district) => {
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(260, 260),
+      new THREE.MeshBasicMaterial({
+        map: getDistrictGlowTexture(),
+        color: district.parent === 'ai' ? '#a855f7' : district.parent === 'security' ? '#ef4444' : '#fc6d26',
+        transparent: true,
+        opacity: 0.16,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(district.x, getTerrainSurfaceY(district.x, district.z) + Z.roads + 0.12, district.z);
+    glow.renderOrder = -2;
+    glow.userData.role = 'landscape';
+    glow.userData.dayOpacity = 0.08;
+    glow.userData.nightOpacity = 0.16;
+    scene.add(glow);
+  });
+}
+
 function createGround(scene: THREE.Scene) {
   // Main organic terrain
   createBiomeTerrain(scene);
   createTileableRoadNetwork(scene);
+  createDistrictGroundGlows(scene);
 
   // Far distant floor for horizon
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(8000, 8000, 1, 1),
-    new THREE.MeshStandardMaterial({ color: '#040606', roughness: 1, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ color: '#07080d', roughness: 1, metalness: 0 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = TERRAIN_BASE_Y - 5;
@@ -8537,13 +8971,33 @@ function createSky(scene: THREE.Scene) {
 }
 
 function flowColorFor(building: BuildingObject) {
-  if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins'].includes(building.district.key)) return '#86efac';
-  if (building.district.key === 'volcano_forge') return '#fb923c';
-  if (building.district.key === 'frozen_kingdom') return '#e0f2fe';
-  if (building.district.parent === 'ai') return '#d8b4fe';
-  if (building.district.parent === 'web') return '#93c5fd';
-  if (building.district.parent === 'systems') return '#fda4af';
-  return building.district.accent;
+  return building.district.color;
+}
+
+function createFlowGradientTexture(sourceColor: string, targetColor: string) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 8;
+  const context = canvas.getContext('2d');
+  if (context) {
+    const source = new THREE.Color(sourceColor);
+    const target = new THREE.Color(targetColor);
+    const midpoint = source.clone().lerp(target, 0.5).lerp(new THREE.Color('#ffffff'), 0.18);
+    const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
+    gradient.addColorStop(0, source.getStyle());
+    gradient.addColorStop(0.46, midpoint.getStyle());
+    gradient.addColorStop(1, target.getStyle());
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(1.7, 1);
+  texture.needsUpdate = true;
+  return texture;
 }
 
 function prFlowScore(building: BuildingObject) {
@@ -8554,6 +9008,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const roads: RoadObject[] = [];
   const roadPairs = new Set<string>();
   let packetBudget = MAX_PR_FLOW_PACKETS;
+  let localRoadCount = 0;
+  const trunkPacketReserve = 120;
 
   const buildingsByDistrict = new Map<DistrictKey, BuildingObject[]>();
   buildings.forEach((building) => {
@@ -8563,20 +9019,24 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   });
 
   const addRoad = (source: BuildingObject, target: BuildingObject, laneIndex: number, isDistrictTrunk = false) => {
-    if (roads.length >= MAX_PR_FLOW_ROADS || packetBudget <= 0 || source === target) return;
+    if (roads.length >= MAX_PR_FLOW_ROADS || source === target) return;
+    if (isDistrictTrunk ? packetBudget <= 0 : packetBudget <= trunkPacketReserve) return;
+    if (!isDistrictTrunk && localRoadCount >= 44) return;
     const pairKey = [source.repo.id, target.repo.id].sort().join('::');
     if (roadPairs.has(pairKey)) return;
 
     const distance = source.position.distanceTo(target.position);
-    if (distance < 5 || distance > (isDistrictTrunk ? 400 : 250)) return;
+    if (distance < 5 || distance > (isDistrictTrunk ? 2600 : 420)) return;
 
     roadPairs.add(pairKey);
 
     const openWork = Math.max(1, getOpenWorkItems(source.repo));
     const flowStrength = clamp(Math.log10(openWork + source.repo.prs.length * 40 + 8) / 3.25, 0.22, 1);
     const pathColor = flowColorFor(source);
-    const baseOpacity = clamp(0.25 + flowStrength * 0.4, 0.3, 0.8);
-    const radius = clamp(0.08 + flowStrength * 0.15, 0.1, 0.25);
+    const targetColor = flowColorFor(target);
+    const gradientTexture = createFlowGradientTexture(pathColor, targetColor);
+    const baseOpacity = clamp(0.58 + flowStrength * 0.3, 0.64, 0.96);
+    const radius = clamp((isDistrictTrunk ? 0.28 : 0.18) + flowStrength * 0.22, 0.24, 0.52);
 
     const p1 = source.position.clone();
     const p2 = target.position.clone();
@@ -8588,25 +9048,28 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const bow = (seededUnit(seed) - 0.5) * clamp(distance * 0.24, 6, 24) + (laneIndex - 0.5) * 2.8;
     const midX = (p1.x + p2.x) / 2 + normal.x * bow;
     const midZ = (p1.z + p2.z) / 2 + normal.z * bow;
-    const startY = getTerrainSurfaceY(p1.x, p1.z) + 0.22;
-    const endY = getTerrainSurfaceY(p2.x, p2.z) + 0.22;
-    const midY = getTerrainSurfaceY(midX, midZ) + 0.35 + flowStrength * 0.15;
+    const startY = getTerrainSurfaceY(p1.x, p1.z) + clamp(source.height * 0.18, 10, 26);
+    const endY = getTerrainSurfaceY(p2.x, p2.z) + clamp(target.height * 0.18, 10, 26);
+    const archHeight = clamp(distance * (isDistrictTrunk ? 0.16 : 0.1), isDistrictTrunk ? 48 : 18, isDistrictTrunk ? 210 : 72);
+    const midY = Math.max(startY, endY, getTerrainSurfaceY(midX, midZ)) + archHeight;
     const start = new THREE.Vector3(p1.x, startY + Z.roads, p1.z);
     const end = new THREE.Vector3(p2.x, endY + Z.roads, p2.z);
     const curve = new THREE.CatmullRomCurve3([
       start,
-      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, startY + flowStrength * 0.12 + Z.roads, p1.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(p1.x * 0.72 + midX * 0.28, startY + archHeight * 0.58 + Z.roads, p1.z * 0.72 + midZ * 0.28),
       new THREE.Vector3(midX, midY + Z.roads, midZ),
-      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, endY + flowStrength * 0.12 + Z.roads, p2.z * 0.72 + midZ * 0.28),
+      new THREE.Vector3(p2.x * 0.72 + midX * 0.28, endY + archHeight * 0.58 + Z.roads, p2.z * 0.72 + midZ * 0.28),
       end,
     ]);
 
     const roadMaterial = new THREE.MeshBasicMaterial({
-      color: pathColor,
+      color: '#ffffff',
+      map: gradientTexture,
       transparent: true,
       opacity: baseOpacity,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      depthTest: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
@@ -8618,14 +9081,45 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       roadMaterial,
     );
     mesh.userData.role = 'pr-flow-road';
+    mesh.userData.prUrl = SYNTHETIC_PR_URL;
+    mesh.renderOrder = 14;
+    const core = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, isDistrictTrunk ? 52 : 34, radius * 0.34, 5, false),
+      new THREE.MeshBasicMaterial({
+        color: '#ffd8c2',
+        map: gradientTexture,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      }),
+    );
+    core.renderOrder = 15;
+    mesh.add(core);
     scene.add(mesh);
 
-    const packetCount = Math.max(3, Math.min(packetBudget, Math.round(4 + flowStrength * 8.0 + Math.min(5, source.repo.prs.length))));
+    const hitMesh = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, isDistrictTrunk ? 40 : 28, Math.max(2.6, radius * 5.5), 5, false),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    hitMesh.userData.role = 'pr-flow-hit-target';
+    hitMesh.userData.prUrl = SYNTHETIC_PR_URL;
+    hitMesh.renderOrder = 19;
+    scene.add(hitMesh);
+
+    const packetCount = Math.max(isDistrictTrunk ? 7 : 4, Math.min(packetBudget, Math.round(6 + flowStrength * 9 + Math.min(6, source.repo.prs.length))));
     packetBudget -= packetCount;
     const packetGeometry = new THREE.BoxGeometry(
-      clamp(radius * 7.2, 0.34, 0.82),
-      clamp(radius * 2.1, 0.11, 0.24),
-      clamp(radius * 3.7, 0.18, 0.42),
+      clamp(radius * 8.4, 0.8, 2.3),
+      clamp(radius * 2.8, 0.26, 0.72),
+      clamp(radius * 4.4, 0.42, 1.2),
     );
     const cars: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] = [];
     const packetMaterials = [
@@ -8634,12 +9128,16 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
       }),
       new THREE.MeshBasicMaterial({
-        color: source.district.color,
+        color: targetColor,
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
       }),
     ];
     packetMaterials.forEach((material) => {
@@ -8648,12 +9146,13 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     for (let packetIndex = 0; packetIndex < packetCount; packetIndex += 1) {
       const packet = new THREE.Mesh(packetGeometry, packetMaterials[packetIndex % packetMaterials.length]);
       packet.userData.role = 'pr-flow-packet';
+      packet.renderOrder = 18;
       scene.add(packet);
       cars.push(packet);
     }
 
-    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed PRs` : `${formatMetric(openWork)} open`;
-    const labelTexture = makeSpriteTexture(flowLabel, 'PR flow', pathColor, 260, 72);
+    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed MRs` : `${formatMetric(openWork)} open`;
+    const labelTexture = makeSpriteTexture(flowLabel, 'MR flow', pathColor, 260, 72);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
     const labelPoint = curve.getPointAt(0.5);
     label.position.set(labelPoint.x, 3.2 + flowStrength * 0.8 + Z.labels, labelPoint.z);
@@ -8667,26 +9166,27 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       target: target.repo,
       curve,
       mesh,
+      hitMesh,
+      gradientTexture,
       cars,
       label,
-      speed: 0.15 + flowStrength * 0.15 + (source.repo.stars % 7) * 0.01,
+      speed: 0.2 + flowStrength * 0.2 + (source.repo.stars % 7) * 0.012,
       phase: seededUnit(seed + 3.8),
       flowStrength,
       baseOpacity,
     });
+    if (!isDistrictTrunk) localRoadCount += 1;
   };
 
   DISTRICTS.forEach((district) => {
     const districtBuildings = buildingsByDistrict.get(district.key) ?? [];
     if (districtBuildings.length < 2) return;
 
-    const activeBuildings = [...districtBuildings]
-      .filter((building) => getOpenWorkItems(building.repo) > 0 || building.repo.prs.length > 0)
-      .sort((a, b) => prFlowScore(b) - prFlowScore(a));
-    const sourceCount = Math.min(5, Math.max(2, Math.ceil(activeBuildings.length / 9)));
+    const activeBuildings = [...districtBuildings].sort((a, b) => prFlowScore(b) - prFlowScore(a));
+    const sourceCount = Math.min(7, Math.max(3, Math.ceil(activeBuildings.length / 6)));
 
     activeBuildings.slice(0, sourceCount).forEach((source, sourceIndex) => {
-      const connectionCount = getOpenWorkItems(source.repo) > 280 || source.repo.prs.length > 0 ? 2 : 1;
+      const connectionCount = sourceIndex < 3 || getOpenWorkItems(source.repo) > 280 || source.repo.prs.length > 0 ? 2 : 1;
       for (let connectionIndex = 0; connectionIndex < connectionCount; connectionIndex += 1) {
         const offset = Math.max(1, Math.floor(activeBuildings.length / (connectionIndex + 2)));
         let target = activeBuildings[(sourceIndex + offset + connectionIndex * 3) % activeBuildings.length];
@@ -8701,7 +9201,6 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const hubsByParent = new Map<string, BuildingObject[]>();
   DISTRICTS.forEach((district) => {
     const hub = [...(buildingsByDistrict.get(district.key) ?? [])]
-      .filter((building) => getOpenWorkItems(building.repo) > 0)
       .sort((a, b) => prFlowScore(b) - prFlowScore(a))[0];
     if (!hub) return;
     const parentHubs = hubsByParent.get(district.parent) ?? [];
@@ -8714,6 +9213,15 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       const target = hubs[(hubIndex + 1) % hubs.length];
       if (target && target !== hub) addRoad(hub, target, hubIndex + 10, true);
     });
+  });
+
+  const ecosystemHubs = Array.from(hubsByParent.values())
+    .map((hubs) => [...hubs].sort((a, b) => prFlowScore(b) - prFlowScore(a))[0])
+    .filter((hub): hub is BuildingObject => Boolean(hub))
+    .sort((a, b) => Math.atan2(a.position.z, a.position.x) - Math.atan2(b.position.z, b.position.x));
+  ecosystemHubs.forEach((hub, index) => {
+    const target = ecosystemHubs[(index + 1) % ecosystemHubs.length];
+    if (target && target !== hub) addRoad(hub, target, index + 40, true);
   });
 
   return roads;

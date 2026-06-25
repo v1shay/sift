@@ -20,7 +20,7 @@ const TypingIndicator: React.FC = () => {
           <span className="w-2 h-2 rounded-full bg-zinc-500 animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
       </div>
-      <span className="text-xs text-zinc-500 ml-1">Searching GitHub...</span>
+      <span className="text-xs text-zinc-500 ml-1">Searching GitLab...</span>
     </div>
   );
 };

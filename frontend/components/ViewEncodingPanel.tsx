@@ -16,7 +16,7 @@ type ViewEncodingPanelProps = {
 
 const heightOptions: Array<{ value: HeightScaleDriver; label: string; detail: string; icon: typeof Star }> = [
   { value: 'stars', label: 'Stars', detail: 'Height maps to repo popularity and landmark scale.', icon: Star },
-  { value: 'activity', label: 'Activity', detail: 'Height maps to commits, open PRs, and open issues.', icon: Activity },
+  { value: 'activity', label: 'Activity', detail: 'Height maps to commits, open MRs, and open issues.', icon: Activity },
   { value: 'contributors', label: 'Contributors', detail: 'Height maps to contributor community size.', icon: Users },
 ];
 
@@ -31,7 +31,7 @@ const legends = [
   { label: 'Height', detail: 'Selected scale driver controls building height.', icon: Star },
   { label: 'Glow', detail: 'Brighter accents mark stronger activity and trend signals.', icon: Sparkles },
   { label: 'Safety', detail: 'Safety score and badges show contribution readiness.', icon: ShieldCheck },
-  { label: 'Routes', detail: 'Roads and flow marks show PR and open-work relationships.', icon: GitPullRequest },
+  { label: 'Routes', detail: 'Roads and flow marks show MR and open-work relationships.', icon: GitPullRequest },
   { label: 'Clusters', detail: 'Cluster mode controls which repos surface first in each district.', icon: Network },
 ];
 
