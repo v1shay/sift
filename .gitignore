@@ -16,3 +16,4 @@ backend/sift.db
 
 # Nested local checkout copy
 sift/
+.vercel
