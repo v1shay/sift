@@ -788,7 +788,6 @@ const REPOS: Repo[] = [
 const GRAPH_REPO_LIMIT = 10000;
 const GRAPH_FETCH_ATTEMPTS = 5;
 const GRAPH_FETCH_RETRY_DELAY_MS = 550;
-const INTRO_SEEN_STORAGE_KEY = 'sift.cityIntroSeen';
 const LOADING_STAGES = [
   'Opening graph socket',
   'Talking to SQLite',
@@ -802,44 +801,91 @@ const LOADING_STAGES = [
   'Finalizing camera sweep',
 ];
 
-const INTRO_MS = 2400;
+const INTRO_MS = 5200;
 const ENTRY_MS = 1000;
 const spriteTextureCache = new Map<string, THREE.CanvasTexture>();
 
 function createSiftText(scene: THREE.Scene) {
   const group = new THREE.Group();
-  const letters = ['S', 'I', 'F', 'T'];
-  letters.forEach((char, i) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 512;
-    canvas.height = 512;
-    if (ctx) {
-      ctx.fillStyle = 'rgba(0,0,0,0)';
-      ctx.clearRect(0, 0, 512, 512);
-      ctx.font = '900 450px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 12;
-      ctx.strokeText(char, 256, 256);
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillText(char, 256, 256);
-    }
-    const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(70, 70, 1);
-    sprite.position.set(-165 + i * 110, 165, -135);
-    sprite.userData.baseX = sprite.position.x;
-    sprite.userData.baseY = sprite.position.y;
-    group.add(sprite);
+  group.name = 'gitlab-sift-intro';
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 360;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const glow = context.createRadialGradient(512, 164, 20, 512, 164, 390);
+    glow.addColorStop(0, 'rgba(252,109,38,0.34)');
+    glow.addColorStop(0.52, 'rgba(252,109,38,0.1)');
+    glow.addColorStop(1, 'rgba(252,109,38,0)');
+    context.fillStyle = glow;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    const gradient = context.createLinearGradient(190, 60, 840, 260);
+    gradient.addColorStop(0, '#ffd6b8');
+    gradient.addColorStop(0.28, '#fc9a45');
+    gradient.addColorStop(0.62, '#fc6d26');
+    gradient.addColorStop(1, '#e24329');
+    context.shadowColor = '#fc6d26';
+    context.shadowBlur = 44;
+    context.font = '900 220px Inter, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = gradient;
+    context.fillText('SIFT', 512, 160);
+    context.shadowBlur = 0;
+
+    context.font = '700 27px Space Mono, monospace';
+    context.letterSpacing = '9px';
+    context.fillStyle = 'rgba(255,235,220,0.92)';
+    context.fillText('REPOSITORY INTELLIGENCE', 512, 302);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const mark = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  }));
+  mark.name = 'sift-mark';
+  mark.scale.set(150, 52, 1);
+  group.add(mark);
+
+  const ribbonColors = ['#ffd0ad', '#fc6d26', '#e24329'];
+  ribbonColors.forEach((color, index) => {
+    const points = Array.from({ length: 9 }, (_, pointIndex) => {
+      const x = -116 + pointIndex * 27;
+      const wave = Math.sin(pointIndex * 0.72 + index * 0.9) * (9 + index * 3);
+      return new THREE.Vector3(x, wave - 26 - index * 7, -6 - index * 3);
+    });
+    const ribbon = new THREE.Mesh(
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 48, 1.5 + index * 0.65, 6, false),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    ribbon.name = `sift-ribbon-${index}`;
+    group.add(ribbon);
   });
+
+  group.visible = false;
+  group.renderOrder = 100;
   scene.add(group);
   return group;
 }
-const CAMERA_HOME = new THREE.Vector3(0, 300, 1210);
-const TARGET_HOME = new THREE.Vector3(0, 58, 20);
+const CAMERA_HOME = new THREE.Vector3(260, 245, 920);
+const TARGET_HOME = new THREE.Vector3(20, 58, -60);
+const INTRO_OVERVIEW = new THREE.Vector3(0, 560, 1820);
 const MIN_ZOOM = 0.48;
 const MAX_ZOOM = 1.68;
 const REPO_FOCUS_ZOOM = 0.9;
@@ -1750,6 +1796,7 @@ export default function Home() {
   const introHasRunRef = useRef(false);
 
   const [entered, setEntered] = useState(true);
+  const [introPlaying, setIntroPlaying] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [appearance, setAppearance] = useState<Appearance>('night');
   const [heightScaleDriver, setHeightScaleDriver] = useState<HeightScaleDriver>('stars');
@@ -1997,17 +2044,11 @@ export default function Home() {
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 0.1, 8000);
     const now = performance.now();
-    const hasSeenIntro = (() => {
-      try {
-        return window.localStorage.getItem(INTRO_SEEN_STORAGE_KEY) === 'true';
-      } catch {
-        return false;
-      }
-    })();
-    const shouldRunIntro = !introHasRunRef.current && !hasSeenIntro;
+    const shouldRunIntro = !introHasRunRef.current;
     const introStart = shouldRunIntro ? now : now - INTRO_MS;
     if (!shouldRunIntro) introHasRunRef.current = true;
-    camera.position.copy(shouldRunIntro ? new THREE.Vector3(-760, 210, -540) : CAMERA_HOME);
+    setIntroPlaying(shouldRunIntro);
+    camera.position.copy(shouldRunIntro ? new THREE.Vector3(-820, 118, -620) : CAMERA_HOME);
 
     setWebglError('');
 
@@ -2317,6 +2358,14 @@ export default function Home() {
       };
       __siftSceneProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
       __siftMarkerProbe?: () => Array<{ id: string; name: string; x: number; y: number; visible: boolean; hitRepoId: string; hitRepoName: string }>;
+      __siftFlowProbe?: () => {
+        roads: number;
+        packets: number;
+        crossClusterRoads: number;
+        gradients: number;
+        introVisible: boolean;
+        introProgress: number;
+      };
     };
 
     if (process.env.NODE_ENV !== 'production') {
@@ -2345,6 +2394,15 @@ export default function Home() {
         markerTotal: markerRepoIds?.length ?? 0,
         zoom: Number(refs.zoom.toFixed(3)),
         targetZoom: Number(refs.targetZoom.toFixed(3)),
+      });
+
+      siftWindow.__siftFlowProbe = () => ({
+        roads: roads.length,
+        packets: roads.reduce((total, road) => total + road.cars.length, 0),
+        crossClusterRoads: roads.filter((road) => road.source.district !== road.target.district).length,
+        gradients: roads.filter((road) => Boolean(road.mesh.material.map)).length,
+        introVisible: refs.siftText.visible,
+        introProgress: Number(clamp((performance.now() - refs.startedAt) / INTRO_MS, 0, 1).toFixed(3)),
       });
 
       siftWindow.__siftSceneProbe = () => buildings.flatMap((building) => {
@@ -2421,6 +2479,8 @@ export default function Home() {
         refs.startedAt = performance.now() - INTRO_MS;
         refs.cameraPosition.copy(camera.position);
         refs.cameraTarget.set(0, 60, 0);
+        refs.siftText.visible = false;
+        setIntroPlaying(false);
       }
       if (!refs.enteredAt) refs.enteredAt = performance.now();
     };
@@ -2435,6 +2495,8 @@ export default function Home() {
         refs.targetZoom = CAMERA_OVERVIEW_ZOOM;
         refs.zoom = CAMERA_OVERVIEW_ZOOM;
         setZoomValue(CAMERA_OVERVIEW_ZOOM);
+        refs.siftText.visible = false;
+        setIntroPlaying(false);
       }
       if (!refs.enteredAt) refs.enteredAt = performance.now();
       clearMovementKeys();
@@ -2756,34 +2818,66 @@ export default function Home() {
       let desiredPosition = new THREE.Vector3();
       let desiredTarget = new THREE.Vector3();
 
-      // --- 1. Cinematic Opening Sweep (Priority) ---
+      // --- 1. GitLab-orange repository fly-through, reveal, and settle ---
       if (introProgress < 1 && !hasInteractiveCameraRequest) {
-        const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(-620, 250, -420),
-          new THREE.Vector3(-260, 190, 190),
-          new THREE.Vector3(240, 180, -170),
-          new THREE.Vector3(560, 230, 320),
-          CAMERA_HOME.clone(),
+        const flyThroughEnd = 0.5;
+        const revealEnd = 0.74;
+        const markPath = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(-760, 76, -560),
+          new THREE.Vector3(-390, 68, -120),
+          new THREE.Vector3(60, 72, -80),
+          new THREE.Vector3(420, 82, -130),
+          new THREE.Vector3(730, 96, 170),
         ]);
-        
-        const pos = curve.getPointAt(introT);
-        camera.position.copy(pos);
-        const sweepTarget = TARGET_HOME.clone().lerp(new THREE.Vector3(0, 70, 0), 1 - introT);
-        camera.lookAt(sweepTarget);
+        refs.siftText.visible = true;
 
-        // Reveal SIFT letters cinematicaly
-        if (introProgress > 0.55) {
-          const textT = easeOutCubic((introProgress - 0.55) / 0.45);
-          refs.siftText.children.forEach((child, i) => {
-            const sprite = child as THREE.Sprite;
-            sprite.material.opacity = textT;
-            sprite.position.y = sprite.userData.baseY + Math.sin(now * 0.001 + i) * 10 * textT;
-            sprite.scale.setScalar(70 + 24 * textT);
+        if (introProgress < flyThroughEnd) {
+          const flyT = easeInOutCubic(introProgress / flyThroughEnd);
+          const markPosition = markPath.getPointAt(flyT);
+          const tangent = markPath.getTangentAt(flyT);
+          const cameraPosition = markPosition.clone()
+            .add(new THREE.Vector3(-tangent.x * 150, 54, -tangent.z * 150))
+            .add(new THREE.Vector3(tangent.z * 34, 0, -tangent.x * 34));
+          refs.siftText.position.copy(markPosition);
+          refs.siftText.scale.setScalar(0.72 + Math.sin(flyT * Math.PI) * 0.16);
+          camera.position.copy(cameraPosition);
+          camera.lookAt(markPosition.clone().add(tangent.clone().multiplyScalar(76)));
+          refs.siftText.quaternion.copy(camera.quaternion);
+
+          refs.siftText.children.forEach((child, index) => {
+            const material = (child as THREE.Sprite | THREE.Mesh).material as THREE.SpriteMaterial | THREE.MeshBasicMaterial;
+            material.opacity = index === 0 ? 0.96 : 0.68 - index * 0.1;
+            if (index > 0) child.rotation.z = Math.sin(elapsed * 7 + index) * 0.08;
           });
+          refs.cameraPosition.copy(cameraPosition);
+          refs.cameraTarget.copy(markPosition);
+        } else if (introProgress < revealEnd) {
+          const revealT = easeOutCubic((introProgress - flyThroughEnd) / (revealEnd - flyThroughEnd));
+          const cameraPosition = markPath.getPointAt(1).clone().add(new THREE.Vector3(0, 62, 160)).lerp(INTRO_OVERVIEW, revealT);
+          const markPosition = markPath.getPointAt(1).lerp(new THREE.Vector3(0, 210, 0), revealT);
+          refs.siftText.position.copy(markPosition);
+          refs.siftText.scale.setScalar(1.1 + revealT * 4.2);
+          camera.position.copy(cameraPosition);
+          camera.lookAt(markPosition);
+          refs.siftText.quaternion.copy(camera.quaternion);
+          refs.cameraPosition.copy(cameraPosition);
+          refs.cameraTarget.copy(markPosition);
+        } else {
+          const settleT = easeInOutCubic((introProgress - revealEnd) / (1 - revealEnd));
+          const cameraPosition = INTRO_OVERVIEW.clone().lerp(CAMERA_HOME, settleT);
+          const target = new THREE.Vector3(0, 110, 0).lerp(TARGET_HOME, settleT);
+          refs.siftText.position.lerp(new THREE.Vector3(0, 175, -20), 0.12);
+          refs.siftText.scale.setScalar(5.3 - settleT * 1.8);
+          refs.siftText.children.forEach((child, index) => {
+            const material = (child as THREE.Sprite | THREE.Mesh).material as THREE.SpriteMaterial | THREE.MeshBasicMaterial;
+            material.opacity = Math.max(0, (index === 0 ? 1 : 0.55) * (1 - settleT * 1.2));
+          });
+          camera.position.copy(cameraPosition);
+          camera.lookAt(target);
+          refs.siftText.quaternion.copy(camera.quaternion);
+          refs.cameraPosition.copy(cameraPosition);
+          refs.cameraTarget.copy(target);
         }
-        
-        refs.cameraPosition.copy(pos);
-        refs.cameraTarget.copy(sweepTarget);
       } 
       // --- 2. Interactive States ---
       else {
@@ -2860,11 +2954,8 @@ export default function Home() {
 
       if (introProgress >= 1 && !introHasRunRef.current) {
         introHasRunRef.current = true;
-        try {
-          window.localStorage.setItem(INTRO_SEEN_STORAGE_KEY, 'true');
-        } catch {
-          // localStorage can be unavailable in private or embedded contexts.
-        }
+        refs.siftText.visible = false;
+        setIntroPlaying(false);
       }
 
       hoverFrame += 1;
@@ -3009,6 +3100,7 @@ export default function Home() {
         delete siftWindow.__siftLodProbe;
         delete siftWindow.__siftSceneProbe;
         delete siftWindow.__siftMarkerProbe;
+        delete siftWindow.__siftFlowProbe;
       }
       sceneRef.current = null;
     };
@@ -3265,7 +3357,7 @@ export default function Home() {
 
   return (
     <main
-      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${selectedRepo ? 'is-repo-focus' : ''} ${viewEncodingOpen ? 'is-view-encoding' : ''}`}
+      className={`sift-page ${appearance === 'day' ? 'is-day' : 'is-night'} ${introPlaying ? 'is-cinematic' : ''} ${selectedRepo ? 'is-repo-focus' : ''} ${viewEncodingOpen ? 'is-view-encoding' : ''}`}
       aria-label="SIFT 3D open-source city"
       style={{
         '--atlas-pan-x': `${atlasView.x}px`,
@@ -4249,6 +4341,15 @@ export default function Home() {
         .city-ui.is-visible {
           opacity: 1;
           transform: translateY(0);
+        }
+
+        .sift-page.is-cinematic .city-ui,
+        .sift-page.is-cinematic .network-dock,
+        .sift-page.is-cinematic .repo-panel,
+        .sift-page.is-cinematic .repo-tooltip {
+          opacity: 0 !important;
+          pointer-events: none !important;
+          transform: translateY(14px) scale(0.985);
         }
 
         .sift-page.is-view-encoding .city-ui {
@@ -8870,13 +8971,7 @@ function createSky(scene: THREE.Scene) {
 }
 
 function flowColorFor(building: BuildingObject) {
-  if (['forest_repository', 'jungle_canopy', 'bamboo_valley', 'overgrown_ruins'].includes(building.district.key)) return '#86efac';
-  if (building.district.key === 'volcano_forge') return '#fb923c';
-  if (building.district.key === 'frozen_kingdom') return '#e0f2fe';
-  if (building.district.parent === 'ai') return '#d8b4fe';
-  if (building.district.parent === 'web') return '#93c5fd';
-  if (building.district.parent === 'systems') return '#fda4af';
-  return building.district.accent;
+  return building.district.color;
 }
 
 function createFlowGradientTexture(sourceColor: string, targetColor: string) {
@@ -8914,6 +9009,7 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   const roadPairs = new Set<string>();
   let packetBudget = MAX_PR_FLOW_PACKETS;
   let localRoadCount = 0;
+  const trunkPacketReserve = 120;
 
   const buildingsByDistrict = new Map<DistrictKey, BuildingObject[]>();
   buildings.forEach((building) => {
@@ -8923,7 +9019,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
   });
 
   const addRoad = (source: BuildingObject, target: BuildingObject, laneIndex: number, isDistrictTrunk = false) => {
-    if (roads.length >= MAX_PR_FLOW_ROADS || packetBudget <= 0 || source === target) return;
+    if (roads.length >= MAX_PR_FLOW_ROADS || source === target) return;
+    if (isDistrictTrunk ? packetBudget <= 0 : packetBudget <= trunkPacketReserve) return;
     if (!isDistrictTrunk && localRoadCount >= 44) return;
     const pairKey = [source.repo.id, target.repo.id].sort().join('::');
     if (roadPairs.has(pairKey)) return;
@@ -8989,13 +9086,14 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
     const core = new THREE.Mesh(
       new THREE.TubeGeometry(curve, isDistrictTrunk ? 52 : 34, radius * 0.34, 5, false),
       new THREE.MeshBasicMaterial({
-        color: '#ffffff',
+        color: '#ffd8c2',
         map: gradientTexture,
         transparent: true,
-        opacity: 0.96,
+        opacity: 0.5,
         depthWrite: false,
         depthTest: false,
         blending: THREE.AdditiveBlending,
+        toneMapped: false,
       }),
     );
     core.renderOrder = 15;
