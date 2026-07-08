@@ -117,7 +117,7 @@ const RepoGraph: React.FC<RepoGraphProps> = ({
         fgRef.current?.zoom(2.3, 800);
       }
     } else if (node.url) {
-      window.open(String(node.url).replace('github.com', 'gitlab.com'), '_blank', 'noopener,noreferrer');
+      window.open(String(node.url), '_blank', 'noopener,noreferrer');
     }
   }, [onClusterSelect]);
 

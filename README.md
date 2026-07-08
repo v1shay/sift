@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/REPOS%20MODELED-10%2C223-2ea44f?style=flat-square" />
 <img src="https://img.shields.io/badge/OPEN%20ITEMS%20MAPPED-1M%2B-0969da?style=flat-square" />
 <img src="https://img.shields.io/badge/REPOSITORY%20EXPANSION-1%E2%86%92N-8250df?style=flat-square" />
-<img src="https://img.shields.io/badge/RETRIEVAL%20TIME-SUB--5ms-f0883e?style=flat-square" />
+<img src="https://img.shields.io/badge/RETRIEVAL%20TIME-SUB--5ms-0969da?style=flat-square" />
 
 <br />
 
@@ -19,7 +19,7 @@
 <a href="#architecture"><img src="https://img.shields.io/badge/architecture-969da?style=flat-square" /></a>
 <a href="#features"><img src="https://img.shields.io/badge/features-238636?style=flat-square" /></a>
 <a href="#contributing"><img src="https://img.shields.io/badge/contribute-8250df?style=flat-square" /></a>
-<a href="https://sift-opensource.vercel.app"><img src="https://img.shields.io/badge/site-f0883e?style=flat-square" /></a>
+<a href="https://sift-opensource.vercel.app"><img src="https://img.shields.io/badge/site-0969da?style=flat-square" /></a>
 
 </div>
 

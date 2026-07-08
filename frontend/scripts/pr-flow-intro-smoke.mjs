@@ -10,12 +10,12 @@ try {
   await page.waitForFunction(() => typeof window.__siftFlowProbe === 'function', null, { timeout: 45_000 });
 
   const opening = await page.evaluate(() => window.__siftFlowProbe());
-  assert.equal(opening.introVisible, true, 'GitLab SIFT intro should be visible while the scene opens');
+  assert.equal(opening.introVisible, true, 'GitHub SIFT intro should be visible while the scene opens');
   await page.waitForFunction(() => {
     const flow = window.__siftFlowProbe?.();
     return flow && flow.introProgress >= 0.57 && flow.introProgress <= 0.72;
   }, null, { timeout: 10_000 });
-  await page.screenshot({ path: '/tmp/sift-gitlab-intro.png' });
+  await page.screenshot({ path: '/tmp/sift-github-intro.png' });
 
   await page.waitForTimeout(2200);
 
@@ -30,7 +30,7 @@ try {
     flow: window.__siftFlowProbe(),
     camera: window.__siftCameraProbe(),
   }));
-  await page.screenshot({ path: '/tmp/sift-gitlab-settled.png' });
+  await page.screenshot({ path: '/tmp/sift-github-settled.png' });
 
   assert.equal(settled.flow.introVisible, false, 'intro should clear after the final camera settle');
   assert.equal(settled.flow.introProgress, 1);

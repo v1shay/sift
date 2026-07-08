@@ -1,7 +1,7 @@
 'use client';
 
 import * as THREE from 'three';
-import { Activity, BarChart3, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Activity, BarChart3, Github, GitPullRequest, HelpCircle, Moon, Network, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Star, Sun, TrendingUp, Users, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import { FormEvent, MouseEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewEncodingPanel } from '../components/ViewEncodingPanel';
 import { rankReposForCluster, rankReposForIntent } from '../lib/repoMetrics.mjs';
@@ -114,7 +114,7 @@ type Repo = {
   safetyProfile?: SafetyProfile;
   loadedAt?: string;
   wantsContributions?: boolean;
-  importSource?: 'gitlab';
+  importSource?: 'github';
 };
 
 type GraphRepositoryNode = {
@@ -488,7 +488,6 @@ function parseRepositoryLocator(value: string) {
   if (!trimmed) return null;
   const withoutProtocol = trimmed.replace(/^https?:\/\//, '').replace(/^www\./, '');
   const path = withoutProtocol
-    .replace(/^gitlab\.com\//, '')
     .replace(/^github\.com\//, '');
   const [owner, repo] = path.split('/').filter(Boolean);
   if (!owner || !repo) return null;
@@ -549,7 +548,7 @@ function repoNameFromFullName(fullName: string) {
 }
 
 function ownerFromFullName(fullName: string, fallback?: string) {
-  return fallback || fullName.split('/').filter(Boolean)[0] || 'gitlab';
+  return fallback || fullName.split('/').filter(Boolean)[0] || 'github';
 }
 
 function commitsPerWeekFromDate(value?: string | null) {
@@ -622,7 +621,7 @@ function buildRepoFromGraphNode(node: GraphRepositoryNode): Repo {
     prs: recentPullRequests.length
       ? recentPullRequests.map((pull, index) => ({
         number: pull.number ?? index + 1,
-        title: pull.title || 'Open merge request',
+        title: pull.title || 'Open pull request',
         priority: index < 2 ? 'hot' : 'normal',
       }))
       : [],
@@ -640,7 +639,7 @@ function pullRequestsFromBackendSummary(summary: BackendPrFlowSummary): PullRequ
     const state = pull.state?.toLowerCase();
     return {
       number: pull.number ?? index + 1,
-      title: pull.title || 'Recent merge request',
+      title: pull.title || 'Recent pull request',
       priority: state === 'open' ? 'hot' : state === 'merged' ? 'normal' : 'quiet',
     };
   });
@@ -797,7 +796,7 @@ const LOADING_STAGES = [
   'Scoring contribution safety',
   'Laying terrain chunks',
   'Warming WebGL materials',
-  'Plotting merge request traffic',
+  'Plotting pull request traffic',
   'Finalizing camera sweep',
 ];
 
@@ -807,64 +806,74 @@ const spriteTextureCache = new Map<string, THREE.CanvasTexture>();
 
 function createSiftText(scene: THREE.Scene) {
   const group = new THREE.Group();
-  group.name = 'gitlab-sift-intro';
+  group.name = 'github-sift-intro';
 
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 360;
-  const context = canvas.getContext('2d');
-  if (context) {
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    const glow = context.createRadialGradient(512, 164, 20, 512, 164, 390);
-    glow.addColorStop(0, 'rgba(252,109,38,0.34)');
-    glow.addColorStop(0.52, 'rgba(252,109,38,0.1)');
-    glow.addColorStop(1, 'rgba(252,109,38,0)');
-    context.fillStyle = glow;
-    context.fillRect(0, 0, canvas.width, canvas.height);
+  const letters = ['S', 'I', 'F', 'T'];
+  letters.forEach((letter, index) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 260;
+    canvas.height = 320;
+    const context = canvas.getContext('2d');
+    if (context) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      const glow = context.createRadialGradient(130, 150, 16, 130, 150, 136);
+      glow.addColorStop(0, 'rgba(88,166,255,0.42)');
+      glow.addColorStop(0.48, 'rgba(46,160,67,0.16)');
+      glow.addColorStop(1, 'rgba(88,166,255,0)');
+      context.fillStyle = glow;
+      context.fillRect(0, 0, canvas.width, canvas.height);
 
-    const gradient = context.createLinearGradient(190, 60, 840, 260);
-    gradient.addColorStop(0, '#ffd6b8');
-    gradient.addColorStop(0.28, '#fc9a45');
-    gradient.addColorStop(0.62, '#fc6d26');
-    gradient.addColorStop(1, '#e24329');
-    context.shadowColor = '#fc6d26';
-    context.shadowBlur = 44;
-    context.font = '900 220px Inter, sans-serif';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillStyle = gradient;
-    context.fillText('SIFT', 512, 160);
-    context.shadowBlur = 0;
+      context.font = '900 212px Inter, sans-serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.lineJoin = 'round';
+      context.shadowColor = 'rgba(88,166,255,0.7)';
+      context.shadowBlur = 38;
+      context.strokeStyle = 'rgba(188,140,255,0.56)';
+      context.lineWidth = 12;
+      context.strokeText(letter, 130, 158);
+      context.shadowBlur = 0;
+      context.fillStyle = 'rgba(12,18,28,0.78)';
+      context.fillText(letter, 141, 169);
+      const gradient = context.createLinearGradient(54, 46, 210, 250);
+      gradient.addColorStop(0, '#f0f6fc');
+      gradient.addColorStop(0.38, '#58a6ff');
+      gradient.addColorStop(0.7, '#2ea043');
+      gradient.addColorStop(1, '#bc8cff');
+      context.fillStyle = gradient;
+      context.fillText(letter, 130, 158);
+      context.strokeStyle = 'rgba(240,246,252,0.9)';
+      context.lineWidth = 3;
+      context.strokeText(letter, 130, 158);
+    }
 
-    context.font = '700 27px Space Mono, monospace';
-    context.letterSpacing = '9px';
-    context.fillStyle = 'rgba(255,235,220,0.92)';
-    context.fillText('REPOSITORY INTELLIGENCE', 512, 302);
-  }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+    }));
+    sprite.name = `sift-letter-${letter.toLowerCase()}`;
+    sprite.userData.kind = 'sift-letter';
+    sprite.userData.revealDelay = index * 0.14;
+    sprite.position.set(-63 + index * 42, 4 + Math.sin(index * 1.2) * 3, index * 2);
+    sprite.scale.set(42, 52, 1);
+    group.add(sprite);
+  });
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const mark = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    depthTest: false,
-    blending: THREE.AdditiveBlending,
-  }));
-  mark.name = 'sift-mark';
-  mark.scale.set(150, 52, 1);
-  group.add(mark);
-
-  const ribbonColors = ['#ffd0ad', '#fc6d26', '#e24329'];
+  const ribbonColors = ['#58a6ff', '#2ea043', '#bc8cff', '#79c0ff', '#3fb950'];
   ribbonColors.forEach((color, index) => {
-    const points = Array.from({ length: 9 }, (_, pointIndex) => {
-      const x = -116 + pointIndex * 27;
-      const wave = Math.sin(pointIndex * 0.72 + index * 0.9) * (9 + index * 3);
-      return new THREE.Vector3(x, wave - 26 - index * 7, -6 - index * 3);
+    const points = Array.from({ length: 13 }, (_, pointIndex) => {
+      const x = -112 + pointIndex * 18.7;
+      const wave = Math.sin(pointIndex * 0.62 + index * 0.78) * (8 + index * 1.7);
+      return new THREE.Vector3(x, wave - 31 - index * 4.6, -12 - index * 5);
     });
     const ribbon = new THREE.Mesh(
-      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 48, 1.5 + index * 0.65, 6, false),
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 80, 0.9 + index * 0.26, 8, false),
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
@@ -875,6 +884,8 @@ function createSiftText(scene: THREE.Scene) {
       }),
     );
     ribbon.name = `sift-ribbon-${index}`;
+    ribbon.userData.kind = 'sift-ribbon';
+    ribbon.userData.revealDelay = 0.52 + index * 0.08;
     group.add(ribbon);
   });
 
@@ -982,8 +993,8 @@ const TUTORIAL_STEPS = [
     action: 'Try clicking a taller tower or a low neighborhood block.',
   },
   {
-    title: 'Follow MR Traffic',
-    body: 'Thin glowing paths mark a few high-signal merge-request relationships without filling the map with motion.',
+    title: 'Follow PR Traffic',
+    body: 'Thin glowing paths mark a few high-signal pull-request relationships without filling the map with motion.',
     action: 'Look for the sparse paths that connect the largest projects.',
   },
   {
@@ -994,7 +1005,7 @@ const TUTORIAL_STEPS = [
   {
     title: 'Contribute Without Risk',
     body: 'Start with good-first issues, read the repo guide, fork instead of requesting direct access, keep changes small, avoid secrets or generated binaries, and let maintainers review before merge.',
-    action: 'Use View on GitLab only after the safety signals look healthy.',
+    action: 'Use View on GitHub only after the safety signals look healthy.',
   },
 ];
 
@@ -1189,7 +1200,7 @@ function scoreSearchResult(repo: Repo, query: string): SearchResult | null {
   }
 
   const matchedPr = repo.prs.find((pr) => textMatchesTokenizedQuery(pr.title, cleanQuery, tokens));
-  if (matchedPr) addPing('MR activity', `MR !${matchedPr.number}: ${matchedPr.title}`, 38);
+  if (matchedPr) addPing('PR activity', `PR #${matchedPr.number}: ${matchedPr.title}`, 38);
 
   FUNCTION_ALIASES.forEach((alias) => {
     if (!queryIncludesAny(cleanQuery, tokens, alias.terms)) return;
@@ -1423,7 +1434,7 @@ function applyAppearance(refs: SceneRefs, appearance: Appearance) {
   refs.ambient.intensity = isDay ? 1.08 : 0.82;
   refs.key.color.set(isDay ? '#fff0d7' : '#ffd5bd');
   refs.key.intensity = isDay ? 2.8 : 3.35;
-  refs.rim.color.set(isDay ? '#a855f7' : '#fc6d26');
+  refs.rim.color.set(isDay ? '#bc8cff' : '#58a6ff');
   refs.rim.intensity = isDay ? 32 : 68;
 
   refs.scene.traverse((object) => {
@@ -1629,7 +1640,7 @@ export default function Home() {
   const [loadedRepos, setLoadedRepos] = useState<Repo[]>([]);
   const [repoImport, setRepoImport] = useState('');
   const [importingRepo, setImportingRepo] = useState(false);
-  const [importStatus, setImportStatus] = useState('Paste namespace/project or a GitLab URL.');
+  const [importStatus, setImportStatus] = useState('Paste owner/repo or a GitHub URL.');
   const [wantsContributions, setWantsContributions] = useState(true);
   const [webglError, setWebglError] = useState('');
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
@@ -1716,7 +1727,7 @@ export default function Home() {
             .map(buildRepoFromGraphNode);
           if (!mappedRepos.length) continue;
           setRepos(mappedRepos);
-          setImportStatus(`Connected to the GitLab-sourced graph · ${mappedRepos.length.toLocaleString()} projects loaded.`);
+          setImportStatus(`Connected to the GitHub-sourced graph · ${mappedRepos.length.toLocaleString()} repositories loaded.`);
           return;
         } catch {
           // Keep the demo map interactive while the local backend comes online.
@@ -2077,7 +2088,7 @@ export default function Home() {
     key.shadow.mapSize.set(2048, 2048);
     scene.add(key);
 
-    const rim = new THREE.PointLight('#fc6d26', 68, 360, 1.7);
+    const rim = new THREE.PointLight('#58a6ff', 68, 360, 1.7);
     rim.position.set(20, 45, -60);
     scene.add(rim);
 
@@ -2818,7 +2829,7 @@ export default function Home() {
       let desiredPosition = new THREE.Vector3();
       let desiredTarget = new THREE.Vector3();
 
-      // --- 1. GitLab-orange repository fly-through, reveal, and settle ---
+      // --- 1. GitHub-toned repository fly-through, reveal, and settle ---
       if (introProgress < 1 && !hasInteractiveCameraRequest) {
         const flyThroughEnd = 0.5;
         const revealEnd = 0.74;
@@ -2846,8 +2857,11 @@ export default function Home() {
 
           refs.siftText.children.forEach((child, index) => {
             const material = (child as THREE.Sprite | THREE.Mesh).material as THREE.SpriteMaterial | THREE.MeshBasicMaterial;
-            material.opacity = index === 0 ? 0.96 : 0.68 - index * 0.1;
-            if (index > 0) child.rotation.z = Math.sin(elapsed * 7 + index) * 0.08;
+            const revealDelay = child.userData.revealDelay ?? index * 0.1;
+            const periodicReveal = clamp((flyT - revealDelay) / 0.22, 0, 1);
+            const pulse = 0.82 + Math.sin(elapsed * 5.2 + index * 0.74) * 0.14;
+            material.opacity = (child.userData.kind === 'sift-letter' ? 0.98 : 0.56) * easeOutCubic(periodicReveal) * pulse;
+            if (child.userData.kind === 'sift-ribbon') child.rotation.z = Math.sin(elapsed * 2.2 + index) * 0.1;
           });
           refs.cameraPosition.copy(cameraPosition);
           refs.cameraTarget.copy(markPosition);
@@ -2868,9 +2882,10 @@ export default function Home() {
           const target = new THREE.Vector3(0, 110, 0).lerp(TARGET_HOME, settleT);
           refs.siftText.position.lerp(new THREE.Vector3(0, 175, -20), 0.12);
           refs.siftText.scale.setScalar(5.3 - settleT * 1.8);
-          refs.siftText.children.forEach((child, index) => {
+          refs.siftText.children.forEach((child) => {
             const material = (child as THREE.Sprite | THREE.Mesh).material as THREE.SpriteMaterial | THREE.MeshBasicMaterial;
-            material.opacity = Math.max(0, (index === 0 ? 1 : 0.55) * (1 - settleT * 1.2));
+            const baseOpacity = child.userData.kind === 'sift-letter' ? 1 : 0.58;
+            material.opacity = Math.max(0, baseOpacity * (1 - settleT * 1.2));
           });
           camera.position.copy(cameraPosition);
           camera.lookAt(target);
@@ -3267,7 +3282,7 @@ export default function Home() {
     event.preventDefault();
     const locator = parseRepositoryLocator(repoImport);
     if (!locator) {
-      setImportStatus('Use namespace/project or paste a full GitLab project URL.');
+      setImportStatus('Use owner/repo or paste a full GitHub repository URL.');
       return;
     }
 
@@ -3287,7 +3302,7 @@ export default function Home() {
       if (!response.ok || !payload.repo) {
         const backendDetail = payload.detail || `Repository import failed with ${response.status}`;
         throw new Error(response.status === 404
-          ? `${locator.owner}/${locator.repo} was not found on GitLab. Check the spelling or visibility.`
+          ? `${locator.owner}/${locator.repo} was not found on GitHub. Check the spelling or visibility.`
           : backendDetail);
       }
       const imported = buildRepoFromGraphNode(payload.repo);
@@ -3295,7 +3310,7 @@ export default function Home() {
         ...imported,
         loadedAt: new Date().toISOString(),
         wantsContributions,
-        importSource: 'gitlab',
+        importSource: 'github',
       };
       setLoadedRepos((current) => [importedWithSession, ...current.filter((repo) => repo.id !== imported.id)].slice(0, 20));
       setRepoImport('');
@@ -3315,17 +3330,17 @@ export default function Home() {
           ...graphRepo,
           loadedAt: new Date().toISOString(),
           wantsContributions,
-          importSource: 'gitlab',
+          importSource: 'github',
         };
         setLoadedRepos((current) => [importedFromGraph, ...current.filter((repo) => repo.id !== importedFromGraph.id)].slice(0, 20));
         setRepoImport('');
-        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitLab import was unavailable.`);
+        setImportStatus(`${importedFromGraph.owner}/${importedFromGraph.name} opened from the existing SIFT graph while GitHub import was unavailable.`);
         focusRepo(importedFromGraph);
       } else {
         const message = error instanceof Error ? error.message : '';
         const importFailure = message.toLowerCase().includes('fetch')
           ? 'Backend import route unavailable. Check that the SIFT backend is running, then try again.'
-          : message || 'Could not load that public GitLab project. Check the namespace/project spelling or try again later.';
+          : message || 'Could not load that public GitHub repository. Check the owner/repo spelling or try again later.';
         setImportStatus(importFailure);
       }
     } finally {
@@ -3369,9 +3384,9 @@ export default function Home() {
       {loadingRepos && (
         <div className="sift-loading-screen">
           <div className="sift-loading-content">
-            <div className="gitlab-loading-brand">
-              <img src="/gitlab-logo.png" alt="" />
-              <span>Sourced from GitLab</span>
+            <div className="github-loading-brand">
+              <Github size={22} strokeWidth={1.8} aria-hidden="true" />
+              <span>Sourced from GitHub</span>
             </div>
             <h1 className="sift-loading-title">SIFT</h1>
             <div className="sift-spinner-8bit"></div>
@@ -3424,9 +3439,9 @@ export default function Home() {
 
       <section className={`intro-layer ${entered ? 'is-exiting' : ''}`} aria-hidden={entered}>
         <div className="intro-copy">
-          <div className="gitlab-intro-brand">
-            <img src="/gitlab-logo.png" alt="" />
-            <span>Sourced from GitLab</span>
+          <div className="github-intro-brand">
+            <Github size={22} strokeWidth={1.8} aria-hidden="true" />
+            <span>Sourced from GitHub</span>
           </div>
           <h1 aria-label="sift">
             {'sift'.split('').map((letter, index) => (
@@ -3453,9 +3468,9 @@ export default function Home() {
       </div>
 
       <section className={`city-ui ${entered ? 'is-visible' : ''}`} aria-hidden={!entered}>
-        <div className="gitlab-source-badge" aria-label="Sourced from GitLab">
-          <img src="/gitlab-logo.png" alt="" />
-          <span><small>OPEN SOURCE INTELLIGENCE</small>Sourced from GitLab</span>
+        <div className="github-source-badge" aria-label="Sourced from GitHub">
+          <Github size={26} strokeWidth={1.8} aria-hidden="true" />
+          <span><small>OPEN SOURCE INTELLIGENCE</small>Sourced from GitHub</span>
         </div>
 
         <div className="control-dock" aria-label="City view controls">
@@ -3715,7 +3730,7 @@ export default function Home() {
       <section className={`network-dock ${entered ? 'is-visible' : ''} ${selectedRepo ? 'has-panel' : ''}`} aria-label="Contribution network">
         <div className="network-head">
           <span>
-            <img className="gitlab-inline-logo" src="/gitlab-logo.png" alt="" />
+            <Github className="github-inline-logo" size={15} strokeWidth={1.8} aria-hidden="true" />
             Contribution Network
           </span>
         </div>
@@ -3728,8 +3743,8 @@ export default function Home() {
               quietCameraForTextInput();
               setRepoImport(event.target.value);
             }}
-            placeholder="namespace/project"
-            aria-label="Load GitLab project"
+            placeholder="owner/repo"
+            aria-label="Load GitHub repository"
             data-keyboard-capture="true"
           />
           <button type="submit" disabled={importingRepo}>
@@ -3949,12 +3964,12 @@ export default function Home() {
             </div>
 
             <div className="pr-list">
-              <span className="section-label">open merge requests</span>
+              <span className="section-label">open pull requests</span>
               {selectedRepo.prs.map((pr) => (
                 <div className="pr-item" key={pr.number}>
                   <i className={`priority-dot ${pr.priority}`} />
                   <div>
-                    <strong>MR !{pr.number}</strong>
+                    <strong>PR #{pr.number}</strong>
                     <span>{pr.title}</span>
                   </div>
                 </div>
@@ -3962,8 +3977,8 @@ export default function Home() {
             </div>
 
             <div className="panel-actions">
-              <a href={`https://gitlab.com/${selectedRepo.owner}/${selectedRepo.name}`} target="_blank" rel="noreferrer">
-                view on gitlab ↗
+              <a href={`https://github.com/${selectedRepo.owner}/${selectedRepo.name}`} target="_blank" rel="noreferrer">
+                view on github ↗
               </a>
               <button type="button" onClick={handleFindSimilar}>
                 find similar repos
@@ -6874,22 +6889,22 @@ export default function Home() {
           animation: loadingDetailPop 420ms steps(4);
         }
 
-        .gitlab-loading-brand,
-        .gitlab-intro-brand,
-        .gitlab-source-badge {
+        .github-loading-brand,
+        .github-intro-brand,
+        .github-source-badge {
           display: inline-flex;
           align-items: center;
           gap: 10px;
-          border: 1px solid rgba(252,109,38,0.34);
+          border: 1px solid rgba(88,166,255,0.34);
           background:
-            linear-gradient(135deg, rgba(252,109,38,0.15), rgba(168,85,247,0.1)),
+            linear-gradient(135deg, rgba(88,166,255,0.15), rgba(46,160,67,0.1)),
             rgba(9,10,16,0.78);
           box-shadow: 0 16px 48px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.09);
           backdrop-filter: blur(22px) saturate(150%);
         }
 
-        .gitlab-loading-brand,
-        .gitlab-intro-brand {
+        .github-loading-brand,
+        .github-intro-brand {
           border-radius: 999px;
           padding: 8px 14px 8px 10px;
           color: rgba(255,255,255,0.88);
@@ -6899,20 +6914,21 @@ export default function Home() {
           text-transform: uppercase;
         }
 
-        .gitlab-loading-brand img,
-        .gitlab-intro-brand img {
+        .github-loading-brand svg,
+        .github-intro-brand svg {
           width: 24px;
           height: 24px;
-          object-fit: contain;
+          color: #f0f6fc;
+          filter: drop-shadow(0 0 12px rgba(88,166,255,0.34));
         }
 
-        .gitlab-intro-brand {
+        .github-intro-brand {
           margin-bottom: 4px;
           opacity: 0;
           animation: enterIn 800ms cubic-bezier(.16,1,.3,1) 1.8s forwards;
         }
 
-        .gitlab-source-badge {
+        .github-source-badge {
           position: absolute;
           top: 22px;
           left: 50%;
@@ -6923,14 +6939,14 @@ export default function Home() {
           pointer-events: none;
         }
 
-        .gitlab-source-badge img {
+        .github-source-badge svg {
           width: 28px;
           height: 28px;
-          object-fit: contain;
-          filter: drop-shadow(0 0 12px rgba(252,109,38,0.34));
+          color: #f0f6fc;
+          filter: drop-shadow(0 0 12px rgba(88,166,255,0.34));
         }
 
-        .gitlab-source-badge span {
+        .github-source-badge span {
           display: grid;
           gap: 1px;
           color: rgba(255,255,255,0.94);
@@ -6939,23 +6955,23 @@ export default function Home() {
           font-weight: 700;
         }
 
-        .gitlab-source-badge small {
+        .github-source-badge small {
           color: rgba(255,255,255,0.42);
           font-size: 7px;
           font-weight: 500;
           letter-spacing: 0.08em;
         }
 
-        .gitlab-inline-logo {
+        .github-inline-logo {
           width: 15px;
           height: 15px;
-          object-fit: contain;
+          color: #f0f6fc;
         }
 
         .sift-page {
           background:
             radial-gradient(circle at 70% 20%, rgba(168,85,247,0.12), transparent 28%),
-            radial-gradient(circle at 30% 74%, rgba(252,109,38,0.12), transparent 32%),
+            radial-gradient(circle at 30% 74%, rgba(88,166,255,0.12), transparent 32%),
             linear-gradient(180deg, #07080d 0%, #0b0d14 52%, #11131b 100%);
         }
 
@@ -6982,46 +6998,46 @@ export default function Home() {
 
         .network-dock {
           background:
-            linear-gradient(145deg, rgba(252,109,38,0.055), rgba(168,85,247,0.035)),
+            linear-gradient(145deg, rgba(88,166,255,0.055), rgba(46,160,67,0.035)),
             rgba(7,8,13,0.58);
           border-color: rgba(255,255,255,0.09);
         }
 
         .sift-loading-screen {
           background:
-            radial-gradient(circle at 50% 34%, rgba(252,109,38,0.18), transparent 34%),
-            radial-gradient(circle at 62% 52%, rgba(168,85,247,0.1), transparent 30%),
+            radial-gradient(circle at 50% 34%, rgba(88,166,255,0.18), transparent 34%),
+            radial-gradient(circle at 62% 52%, rgba(46,160,67,0.1), transparent 30%),
             #07080d;
-          color: #fca326;
+          color: #58a6ff;
         }
 
         .sift-loading-content {
-          border-color: rgba(252,109,38,0.24);
+          border-color: rgba(88,166,255,0.24);
           border-radius: 18px;
           background: rgba(9,10,16,0.72);
-          box-shadow: 0 0 0 1px rgba(168,85,247,0.06), 0 28px 90px rgba(0,0,0,0.5);
+          box-shadow: 0 0 0 1px rgba(46,160,67,0.06), 0 28px 90px rgba(0,0,0,0.5);
         }
 
         .sift-loading-title {
           color: #fff;
-          text-shadow: 0 0 32px rgba(252,109,38,0.28), 3px 3px 0 #6b2f18;
+          text-shadow: 0 0 32px rgba(88,166,255,0.28), 3px 3px 0 #1f3f68;
         }
 
         .sift-spinner-8bit {
-          border-color: rgba(168,85,247,0.35);
-          border-top-color: #fc6d26;
+          border-color: rgba(188,140,255,0.35);
+          border-top-color: #58a6ff;
           border-radius: 50%;
           animation-timing-function: linear;
         }
 
         .sift-loading-progress {
-          border-color: rgba(252,109,38,0.4);
-          background: rgba(252,109,38,0.04);
+          border-color: rgba(88,166,255,0.4);
+          background: rgba(88,166,255,0.04);
         }
 
         .sift-loading-progress span {
-          background: linear-gradient(90deg, #e24329, #fc6d26, #fca326, #a855f7);
-          box-shadow: 0 0 18px rgba(252,109,38,0.38);
+          background: linear-gradient(90deg, #0969da, #58a6ff, #2ea043, #bc8cff);
+          box-shadow: 0 0 18px rgba(88,166,255,0.38);
         }
 
         .sift-loading-detail {
@@ -7029,7 +7045,7 @@ export default function Home() {
         }
 
         @media (max-width: 820px) {
-          .gitlab-source-badge {
+          .github-source-badge {
             top: 14px;
           }
         }
@@ -7144,9 +7160,9 @@ function repoSignalPalette(repo: Repo) {
   base.setHSL(baseHsl.h, Math.max(0.62, baseHsl.s), Math.max(0.46, baseHsl.l));
   accent.setHSL(accentHsl.h, Math.max(0.58, accentHsl.s), Math.max(0.68, accentHsl.l));
 
-  if (repo.importSource === 'gitlab' || repo.loadedAt) {
-    base.lerp(new THREE.Color('#fc6d26'), 0.34);
-    accent.lerp(new THREE.Color('#fca326'), 0.28);
+  if (repo.importSource === 'github' || repo.loadedAt) {
+    base.lerp(new THREE.Color('#58a6ff'), 0.34);
+    accent.lerp(new THREE.Color('#2ea043'), 0.28);
     return { base: `#${base.getHexString()}`, accent: `#${accent.getHexString()}`, emissive: 0.38, highSignal: true };
   }
   return {
@@ -8627,7 +8643,7 @@ function getTerrainColor(x: number, z: number, h: number) {
 
     if (biome === 'volcano') {
       const lavaFlow = Math.sin((x / TERRAIN_TILE_SIZE) * TILE_PI * 34 + (z / TERRAIN_TILE_SIZE) * TILE_PI * 21 + tileableFbm(x, z, 4) * 4);
-      if (lavaFlow > 0.88) return new THREE.Color('#6f241b').lerp(new THREE.Color('#fc6d26'), 0.12);
+      if (lavaFlow > 0.88) return new THREE.Color('#6f241b').lerp(new THREE.Color('#ff7b72'), 0.12);
       return new THREE.Color('#171519');
     }
     if (biome === 'snow') {
@@ -8788,7 +8804,7 @@ function createDistrictGroundGlows(scene: THREE.Scene) {
       new THREE.PlaneGeometry(260, 260),
       new THREE.MeshBasicMaterial({
         map: getDistrictGlowTexture(),
-        color: district.parent === 'ai' ? '#a855f7' : district.parent === 'security' ? '#ef4444' : '#fc6d26',
+        color: district.parent === 'ai' ? '#a855f7' : district.parent === 'security' ? '#ef4444' : '#58a6ff',
         transparent: true,
         opacity: 0.16,
         blending: THREE.AdditiveBlending,
@@ -9151,8 +9167,8 @@ function createRoads(scene: THREE.Scene, buildings: BuildingObject[]) {
       cars.push(packet);
     }
 
-    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed MRs` : `${formatMetric(openWork)} open`;
-    const labelTexture = makeSpriteTexture(flowLabel, 'MR flow', pathColor, 260, 72);
+    const flowLabel = source.repo.prs.length > 0 ? `${source.repo.prs.length} listed PRs` : `${formatMetric(openWork)} open`;
+    const labelTexture = makeSpriteTexture(flowLabel, 'PR flow', pathColor, 260, 72);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture, transparent: true, opacity: 0, depthWrite: false }));
     const labelPoint = curve.getPointAt(0.5);
     label.position.set(labelPoint.x, 3.2 + flowStrength * 0.8 + Z.labels, labelPoint.z);

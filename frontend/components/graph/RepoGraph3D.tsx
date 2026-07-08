@@ -726,7 +726,7 @@ const RepoGraph3D: React.FC<RepoGraph3DProps> = ({
     const repoId = repoIdFromNodeId(node.id);
     const flow = repoId ? flowData?.summaries[String(repoId)] : undefined;
     const prLine = flow
-      ? `<div>MRs: ${flow.openCount} open · ${flow.mergedCount} merged · ${flow.closedCount} closed</div>`
+      ? `<div>PRs: ${flow.openCount} open · ${flow.mergedCount} merged · ${flow.closedCount} closed</div>`
       : '';
     const repoLine = node.nodeType === 'cluster'
       ? `<div>${node.repoCount || 0} repositories · ${node.stars || 0} stars</div>`
@@ -750,17 +750,17 @@ const RepoGraph3D: React.FC<RepoGraph3DProps> = ({
         1000,
       );
     } else if (node.url) {
-      window.open(String(node.url).replace('github.com', 'gitlab.com'), '_blank', 'noopener,noreferrer');
+      window.open(String(node.url), '_blank', 'noopener,noreferrer');
     }
   }, [onClusterSelect]);
 
   const flowMessage = useMemo(() => {
     if (flowData && flowStatus === 'ready') {
-      return `${flowData.aggregate.openCount} open · ${flowData.aggregate.mergedCount} merged · ${flowData.aggregate.closedCount} closed MRs`;
+      return `${flowData.aggregate.openCount} open · ${flowData.aggregate.mergedCount} merged · ${flowData.aggregate.closedCount} closed PRs`;
     }
-    if (flowStatus === 'empty') return 'MR flow appears when projects are loaded';
-    if (flowStatus === 'unavailable') return 'MR flow unavailable from GitLab';
-    return 'MR flow loading live GitLab data';
+    if (flowStatus === 'empty') return 'PR flow appears when repositories are loaded';
+    if (flowStatus === 'unavailable') return 'PR flow unavailable from GitHub';
+    return 'PR flow loading live GitHub data';
   }, [flowData, flowStatus]);
 
   return (

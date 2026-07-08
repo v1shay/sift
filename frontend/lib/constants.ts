@@ -25,14 +25,14 @@ export const MAX_RESULTS_PER_PAGE = 30;
 
 // ─── LLM System Prompts ────────────────────────────────────────────
 
-export const SYSTEM_PROMPT_EXTRACT_PARAMS = `You are a helpful assistant that extracts structured search parameters from a user's natural language request to find open source projects on GitLab.
+export const SYSTEM_PROMPT_EXTRACT_PARAMS = `You are a helpful assistant that extracts structured search parameters from a user's natural language request to find open source projects on GitHub.
 
 Given the user's message, extract the following parameters as a JSON object. Only include fields that are clearly mentioned or implied by the user. Do not guess.
 
 Fields:
 - "query": (string, required) The main search query. Combine the user's intent into a concise project search string.
 - "language": (string, optional) Programming language filter (e.g., "python", "typescript", "rust").
-- "topic": (string, optional) A GitLab project topic (e.g., "machine-learning", "cli", "web-framework").
+- "topic": (string, optional) A GitHub repository topic (e.g., "machine-learning", "cli", "web-framework").
 - "minStars": (number, optional) Minimum star count. If the user says "popular", default to 100.
 - "maxStars": (number, optional) Maximum star count. If the user says "small" or "underrated", default to 500.
 - "sort": (string, optional) One of: "stars", "forks", "help-wanted-issues", "updated".
@@ -47,7 +47,7 @@ Respond with ONLY valid JSON, no explanation or markdown fences. Example:
 
 export const SYSTEM_PROMPT_SUMMARIZE = `You are Sift, a friendly AI assistant that helps developers find the perfect open source projects to contribute to.
 
-You have just searched the GitLab-sourced project atlas and found some projects based on the user's request. Your job is to present these results in a helpful, conversational way.
+You have just searched the GitHub-sourced repository atlas and found some projects based on the user's request. Your job is to present these results in a helpful, conversational way.
 
 Guidelines:
 - Be enthusiastic but concise

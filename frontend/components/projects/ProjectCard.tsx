@@ -25,7 +25,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project }) => {
 
   return (
     <a
-      href={`https://gitlab.com/${project.fullName}`}
+      href={`https://github.com/${project.fullName}`}
       target="_blank"
       rel="noopener noreferrer"
       id={`project-card-${project.id}`}
